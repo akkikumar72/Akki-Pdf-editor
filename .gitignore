@@ -9,3 +9,4 @@ docs/assets/audit-*.png
 *.tsbuildinfo
 .DS_Store
 *.local
+.vercel
