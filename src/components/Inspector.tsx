@@ -108,6 +108,16 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                 />
                 Whiteout behind text
               </label>
+              {operation.whiteout ? (
+                <label>
+                  Background
+                  <input
+                    type="color"
+                    value={operation.whiteoutColor ?? "#ffffff"}
+                    onChange={(event) => update({ whiteoutColor: event.currentTarget.value } as Partial<EditOperation>)}
+                  />
+                </label>
+              ) : null}
             </>
           ) : null}
 

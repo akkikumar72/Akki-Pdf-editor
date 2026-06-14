@@ -63,6 +63,7 @@ export type TextOperation = BaseOperation & {
   letterSpacing?: number;
   align: TextAlign;
   whiteout?: boolean;
+  whiteoutColor?: string;
 };
 
 export type WhiteoutOperation = BaseOperation & {

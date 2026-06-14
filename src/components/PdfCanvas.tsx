@@ -1,6 +1,6 @@
 import { Document, Page } from "react-pdf";
 import { ImagePlus } from "lucide-react";
-import { type MutableRefObject, useMemo, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 import type {
   EditOperation,
   EditorTool,
@@ -58,6 +58,68 @@ function pointFromEvent(event: React.PointerEvent<HTMLElement> | React.MouseEven
   };
 }
 
+function toHex(value: number) {
+  return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
+}
+
+function rgbToHex(red: number, green: number, blue: number) {
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
+function sampleTextBackgroundColor(stage: HTMLDivElement | null, viewportRect: ViewportRect) {
+  if (!stage) return undefined;
+  const canvas = stage?.querySelector(".react-pdf__Page__canvas");
+  if (!(canvas instanceof HTMLCanvasElement)) return undefined;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return undefined;
+
+  const stageBounds = stage.getBoundingClientRect();
+  const canvasBounds = canvas.getBoundingClientRect();
+  const ratioX = canvas.width / Math.max(1, canvasBounds.width);
+  const ratioY = canvas.height / Math.max(1, canvasBounds.height);
+  const cssRect = {
+    left: viewportRect.left + stageBounds.left - canvasBounds.left,
+    top: viewportRect.top + stageBounds.top - canvasBounds.top,
+    width: viewportRect.width,
+    height: viewportRect.height,
+  };
+  const padding = Math.max(2, Math.min(6, Math.min(cssRect.width, cssRect.height) * 0.18));
+  const sampleX = Math.max(0, Math.floor((cssRect.left - padding) * ratioX));
+  const sampleY = Math.max(0, Math.floor((cssRect.top - padding) * ratioY));
+  const sampleRect = {
+    x: sampleX,
+    y: sampleY,
+    width: Math.min(canvas.width - sampleX, Math.ceil((cssRect.width + padding * 2) * ratioX)),
+    height: Math.min(canvas.height - sampleY, Math.ceil((cssRect.height + padding * 2) * ratioY)),
+  };
+  if (sampleRect.width <= 0 || sampleRect.height <= 0) return undefined;
+
+  const image = context.getImageData(sampleRect.x, sampleRect.y, sampleRect.width, sampleRect.height);
+  const buckets = new Map<string, { count: number; red: number; green: number; blue: number }>();
+  const stride = Math.max(1, Math.floor(Math.min(sampleRect.width, sampleRect.height) / 14));
+  for (let y = 0; y < sampleRect.height; y += stride) {
+    for (let x = 0; x < sampleRect.width; x += stride) {
+      const offset = (y * sampleRect.width + x) * 4;
+      const alpha = image.data[offset + 3];
+      if (alpha < 250) continue;
+      const red = image.data[offset];
+      const green = image.data[offset + 1];
+      const blue = image.data[offset + 2];
+      const key = `${Math.round(red / 12)},${Math.round(green / 12)},${Math.round(blue / 12)}`;
+      const bucket = buckets.get(key) ?? { count: 0, red: 0, green: 0, blue: 0 };
+      bucket.count += 1;
+      bucket.red += red;
+      bucket.green += green;
+      bucket.blue += blue;
+      buckets.set(key, bucket);
+    }
+  }
+
+  const dominant = [...buckets.values()].sort((a, b) => b.count - a.count)[0];
+  if (!dominant) return undefined;
+  return rgbToHex(dominant.red / dominant.count, dominant.green / dominant.count, dominant.blue / dominant.count);
+}
+
 export function PdfCanvas({
   activeTool,
   document,
@@ -79,13 +141,21 @@ export function PdfCanvas({
   const pendingImagePoint = useRef<PdfPoint | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
+  const [isPageRendered, setIsPageRendered] = useState(false);
   const pageWidth = pageSize?.width ?? 612;
   const pageHeight = pageSize?.height ?? 792;
   const selectedOperation = operations.find((operation) => operation.id === selectedId);
-  const canPickExistingText = activeTool === "select" || activeTool === "text";
+  const canPickExistingText = isPageRendered && (activeTool === "select" || activeTool === "text");
   const pdfFile = useMemo(() => ({ data: document.bytes.slice() }), [document.bytes]);
 
+  useEffect(() => {
+    setIsPageRendered(false);
+  }, [document.fingerprint, pageIndex, rotation, scale]);
+
   const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem) => {
+    const sampledBackgroundColor = sourceTextItem
+      ? sampleTextBackgroundColor(stageRef.current, viewportRect)
+      : undefined;
     createOperationsForTool({
       activeTool,
       viewportRect,
@@ -95,6 +165,7 @@ export function PdfCanvas({
       operations,
       prompt: window.prompt.bind(window),
       sourceTextItem,
+      sampledBackgroundColor,
     }).forEach(onOperationAdd);
   };
 
@@ -182,6 +253,7 @@ export function PdfCanvas({
               rotate={rotation}
               renderAnnotationLayer
               renderTextLayer
+              onRenderSuccess={() => setIsPageRendered(true)}
             />
           </Document>
 

@@ -15,6 +15,7 @@ type CreateOperationInput = {
   operations: EditOperation[];
   prompt: Prompt;
   sourceTextItem?: TextItem;
+  sampledBackgroundColor?: string;
 };
 
 const DEFAULT_COLORS = {
@@ -43,6 +44,7 @@ export function createOperationsForTool({
   operations,
   prompt,
   sourceTextItem,
+  sampledBackgroundColor,
 }: CreateOperationInput): EditOperation[] {
   const rect = viewportRectToPdf(viewportRect, pageHeight, scale);
   const now = Date.now();
@@ -72,6 +74,7 @@ export function createOperationsForTool({
       fontStyle: sourceTextItem ? (italic ? "italic" : "normal") : undefined,
       align: "left",
       whiteout: Boolean(sourceTextItem),
+      whiteoutColor: sourceTextItem ? sampledBackgroundColor ?? DEFAULT_COLORS.whiteout : undefined,
       opacity: 1,
       createdAt: now,
     }];

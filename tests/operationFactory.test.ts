@@ -23,6 +23,7 @@ describe("operation factory", () => {
       operations: [],
       prompt: () => null,
       sourceTextItem: textItem,
+      sampledBackgroundColor: "#d7ecff",
     });
 
     expect(operation.type).toBe("text");
@@ -31,6 +32,7 @@ describe("operation factory", () => {
     expect(operation.bold).toBe(true);
     expect(operation.fontSize).toBe(20);
     expect(operation.whiteout).toBe(true);
+    expect(operation.whiteoutColor).toBe("#d7ecff");
   });
 
   it("creates form fields through a prompt boundary", () => {

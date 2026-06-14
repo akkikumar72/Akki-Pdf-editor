@@ -173,7 +173,7 @@ export class PdfEngine {
           y: rect.y,
           width: rect.width,
           height: rect.height,
-          color: hexToRgb(operation.type === "whiteout" ? operation.color : "#ffffff"),
+          color: hexToRgb(operation.type === "whiteout" ? operation.color : operation.whiteoutColor ?? "#ffffff"),
           opacity,
         });
       }

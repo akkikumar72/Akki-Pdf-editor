@@ -35,7 +35,7 @@ export function OperationOverlay({ operation, pageHeight, scale, selected, onPoi
           letterSpacing: operation.letterSpacing ? operation.letterSpacing * scale : undefined,
           color: operation.color,
           textAlign: operation.align,
-          background: operation.whiteout ? "#fff" : "transparent",
+          background: operation.whiteout ? operation.whiteoutColor ?? "#fff" : "transparent",
         }}
         onPointerDown={onPointerDown}
       >
