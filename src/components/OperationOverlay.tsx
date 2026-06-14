@@ -1,16 +1,32 @@
 import type { EditOperation } from "../types/editor";
 import { resolveFont } from "../engine/fontResolver";
 import { pdfRectToViewport } from "../utils/coordinates";
+import { useEffect, useRef } from "react";
 
 type OperationOverlayProps = {
   operation: EditOperation;
   pageHeight: number;
   scale: number;
   selected: boolean;
+  editing?: boolean;
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onStartTextEdit?: (id: string) => void;
+  onTextChange?: (id: string, text: string) => void;
+  onTextCommit?: () => void;
 };
 
-export function OperationOverlay({ operation, pageHeight, scale, selected, onPointerDown }: OperationOverlayProps) {
+export function OperationOverlay({
+  operation,
+  pageHeight,
+  scale,
+  selected,
+  editing,
+  onPointerDown,
+  onStartTextEdit,
+  onTextChange,
+  onTextCommit,
+}: OperationOverlayProps) {
+  const textRef = useRef<HTMLDivElement | null>(null);
   const rect = pdfRectToViewport(operation.rect, pageHeight, scale);
   const style = {
     left: rect.left,
@@ -20,12 +36,29 @@ export function OperationOverlay({ operation, pageHeight, scale, selected, onPoi
     opacity: operation.opacity ?? 1,
   };
 
-  const className = `operation operation--${operation.type} ${selected ? "is-selected" : ""}`;
+  const className = `operation operation--${operation.type} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""}`;
+
+  useEffect(() => {
+    if (!editing || operation.type !== "text" || !textRef.current) return;
+    const element = textRef.current;
+    element.focus({ preventScroll: true });
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }, [editing, operation.type]);
 
   if (operation.type === "text") {
     return (
       <div
+        ref={textRef}
         className={className}
+        contentEditable={Boolean(editing)}
+        suppressContentEditableWarning
+        role={editing ? "textbox" : undefined}
+        aria-label={editing ? "Edit text overlay" : undefined}
+        tabIndex={selected ? 0 : undefined}
         style={{
           ...style,
           fontFamily: operation.cssFontFamily ?? resolveFont(operation.fontFamily).cssFamily,
@@ -38,6 +71,25 @@ export function OperationOverlay({ operation, pageHeight, scale, selected, onPoi
           background: operation.whiteout ? operation.whiteoutColor ?? "#fff" : "transparent",
         }}
         onPointerDown={onPointerDown}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
+          onStartTextEdit?.(operation.id);
+        }}
+        onInput={(event) => {
+          if (!editing) return;
+          onTextChange?.(operation.id, event.currentTarget.textContent ?? "");
+        }}
+        onBlur={() => {
+          if (editing) onTextCommit?.();
+        }}
+        onKeyDown={(event) => {
+          if (!editing) return;
+          if (event.key === "Escape" || (event.key === "Enter" && !event.shiftKey)) {
+            event.preventDefault();
+            onTextCommit?.();
+            textRef.current?.blur();
+          }
+        }}
       >
         {operation.text}
       </div>

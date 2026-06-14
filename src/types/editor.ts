@@ -164,6 +164,7 @@ export type TextItem = {
   cssFontFamily?: string;
   fontSize?: number;
   fontWeight?: number;
+  sampledFontWeight?: number;
   italic?: boolean;
 };
 

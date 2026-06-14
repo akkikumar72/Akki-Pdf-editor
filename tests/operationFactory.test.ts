@@ -24,6 +24,7 @@ describe("operation factory", () => {
       prompt: () => null,
       sourceTextItem: textItem,
       sampledBackgroundColor: "#d7ecff",
+      sampledTextColor: "#f8fafc",
     });
 
     expect(operation.type).toBe("text");
@@ -31,8 +32,63 @@ describe("operation factory", () => {
     expect(operation.text).toBe("Invoice total");
     expect(operation.bold).toBe(true);
     expect(operation.fontSize).toBe(20);
+    expect(operation.color).toBe("#f8fafc");
     expect(operation.whiteout).toBe(true);
     expect(operation.whiteoutColor).toBe("#d7ecff");
+  });
+
+  it("uses sampled rendered weight when PDF font metadata is generic", () => {
+    const [operation] = createOperationsForTool({
+      activeTool: "select",
+      viewportRect: { left: 72, top: 72, width: 110, height: 20 },
+      pageHeight: 792,
+      pageIndex: 0,
+      scale: 1,
+      operations: [],
+      prompt: () => null,
+      sourceTextItem: {
+        ...textItem,
+        fontName: "g_d1_f1",
+        cssFontFamily: "sans-serif",
+        fontWeight: 400,
+      },
+      sampledBackgroundColor: "#ffffff",
+      sampledTextColor: "#111827",
+      sampledFontWeight: 700,
+    });
+
+    expect(operation.type).toBe("text");
+    if (operation.type !== "text") throw new Error("Expected text operation");
+    expect(operation.fontFamily).toBe("Helvetica");
+    expect(operation.bold).toBe(true);
+    expect(operation.fontWeight).toBe(700);
+  });
+
+  it("inherits nearby PDF text style for new text without covering the source line", () => {
+    const [operation] = createOperationsForTool({
+      activeTool: "text",
+      viewportRect: { left: 210, top: 72, width: 120, height: 22 },
+      pageHeight: 792,
+      pageIndex: 0,
+      scale: 1,
+      operations: [],
+      prompt: () => null,
+      inheritStyleFromTextItem: {
+        ...textItem,
+        fontName: "g_d1_f1",
+        cssFontFamily: "sans-serif",
+      },
+      sampledTextColor: "#ffffff",
+    });
+
+    expect(operation.type).toBe("text");
+    if (operation.type !== "text") throw new Error("Expected text operation");
+    expect(operation.text).toBe("New text");
+    expect(operation.fontFamily).toBe("Helvetica");
+    expect(operation.cssFontFamily?.startsWith("\"g_d1_f1\", sans-serif")).toBe(true);
+    expect(operation.color).toBe("#ffffff");
+    expect(operation.whiteout).toBe(false);
+    expect(operation.whiteoutColor).toBeUndefined();
   });
 
   it("creates form fields through a prompt boundary", () => {

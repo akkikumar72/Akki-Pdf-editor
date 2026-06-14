@@ -2,10 +2,12 @@ import {
   Cloud,
   Crop,
   FileArchive,
+  FileDown,
   FileText,
   Files,
   FolderOpen,
   FormInput,
+  Highlighter,
   Image,
   LockKeyhole,
   MousePointer2,
@@ -15,14 +17,21 @@ import {
   Signature,
   SplitSquareHorizontal,
   Table2,
+  Trash2,
   UploadCloud,
 } from "lucide-react";
 import { useRef, useState } from "react";
+import type { SessionSummary } from "../utils/storage";
+import { Button } from "./ui/button";
 
 type ToolHubProps = {
   isBusy: boolean;
+  recentSessions: SessionSummary[];
   onBlank: () => Promise<void>;
+  onClearSessions: () => Promise<void>;
+  onDeleteSession: (id: string) => Promise<void>;
   onOpen: (file: File) => Promise<void>;
+  onResume: (id: string) => Promise<void>;
 };
 
 const popularTools = [
@@ -40,7 +49,60 @@ const popularTools = [
 
 const plannedImports = ["Dropbox", "Google Drive", "OneDrive", "Web Address URL"];
 
-export function ToolHub({ isBusy, onBlank, onOpen }: ToolHubProps) {
+const workflowNotes = [
+  { label: "Inline edits", value: "Text, images, links, forms" },
+  { label: "Document output", value: "PDF, TXT, CSV, XLSX, PNG" },
+  { label: "Privacy model", value: "Local browser processing" },
+];
+
+const workflowSteps = [
+  {
+    title: "Import locally",
+    description: "Choose a PDF, drag one in, or begin with a blank page. Cloud sources are marked for a later release.",
+    icon: UploadCloud,
+  },
+  {
+    title: "Click and match",
+    description: "Select text and keep nearby font, color, size, and background so small edits stay visually quiet.",
+    icon: MousePointer2,
+  },
+  {
+    title: "Mark up the page",
+    description: "Add signatures, images, links, form marks, shapes, highlights, whiteout, and ink overlays.",
+    icon: Highlighter,
+  },
+  {
+    title: "Apply and export",
+    description: "Write changes over the original bytes, then export PDF, TXT, CSV, XLSX, or rendered PNG pages.",
+    icon: FileDown,
+  },
+];
+
+const landingProof = [
+  "Private processing in the browser",
+  "Font-aware text replacement",
+  "Inline toolbar for selected objects",
+  "Exports for documents and tables",
+];
+
+function formatRecentTime(value: number) {
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function ToolHub({
+  isBusy,
+  recentSessions,
+  onBlank,
+  onClearSessions,
+  onDeleteSession,
+  onOpen,
+  onResume,
+}: ToolHubProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -80,26 +142,39 @@ export function ToolHub({ isBusy, onBlank, onOpen }: ToolHubProps) {
             void acceptFile(event.dataTransfer.files[0]);
           }}
         >
-          <div>
+          <div className="tool-hub__story">
             <p className="tool-hub__eyebrow">Online-style PDF editor, local-first</p>
-            <h1>We help with your PDF tasks.</h1>
+            <h1>Edit PDFs without the upload step.</h1>
             <p>
-              Open a PDF, edit it in place with inline controls, sign it, add forms and annotations,
-              then apply changes and export without uploading the file.
+              Open a document, click existing text, make precise overlay edits with matched styling,
+              sign it, add forms and annotations, then export the finished copy from your browser.
             </p>
+            <div className="tool-hub__signals" aria-label="Editor highlights">
+              {workflowNotes.map((note) => (
+                <span key={note.label}>
+                  <strong>{note.label}</strong>
+                  {note.value}
+                </span>
+              ))}
+            </div>
           </div>
           <div className="tool-hub__drop">
-            <UploadCloud aria-hidden="true" />
-            <strong>Upload PDF file</strong>
+            <div className="tool-hub__drop-head">
+              <span><UploadCloud aria-hidden="true" /></span>
+              <div>
+                <strong>Start editing</strong>
+                <small>Drag a PDF here or choose a local file.</small>
+              </div>
+            </div>
             <div className="tool-hub__actions">
-              <button className="button button--primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
+              <Button variant="primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
                 <FolderOpen aria-hidden="true" />
                 Choose File
-              </button>
-              <button className="button" disabled={isBusy} onClick={() => void onBlank()}>
+              </Button>
+              <Button variant="tonal" disabled={isBusy} onClick={() => void onBlank()}>
                 <Plus aria-hidden="true" />
-                Blank document
-              </button>
+                Blank PDF
+              </Button>
             </div>
             <input
               ref={inputRef}
@@ -116,13 +191,79 @@ export function ToolHub({ isBusy, onBlank, onOpen }: ToolHubProps) {
               ))}
             </div>
             <span className="tool-hub__fineprint"><LockKeyhole aria-hidden="true" /> Password prompts and recent sessions stay in this browser.</span>
+            {recentSessions.length ? (
+              <div className="tool-hub__recent" aria-label="Recent local sessions">
+                <div className="tool-hub__recent-head">
+                  <strong>Recent local session</strong>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    title="Clear all recent local sessions"
+                    onClick={() => void onClearSessions()}
+                  >
+                    Clear all
+                  </button>
+                </div>
+                {recentSessions.slice(0, 3).map((session) => (
+                  <div className="tool-hub__recent-row" key={session.id}>
+                    <button disabled={isBusy} onClick={() => void onResume(session.id)}>
+                      <span>{session.name}</span>
+                      <small>{session.operationCount} edits · {formatRecentTime(session.updatedAt)}</small>
+                    </button>
+                    <button
+                      type="button"
+                      className="tool-hub__recent-delete"
+                      disabled={isBusy}
+                      title={`Remove ${session.name} from browser storage`}
+                      aria-label={`Remove ${session.name}`}
+                      onClick={() => void onDeleteSession(session.id)}
+                    >
+                      <Trash2 aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
+          <section className="tool-hub__workflow" aria-label="How the editor works">
+            <div className="workflow-head">
+              <span>Editor flow</span>
+              <h2>Import. Edit. Apply. Export.</h2>
+              <p>
+                A familiar PDF editor path, tuned for local files and precise overlay changes that
+                preserve the document's look.
+              </p>
+            </div>
+            <div className="workflow-steps">
+              {workflowSteps.map((step, index) => {
+                const Icon = step.icon;
+                return (
+                  <article className="workflow-step" key={step.title}>
+                    <div className="workflow-step__top">
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <Icon aria-hidden="true" />
+                    </div>
+                    <h3>{step.title}</h3>
+                    <p>{step.description}</p>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="workflow-proof" aria-label="Editor capabilities">
+              {landingProof.map((item) => (
+                <span key={item}>
+                  <ShieldCheck aria-hidden="true" />
+                  {item}
+                </span>
+              ))}
+            </div>
+          </section>
         </section>
 
         <section id="tools" className="tool-hub__tools" aria-label="PDF tool directory">
           <div className="tool-hub__section-head">
             <h2>Choose one of the PDF tools</h2>
-            <p>V1 routes active tools into the editor workbench; planned processors stay visible but disabled.</p>
+            <p>Active tools open the editor workbench; the rest are visible as the local suite grows.</p>
           </div>
           <div className="tool-grid">
             {popularTools.map((tool) => {

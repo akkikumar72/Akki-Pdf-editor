@@ -1,5 +1,5 @@
 import { Bold, ChevronDown, Copy, Italic, Link2, Move, Palette, Trash2, Type } from "lucide-react";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Select, { components, type GroupBase, type OptionProps, type SingleValue, type StylesConfig } from "react-select";
 import { FONT_CHOICES } from "../engine/fontResolver";
 import type { FontChoice } from "../engine/fontResolver";
@@ -25,6 +25,17 @@ const FontPreviewContext = createContext<((font: FontOption) => void) | undefine
 function clampToolbarLeft(left: number, pageWidth: number) {
   const maxLeft = Math.max(8, pageWidth - 560);
   return Math.min(Math.max(8, left), maxLeft);
+}
+
+function getToolbarPlacement(rect: ViewportRect, isText: boolean) {
+  const estimatedWidth = isText ? 430 : 250;
+  const left = rect.left + rect.width / 2 - estimatedWidth / 2;
+  const shouldPlaceBelow = rect.top < 58;
+  return {
+    left,
+    top: shouldPlaceBelow ? rect.top + rect.height + 10 : Math.max(8, rect.top - 48),
+    placement: shouldPlaceBelow ? "below" : "above",
+  };
 }
 
 function updateTextStyle(operation: TextOperation, patch: Partial<TextOperation>, onUpdate: FloatingOperationToolbarProps["onUpdate"]) {
@@ -72,11 +83,17 @@ function renderFontLabel(font: FontOption) {
 function FontOptionRow(props: OptionProps<FontOption, false, GroupBase<FontOption>>) {
   const previewFont = useContext(FontPreviewContext);
   const { data } = props;
+  const previewRef = useRef(previewFont);
+
+  useEffect(() => {
+    previewRef.current = previewFont;
+  }, [previewFont]);
+
   useEffect(() => {
     if (props.isFocused) {
-      previewFont?.(data);
+      previewRef.current?.(data);
     }
-  }, [data, previewFont, props.isFocused]);
+  }, [data, props.isFocused]);
 
   return (
     <components.Option {...props}>
@@ -88,8 +105,8 @@ function FontOptionRow(props: OptionProps<FontOption, false, GroupBase<FontOptio
 const fontSelectStyles: StylesConfig<FontOption, false> = {
   control: (base, state) => ({
     ...base,
-    minHeight: "2.3rem",
-    height: "2.3rem",
+    minHeight: "2.15rem",
+    height: "2.15rem",
     minWidth: "4.85rem",
     border: 0,
     borderRadius: 0,
@@ -100,7 +117,7 @@ const fontSelectStyles: StylesConfig<FontOption, false> = {
   }),
   valueContainer: (base) => ({
     ...base,
-    height: "2.3rem",
+    height: "2.15rem",
     padding: "0 0 0 0.55rem",
   }),
   singleValue: (base) => ({
@@ -161,9 +178,10 @@ export function FloatingOperationToolbar({
 }: FloatingOperationToolbarProps) {
   const [openMenu, setOpenMenu] = useState<OpenMenu>();
   const [fontInputValue, setFontInputValue] = useState("");
-  const toolbarTop = Math.max(8, rect.top - 52);
-  const toolbarLeft = clampToolbarLeft(rect.left, pageWidth * scale);
   const isText = operation.type === "text";
+  const toolbarPlacement = getToolbarPlacement(rect, isText);
+  const toolbarTop = toolbarPlacement.top;
+  const toolbarLeft = clampToolbarLeft(toolbarPlacement.left, pageWidth * scale);
   const currentFontSize = isText ? Math.round(operation.fontSize) : 14;
   const fontSizeOptions = useMemo(() => {
     if (!isText || FONT_SIZE_OPTIONS.includes(currentFontSize)) return FONT_SIZE_OPTIONS;
@@ -190,6 +208,7 @@ export function FloatingOperationToolbar({
   return (
     <div
       className={`floating-toolbar ${isText ? "floating-toolbar--text" : ""}`}
+      data-placement={toolbarPlacement.placement}
       aria-label="Inline edit tools"
       role="toolbar"
       style={{ left: toolbarLeft, top: toolbarTop }}

@@ -1,26 +1,35 @@
-/* Hallmark · pre-emit critique: P5 H4 E4 S5 R5 V4 */
-/* Hallmark · genre: modern-minimal · macrostructure: Workbench · theme: Quiet · enrichment: none · nav: app ribbon · footer: status bar */
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600&family=Space+Grotesk:wght@600;700&display=swap");
+
+/* Hallmark · pre-emit critique: P5 H4 E5 S5 R5 V5 */
+/* Hallmark · macrostructure: Bento Grid + Workbench app shell
+ * theme: custom · vibe: "clinical clarity, graphite, quiet teal" · paper: oklch(98.4% 0.006 210) · accent: oklch(45% 0.135 190)
+ * display: Space Grotesk · body: Geist · axes: light / geometric-sans / chromatic-teal
+ * studied: no · context: explicit · v1.0.0
+ */
 :root {
-  --color-paper: oklch(100% 0 0);
-  --color-paper-2: oklch(97.5% 0.002 250);
-  --color-paper-3: oklch(94.5% 0.003 250);
-  --color-surface: oklch(99% 0.001 250);
-  --color-ink: oklch(18% 0.006 250);
-  --color-ink-2: oklch(31% 0.007 250);
-  --color-muted: oklch(49% 0.008 250);
-  --color-rule: oklch(88% 0.005 250);
-  --color-rule-2: oklch(80% 0.006 250);
-  --color-accent: oklch(49% 0.16 255);
-  --color-accent-soft: oklch(94% 0.04 255);
-  --color-accent-ink: oklch(99% 0 0);
-  --color-focus: oklch(54% 0.18 255);
+  --color-paper: oklch(98.4% 0.006 210);
+  --color-paper-2: oklch(96% 0.008 210);
+  --color-paper-3: oklch(91.8% 0.01 210);
+  --color-surface: oklch(99.2% 0.004 210);
+  --color-surface-2: oklch(94.6% 0.009 210);
+  --color-ink: oklch(17.5% 0.01 225);
+  --color-ink-2: oklch(29% 0.012 225);
+  --color-muted: oklch(46.5% 0.012 220);
+  --color-rule: oklch(84.5% 0.01 210);
+  --color-rule-2: oklch(74.5% 0.012 210);
+  --color-accent: oklch(45% 0.135 190);
+  --color-accent-soft: oklch(92% 0.046 190);
+  --color-accent-wash: oklch(96.8% 0.024 190);
+  --color-accent-ink: oklch(98.4% 0.006 210);
+  --color-focus: oklch(50% 0.17 190);
   --color-error: oklch(55% 0.2 28);
   --color-success: oklch(54% 0.15 150);
   --color-warning: oklch(80% 0.16 84);
 
-  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-display: Inter, ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
+  --font-ui: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Space Grotesk", "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-wordmark: "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
+  --font-mono: "Geist Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
   --space-2xs: 0.25rem;
   --space-xs: 0.5rem;
@@ -42,9 +51,28 @@
   --radius-xs: 3px;
   --radius-sm: 5px;
   --radius-md: 8px;
-  --shadow-soft: 0 14px 34px -24px oklch(0% 0 0 / 0.45);
-  --shadow-page: 0 28px 80px -54px oklch(0% 0 0 / 0.7);
-  --shadow-popover: 0 18px 44px -28px oklch(0% 0 0 / 0.62);
+  --shadow-soft: 0 14px 34px -24px oklch(17.5% 0.01 225 / 0.38);
+  --shadow-page: 0 28px 80px -54px oklch(17.5% 0.01 225 / 0.66);
+  --shadow-popover: 0 18px 44px -28px oklch(17.5% 0.01 225 / 0.56);
+
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-paper);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-accent);
+  --primary-foreground: var(--color-accent-ink);
+  --secondary: var(--color-paper-2);
+  --secondary-foreground: var(--color-ink);
+  --muted: var(--color-paper-3);
+  --muted-foreground: var(--color-muted);
+  --accent: var(--color-accent-soft);
+  --accent-foreground: var(--color-accent);
+  --border: var(--color-rule);
+  --input: var(--color-rule-2);
+  --ring: var(--color-focus);
+  --radius: var(--radius-md);
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);

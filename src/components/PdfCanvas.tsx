@@ -66,7 +66,26 @@ function rgbToHex(red: number, green: number, blue: number) {
   return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
 }
 
-function sampleTextBackgroundColor(stage: HTMLDivElement | null, viewportRect: ViewportRect) {
+type CanvasSample = {
+  context: CanvasRenderingContext2D;
+  rect: { x: number; y: number; width: number; height: number };
+};
+
+function hexToRgb(color?: string) {
+  const match = color?.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+  if (!match) return undefined;
+  return {
+    red: Number.parseInt(match[1], 16),
+    green: Number.parseInt(match[2], 16),
+    blue: Number.parseInt(match[3], 16),
+  };
+}
+
+function colorDistance(a: { red: number; green: number; blue: number }, b: { red: number; green: number; blue: number }) {
+  return Math.hypot(a.red - b.red, a.green - b.green, a.blue - b.blue);
+}
+
+function getCanvasSample(stage: HTMLDivElement | null, viewportRect: ViewportRect, padding = 0): CanvasSample | undefined {
   if (!stage) return undefined;
   const canvas = stage?.querySelector(".react-pdf__Page__canvas");
   if (!(canvas instanceof HTMLCanvasElement)) return undefined;
@@ -83,7 +102,6 @@ function sampleTextBackgroundColor(stage: HTMLDivElement | null, viewportRect: V
     width: viewportRect.width,
     height: viewportRect.height,
   };
-  const padding = Math.max(2, Math.min(6, Math.min(cssRect.width, cssRect.height) * 0.18));
   const sampleX = Math.max(0, Math.floor((cssRect.left - padding) * ratioX));
   const sampleY = Math.max(0, Math.floor((cssRect.top - padding) * ratioY));
   const sampleRect = {
@@ -93,13 +111,20 @@ function sampleTextBackgroundColor(stage: HTMLDivElement | null, viewportRect: V
     height: Math.min(canvas.height - sampleY, Math.ceil((cssRect.height + padding * 2) * ratioY)),
   };
   if (sampleRect.width <= 0 || sampleRect.height <= 0) return undefined;
+  return { context, rect: sampleRect };
+}
 
-  const image = context.getImageData(sampleRect.x, sampleRect.y, sampleRect.width, sampleRect.height);
+function sampleTextBackgroundColor(stage: HTMLDivElement | null, viewportRect: ViewportRect) {
+  const padding = Math.max(2, Math.min(6, Math.min(viewportRect.width, viewportRect.height) * 0.18));
+  const sample = getCanvasSample(stage, viewportRect, padding);
+  if (!sample) return undefined;
+
+  const image = sample.context.getImageData(sample.rect.x, sample.rect.y, sample.rect.width, sample.rect.height);
   const buckets = new Map<string, { count: number; red: number; green: number; blue: number }>();
-  const stride = Math.max(1, Math.floor(Math.min(sampleRect.width, sampleRect.height) / 14));
-  for (let y = 0; y < sampleRect.height; y += stride) {
-    for (let x = 0; x < sampleRect.width; x += stride) {
-      const offset = (y * sampleRect.width + x) * 4;
+  const stride = Math.max(1, Math.floor(Math.min(sample.rect.width, sample.rect.height) / 14));
+  for (let y = 0; y < sample.rect.height; y += stride) {
+    for (let x = 0; x < sample.rect.width; x += stride) {
+      const offset = (y * sample.rect.width + x) * 4;
       const alpha = image.data[offset + 3];
       if (alpha < 250) continue;
       const red = image.data[offset];
@@ -118,6 +143,197 @@ function sampleTextBackgroundColor(stage: HTMLDivElement | null, viewportRect: V
   const dominant = [...buckets.values()].sort((a, b) => b.count - a.count)[0];
   if (!dominant) return undefined;
   return rgbToHex(dominant.red / dominant.count, dominant.green / dominant.count, dominant.blue / dominant.count);
+}
+
+function sampleTextColor(stage: HTMLDivElement | null, viewportRect: ViewportRect, sampledBackgroundColor?: string) {
+  const background = hexToRgb(sampledBackgroundColor);
+  if (!background) return undefined;
+  const sample = getCanvasSample(stage, viewportRect, 1);
+  if (!sample) return undefined;
+
+  const image = sample.context.getImageData(sample.rect.x, sample.rect.y, sample.rect.width, sample.rect.height);
+  const buckets = new Map<string, { count: number; red: number; green: number; blue: number }>();
+  const stride = Math.max(1, Math.floor(Math.min(sample.rect.width, sample.rect.height) / 28));
+
+  for (let y = 0; y < sample.rect.height; y += stride) {
+    for (let x = 0; x < sample.rect.width; x += stride) {
+      const offset = (y * sample.rect.width + x) * 4;
+      const alpha = image.data[offset + 3];
+      if (alpha < 220) continue;
+      const pixel = {
+        red: image.data[offset],
+        green: image.data[offset + 1],
+        blue: image.data[offset + 2],
+      };
+      const distance = colorDistance(pixel, background);
+      if (distance < 42) continue;
+      const key = `${Math.round(pixel.red / 16)},${Math.round(pixel.green / 16)},${Math.round(pixel.blue / 16)}`;
+      const bucket = buckets.get(key) ?? { count: 0, red: 0, green: 0, blue: 0 };
+      bucket.count += 1;
+      bucket.red += pixel.red;
+      bucket.green += pixel.green;
+      bucket.blue += pixel.blue;
+      buckets.set(key, bucket);
+    }
+  }
+
+  const dominant = [...buckets.values()].sort((a, b) => b.count - a.count)[0];
+  if (!dominant || dominant.count < 3) return undefined;
+  return rgbToHex(dominant.red / dominant.count, dominant.green / dominant.count, dominant.blue / dominant.count);
+}
+
+function sampleTextFontWeight(stage: HTMLDivElement | null, viewportRect: ViewportRect, sampledBackgroundColor?: string) {
+  const background = hexToRgb(sampledBackgroundColor);
+  if (!background) return undefined;
+  const sample = getCanvasSample(stage, viewportRect, 1);
+  if (!sample) return undefined;
+
+  const image = sample.context.getImageData(sample.rect.x, sample.rect.y, sample.rect.width, sample.rect.height);
+  let inkPixels = 0;
+  let opaquePixels = 0;
+  const stride = Math.max(1, Math.floor(Math.min(sample.rect.width, sample.rect.height) / 36));
+
+  for (let y = 0; y < sample.rect.height; y += stride) {
+    for (let x = 0; x < sample.rect.width; x += stride) {
+      const offset = (y * sample.rect.width + x) * 4;
+      const alpha = image.data[offset + 3];
+      if (alpha < 220) continue;
+      opaquePixels += 1;
+      const pixel = {
+        red: image.data[offset],
+        green: image.data[offset + 1],
+        blue: image.data[offset + 2],
+      };
+      if (colorDistance(pixel, background) >= 42) inkPixels += 1;
+    }
+  }
+
+  if (opaquePixels < 24) return undefined;
+  const inkCoverage = inkPixels / opaquePixels;
+  if (inkCoverage >= 0.16) return 700;
+  if (inkCoverage >= 0.105) return 600;
+  if (inkCoverage >= 0.07) return 500;
+  return 400;
+}
+
+function isGenericCssFontFamily(name?: string) {
+  return /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test((name ?? "").replace(/^["']|["']$/g, "").trim());
+}
+
+function isInternalPdfFontName(name?: string) {
+  return /^g_d\d+_f\d+$/i.test((name ?? "").trim());
+}
+
+function sameTextLine(a: TextItem, b: TextItem) {
+  const aMidY = a.rect.y + a.rect.height / 2;
+  const bMidY = b.rect.y + b.rect.height / 2;
+  const fontSize = Math.max(1, Math.min(a.fontSize ?? a.rect.height, b.fontSize ?? b.rect.height));
+  return Math.abs(aMidY - bMidY) <= Math.max(2, fontSize * 0.42);
+}
+
+function styleSpecificityScore(item: TextItem) {
+  const weightScore = item.fontWeight ?? 400;
+  const familyScore =
+    item.cssFontFamily && !isGenericCssFontFamily(item.cssFontFamily)
+      ? 90
+      : item.fontName && !isInternalPdfFontName(item.fontName)
+        ? 70
+        : 0;
+  const sizeScore = Math.round(item.fontSize ?? item.rect.height);
+  return weightScore * 10 + familyScore + sizeScore;
+}
+
+function chooseRunStyleItem(items: TextItem[]) {
+  return items.reduce((best, item) => (
+    styleSpecificityScore(item) > styleSpecificityScore(best) ? item : best
+  ), items[0]);
+}
+
+function mergeTextRun(items: TextItem[]): TextItem {
+  const sorted = [...items].sort((a, b) => a.rect.x - b.rect.x);
+  const styleItem = chooseRunStyleItem(sorted);
+  const x = Math.min(...sorted.map((item) => item.rect.x));
+  const y = Math.min(...sorted.map((item) => item.rect.y));
+  const right = Math.max(...sorted.map((item) => item.rect.x + item.rect.width));
+  const top = Math.max(...sorted.map((item) => item.rect.y + item.rect.height));
+  const text = sorted.reduce((value, item, index) => {
+    if (index === 0) return item.str;
+    const previous = sorted[index - 1];
+    const gap = item.rect.x - (previous.rect.x + previous.rect.width);
+    const fontSize = previous.fontSize ?? previous.rect.height;
+    const shouldSpace = /\w$/.test(previous.str) && /^\w/.test(item.str)
+      ? gap > -Math.max(1, fontSize * 0.08)
+      : gap > Math.max(1.5, fontSize * 0.15);
+    const space = shouldSpace ? " " : "";
+    return `${value}${space}${item.str}`;
+  }, "");
+
+  return {
+    ...styleItem,
+    str: text,
+    rect: {
+      x,
+      y,
+      width: right - x,
+      height: top - y,
+    },
+  };
+}
+
+function groupEditableTextRuns(items: TextItem[]) {
+  const sorted = [...items].sort((a, b) => {
+    const lineDelta = (b.rect.y + b.rect.height / 2) - (a.rect.y + a.rect.height / 2);
+    return Math.abs(lineDelta) > 2 ? lineDelta : a.rect.x - b.rect.x;
+  });
+  const runs: TextItem[] = [];
+  let current: TextItem[] = [];
+
+  for (const item of sorted) {
+    const previous = current[current.length - 1];
+    const fontSize = item.fontSize ?? item.rect.height;
+    const previousFontSize = previous?.fontSize ?? previous?.rect.height ?? fontSize;
+    const gap = previous ? item.rect.x - (previous.rect.x + previous.rect.width) : 0;
+    const sameLine = previous ? sameTextLine(previous, item) : true;
+    const sameScale = Math.abs(fontSize - previousFontSize) <= Math.max(1.5, Math.min(fontSize, previousFontSize) * 0.18);
+    const closeEnough = !previous || gap <= Math.max(10, Math.min(fontSize, previousFontSize) * 1.35);
+
+    if (!previous || (sameLine && sameScale && closeEnough)) {
+      current.push(item);
+      continue;
+    }
+
+    runs.push(mergeTextRun(current));
+    current = [item];
+  }
+
+  if (current.length) runs.push(mergeTextRun(current));
+  return runs;
+}
+
+function findNearbyTextRunForStyle(pointRect: ViewportRect, textRuns: TextItem[], pageHeight: number, scale: number) {
+  const pointX = pointRect.left + pointRect.width / 2;
+  const pointY = pointRect.top + pointRect.height / 2;
+  let best: { item: TextItem; score: number } | undefined;
+
+  for (const item of textRuns) {
+    const rect = pdfRectToViewport(item.rect, pageHeight, scale);
+    const lineCenterY = rect.top + rect.height / 2;
+    const yDistance = Math.abs(pointY - lineCenterY);
+    const lineTolerance = Math.max(12, rect.height * 1.5);
+    if (yDistance > lineTolerance) continue;
+
+    const xDistance = pointX < rect.left
+      ? rect.left - pointX
+      : pointX > rect.left + rect.width
+        ? pointX - (rect.left + rect.width)
+        : 0;
+    if (xDistance > Math.max(180, rect.height * 18)) continue;
+
+    const score = yDistance * 4 + xDistance;
+    if (!best || score < best.score) best = { item, score };
+  }
+
+  return best?.item;
 }
 
 export function PdfCanvas({
@@ -141,22 +357,45 @@ export function PdfCanvas({
   const pendingImagePoint = useRef<PdfPoint | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
+  const [editingTextId, setEditingTextId] = useState<string | undefined>();
   const [isPageRendered, setIsPageRendered] = useState(false);
   const pageWidth = pageSize?.width ?? 612;
   const pageHeight = pageSize?.height ?? 792;
   const selectedOperation = operations.find((operation) => operation.id === selectedId);
   const canPickExistingText = isPageRendered && (activeTool === "select" || activeTool === "text");
   const pdfFile = useMemo(() => ({ data: document.bytes.slice() }), [document.bytes]);
+  const editableTextRuns = useMemo(() => groupEditableTextRuns(textItems), [textItems]);
 
   useEffect(() => {
     setIsPageRendered(false);
+    setEditingTextId(undefined);
   }, [document.fingerprint, pageIndex, rotation, scale]);
 
+  useEffect(() => {
+    if (editingTextId && selectedId !== editingTextId) setEditingTextId(undefined);
+  }, [editingTextId, selectedId]);
+
   const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem) => {
-    const sampledBackgroundColor = sourceTextItem
-      ? sampleTextBackgroundColor(stageRef.current, viewportRect)
+    const inheritStyleFromTextItem = sourceTextItem
+      ? undefined
+      : activeTool === "text"
+        ? findNearbyTextRunForStyle(viewportRect, editableTextRuns, pageHeight, scale)
+        : undefined;
+    const styleSampleRect = sourceTextItem
+      ? viewportRect
+      : inheritStyleFromTextItem
+        ? pdfRectToViewport(inheritStyleFromTextItem.rect, pageHeight, scale)
+        : undefined;
+    const sampledBackgroundColor = styleSampleRect
+      ? sampleTextBackgroundColor(stageRef.current, styleSampleRect)
       : undefined;
-    createOperationsForTool({
+    const sampledTextColor = styleSampleRect
+      ? sampleTextColor(stageRef.current, styleSampleRect, sampledBackgroundColor)
+      : undefined;
+    const sampledFontWeight = styleSampleRect
+      ? sampleTextFontWeight(stageRef.current, styleSampleRect, sampledBackgroundColor)
+      : undefined;
+    const nextOperations = createOperationsForTool({
       activeTool,
       viewportRect,
       pageHeight,
@@ -165,8 +404,19 @@ export function PdfCanvas({
       operations,
       prompt: window.prompt.bind(window),
       sourceTextItem,
+      inheritStyleFromTextItem,
       sampledBackgroundColor,
-    }).forEach(onOperationAdd);
+      sampledTextColor,
+      sampledFontWeight,
+    });
+    nextOperations.forEach(onOperationAdd);
+    const replacementText = sourceTextItem
+      ? nextOperations.find((operation): operation is TextOperation => operation.type === "text")
+      : undefined;
+    if (replacementText) {
+      onOperationSelect(replacementText.id);
+      window.requestAnimationFrame(() => setEditingTextId(replacementText.id));
+    }
   };
 
   const addLinkForOperation = (operation: EditOperation) => {
@@ -258,7 +508,7 @@ export function PdfCanvas({
           </Document>
 
           <div className={`text-hit-layer ${canPickExistingText ? "is-active" : ""}`} aria-hidden={canPickExistingText ? undefined : true}>
-            {textItems.map((item, index) => {
+            {editableTextRuns.map((item, index) => {
               const rect = pdfRectToViewport(item.rect, pageHeight, scale);
               return (
                 <button
@@ -298,16 +548,24 @@ export function PdfCanvas({
               <OperationOverlay
                 key={operation.id}
                 operation={previewOperation(operation)}
+                editing={editingTextId === operation.id}
                 pageHeight={pageHeight}
                 scale={scale}
                 selected={operation.id === selectedId}
                 onPointerDown={(event) => {
                   event.stopPropagation();
                   onOperationSelect(operation.id);
+                  if (editingTextId === operation.id) return;
                   const point = pointFromEvent(event, stageRef.current!);
                   const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
                   setDrag({ id: operation.id, start: pdfPoint, origin: { x: operation.rect.x, y: operation.rect.y } });
                 }}
+                onStartTextEdit={(id) => {
+                  onOperationSelect(id);
+                  setEditingTextId(id);
+                }}
+                onTextChange={(id, text) => onOperationUpdate(id, { text } as Partial<EditOperation>)}
+                onTextCommit={() => setEditingTextId(undefined)}
               />
             ))}
           </div>

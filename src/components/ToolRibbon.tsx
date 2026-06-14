@@ -1,8 +1,11 @@
 import {
+  Database,
   Download,
   FileDown,
   FilePlus2,
   FileX2,
+  History,
+  Home,
   Minus,
   Plus,
   Redo2,
@@ -11,25 +14,32 @@ import {
   ScissorsLineDashed,
   Trash2,
   Undo2,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 import { TOOL_GROUPS } from "../editor/toolRegistry";
+import type { EditHistoryEntry } from "../state/editModel";
 import type { EditorTool, ExportFormat } from "../types/editor";
+import { Button } from "./ui/button";
 
 type ToolRibbonProps = {
   activeTool: EditorTool;
   canRedo: boolean;
   canUndo: boolean;
   disabled: boolean;
+  historyEntries: EditHistoryEntry[];
   scale: number;
   selectedId?: string;
   onExport: (format: ExportFormat) => void;
   onDeletePage: () => void;
+  onHome: () => void;
   onInsertPage: () => void;
   onRedo: () => void;
   onRemove: () => void;
+  onRestoreHistory: (id: string) => void;
   onRotate: () => void;
   onRotatePage: () => void;
+  onSaveLocal: () => void;
   onToolChange: (tool: EditorTool) => void;
   onUndo: () => void;
   onZoomIn: () => void;
@@ -38,6 +48,11 @@ type ToolRibbonProps = {
 
 export function ToolRibbon(props: ToolRibbonProps) {
   const [openGroup, setOpenGroup] = useState<string>();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const newestHistory = props.historyEntries[props.historyEntries.length - 1];
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | undefined>();
+  const activeHistoryId = selectedHistoryId ?? newestHistory?.id;
+  const orderedHistory = [...props.historyEntries].reverse();
 
   return (
     <div className="tool-ribbon">
@@ -49,7 +64,16 @@ export function ToolRibbon(props: ToolRibbonProps) {
         </div>
       </div>
 
-      <div className="tool-group" role="toolbar" aria-label="Editing tools">
+      <div className="tool-group tool-group--compact tool-group--document" aria-label="Document navigation">
+        <button className="icon-button" disabled={props.disabled} title="Back to home" onClick={props.onHome}>
+          <Home aria-hidden="true" />
+        </button>
+        <button className="icon-button" disabled={props.disabled} title="Save local session" onClick={props.onSaveLocal}>
+          <Database aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="tool-group tool-group--tools" role="toolbar" aria-label="Editing tools">
         {TOOL_GROUPS.map((group) => {
           const activeToolInGroup = group.tools.some((tool) => tool.id === props.activeTool);
           const primary = group.tools.find((tool) => tool.id === props.activeTool) ?? group.tools[0];
@@ -101,9 +125,20 @@ export function ToolRibbon(props: ToolRibbonProps) {
         })}
       </div>
 
-      <div className="tool-group tool-group--compact" aria-label="History and zoom">
+      <div className="tool-group tool-group--compact tool-group--utility" aria-label="History and page controls">
         <button className="icon-button" disabled={!props.canUndo || props.disabled} title="Undo" onClick={props.onUndo}>
           <Undo2 aria-hidden="true" />
+        </button>
+        <button
+          className="icon-button"
+          disabled={!props.canUndo || props.disabled}
+          title="Undo history"
+          onClick={() => {
+            setSelectedHistoryId(newestHistory?.id);
+            setHistoryOpen(true);
+          }}
+        >
+          <History aria-hidden="true" />
         </button>
         <button className="icon-button" disabled={!props.canRedo || props.disabled} title="Redo" onClick={props.onRedo}>
           <Redo2 aria-hidden="true" />
@@ -133,10 +168,10 @@ export function ToolRibbon(props: ToolRibbonProps) {
       </div>
 
       <div className="tool-group tool-group--export" aria-label="Export">
-        <button className="button button--primary" disabled={props.disabled} onClick={() => props.onExport("pdf")}>
+        <Button variant="primary" disabled={props.disabled} onClick={() => props.onExport("pdf")}>
           <Save aria-hidden="true" />
           Apply
-        </button>
+        </Button>
         <div className="export-menu">
           <Download aria-hidden="true" />
           <select
@@ -159,6 +194,64 @@ export function ToolRibbon(props: ToolRibbonProps) {
         </div>
         <FileDown aria-hidden="true" className="tool-ribbon__end-icon" />
       </div>
+
+      {historyOpen ? (
+        <div className="history-dialog__backdrop" role="presentation" onClick={() => setHistoryOpen(false)}>
+          <section
+            className="history-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="history-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="history-dialog__head">
+              <div>
+                <h2 id="history-dialog-title">Undo changes</h2>
+                <p>Restore the document to a saved edit checkpoint.</p>
+              </div>
+              <button className="icon-button" title="Close history" onClick={() => setHistoryOpen(false)}>
+                <X aria-hidden="true" />
+              </button>
+            </div>
+            <div className="history-dialog__list">
+              {orderedHistory.length ? orderedHistory.map((entry) => (
+                <label className="history-dialog__row" key={entry.id}>
+                  <input
+                    type="radio"
+                    name="history-entry"
+                    checked={activeHistoryId === entry.id}
+                    onChange={() => setSelectedHistoryId(entry.id)}
+                  />
+                  <span className="history-dialog__icon">A</span>
+                  <span className="history-dialog__meta">
+                    <strong>{entry.label}</strong>
+                    <small>{entry.operations.length} edits before this change</small>
+                  </span>
+                  <time dateTime={new Date(entry.timestamp).toISOString()}>
+                    {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </time>
+                </label>
+              )) : (
+                <p className="history-dialog__empty">No edit history yet.</p>
+              )}
+            </div>
+            <div className="history-dialog__actions">
+              <Button variant="quiet" onClick={() => setHistoryOpen(false)}>Cancel</Button>
+              <Button
+                variant="primary"
+                disabled={!activeHistoryId}
+                onClick={() => {
+                  if (!activeHistoryId) return;
+                  props.onRestoreHistory(activeHistoryId);
+                  setHistoryOpen(false);
+                }}
+              >
+                Revert selected
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, ImageDown, SlidersHorizontal } from "lucide-react";
 import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
-import { FONT_CHOICES, describeFallback } from "../engine/fontResolver";
+import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 
 type InspectorProps = {
   operation?: EditOperation;
@@ -60,8 +60,8 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                 </select>
               </label>
               <p className="helper-text">
-                {operation.detectedFontName
-                  ? `Detected ${operation.detectedFontName}; exporting with ${operation.fontFamily}`
+                {operation.detectedFontName || operation.cssFontFamily
+                  ? describeDetectedFont(operation.detectedFontName, operation.cssFontFamily, operation.fontFamily)
                   : describeFallback(operation.fontFamily)}
               </p>
               <div className="field-grid">

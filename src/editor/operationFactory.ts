@@ -15,7 +15,10 @@ type CreateOperationInput = {
   operations: EditOperation[];
   prompt: Prompt;
   sourceTextItem?: TextItem;
+  inheritStyleFromTextItem?: TextItem;
   sampledBackgroundColor?: string;
+  sampledTextColor?: string;
+  sampledFontWeight?: number;
 };
 
 const DEFAULT_COLORS = {
@@ -35,6 +38,14 @@ const FORM_KIND_BY_TOOL = {
   "form-signature": "signature",
 } as const;
 
+function estimateSingleLineTextWidth(text: string, fontSize: number, fontWeight?: number) {
+  const uppercaseCount = [...text].filter((char) => /[A-Z]/.test(char)).length;
+  const uppercaseRatio = text.length ? uppercaseCount / text.length : 0;
+  const weightFactor = (fontWeight ?? 400) >= 600 ? 1.08 : 1;
+  const averageGlyphWidth = uppercaseRatio > 0.65 ? 0.64 : 0.56;
+  return text.length * fontSize * averageGlyphWidth * weightFactor;
+}
+
 export function createOperationsForTool({
   activeTool,
   viewportRect,
@@ -44,37 +55,49 @@ export function createOperationsForTool({
   operations,
   prompt,
   sourceTextItem,
+  inheritStyleFromTextItem,
   sampledBackgroundColor,
+  sampledTextColor,
+  sampledFontWeight,
 }: CreateOperationInput): EditOperation[] {
   const rect = viewportRectToPdf(viewportRect, pageHeight, scale);
   const now = Date.now();
+  const styleTextItem = sourceTextItem ?? inheritStyleFromTextItem;
+  const isReplacement = Boolean(sourceTextItem);
 
   if (activeTool === "text" || sourceTextItem) {
-    const sourceFontDescriptor = [sourceTextItem?.cssFontFamily, sourceTextItem?.fontName].filter(Boolean).join(" ");
+    const sourceFontDescriptor = [styleTextItem?.cssFontFamily, styleTextItem?.fontName].filter(Boolean).join(" ");
     const fontChoice = resolveFont(sourceFontDescriptor);
-    const fontWeight = sourceTextItem?.fontWeight;
-    const italic = Boolean(sourceTextItem?.italic);
-    const fontSize = Math.max(1, Math.round(sourceTextItem?.fontSize ?? 14));
+    const detectedFontWeight = styleTextItem?.fontWeight ?? styleTextItem?.sampledFontWeight;
+    const fontWeight = sampledFontWeight && sampledFontWeight >= 600
+      ? Math.max(detectedFontWeight ?? 0, sampledFontWeight)
+      : detectedFontWeight;
+    const italic = Boolean(styleTextItem?.italic);
+    const fontSize = Math.max(1, Math.round(styleTextItem?.fontSize ?? 14));
+    const text = sourceTextItem?.str ?? "New text";
+    const replacementWidth = isReplacement
+      ? Math.max(rect.width, estimateSingleLineTextWidth(text, fontSize, fontWeight))
+      : Math.max(rect.width, 130);
     return [{
       id: createId("text"),
       type: "text",
       pageIndex,
-      rect: sourceTextItem
-        ? { ...rect, width: Math.max(rect.width, 16), height: Math.max(rect.height, fontSize) }
+      rect: isReplacement
+        ? { ...rect, width: Math.max(replacementWidth, 16), height: Math.max(rect.height, fontSize) }
         : { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, 28) },
-      text: sourceTextItem?.str ?? "New text",
-      fontFamily: sourceTextItem ? fontChoice.label : resolveFont().label,
-      cssFontFamily: sourceTextItem ? buildDetectedCssFontFamily(sourceTextItem.cssFontFamily, sourceTextItem.fontName) : undefined,
-      detectedFontName: sourceTextItem?.fontName,
+      text,
+      fontFamily: styleTextItem ? fontChoice.label : resolveFont().label,
+      cssFontFamily: styleTextItem ? buildDetectedCssFontFamily(styleTextItem.cssFontFamily, styleTextItem.fontName) : undefined,
+      detectedFontName: styleTextItem?.fontName,
       fontSize,
-      color: "#111827",
-      bold: sourceTextItem ? (fontWeight ?? 400) >= 600 : undefined,
-      italic: sourceTextItem ? italic : undefined,
-      fontWeight: sourceTextItem ? fontWeight : undefined,
-      fontStyle: sourceTextItem ? (italic ? "italic" : "normal") : undefined,
+      color: styleTextItem ? sampledTextColor ?? DEFAULT_COLORS.ink : DEFAULT_COLORS.ink,
+      bold: styleTextItem ? (fontWeight ?? 400) >= 600 : undefined,
+      italic: styleTextItem ? italic : undefined,
+      fontWeight: styleTextItem ? fontWeight : undefined,
+      fontStyle: styleTextItem ? (italic ? "italic" : "normal") : undefined,
       align: "left",
-      whiteout: Boolean(sourceTextItem),
-      whiteoutColor: sourceTextItem ? sampledBackgroundColor ?? DEFAULT_COLORS.whiteout : undefined,
+      whiteout: isReplacement,
+      whiteoutColor: isReplacement ? sampledBackgroundColor ?? DEFAULT_COLORS.whiteout : undefined,
       opacity: 1,
       createdAt: now,
     }];

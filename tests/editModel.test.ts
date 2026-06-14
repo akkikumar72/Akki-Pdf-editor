@@ -31,4 +31,17 @@ describe("edit reducer", () => {
     const redone = editReducer(undone, { type: "redo" });
     expect(redone.operations[0].id).toBe("text_1");
   });
+
+  it("restores a timestamped history checkpoint", () => {
+    const added = editReducer(initialEditState, { type: "add", operation });
+    const updated = editReducer(added, { type: "update", id: "text_1", patch: { text: "Hello there" } });
+    const checkpoint = updated.past[0];
+
+    expect(updated.operations[0]).toMatchObject({ type: "text", text: "Hello there" });
+    expect(checkpoint.timestamp).toBeGreaterThan(0);
+
+    const restored = editReducer(updated, { type: "restore-history", id: checkpoint.id });
+    expect(restored.operations).toHaveLength(0);
+    expect(restored.future).toHaveLength(1);
+  });
 });

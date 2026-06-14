@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { StandardFonts } from "pdf-lib";
-import { describeFallback, inferFontWeight, inferItalic, resolveFont, resolvePdfFont } from "../src/engine/fontResolver";
+import { buildDetectedCssFontFamily, describeDetectedFont, describeFallback, inferFontWeight, inferItalic, resolveFont, resolvePdfFont } from "../src/engine/fontResolver";
 
 describe("font resolver", () => {
   it("maps metric-compatible fonts to export fonts", () => {
@@ -17,5 +17,12 @@ describe("font resolver", () => {
     expect(inferFontWeight("ABCDEE+UberMoveText-Bold")).toBe(700);
     expect(inferItalic("Helvetica-Oblique")).toBe(true);
     expect(resolvePdfFont("Helvetica", { fontWeight: 700 })).toBe(StandardFonts.HelveticaBold);
+  });
+
+  it("prioritizes embedded PDF font handles before generic families", () => {
+    expect(resolveFont("sans-serif g_d1_f1").label).toBe("Helvetica");
+    expect(buildDetectedCssFontFamily("sans-serif", "g_d1_f1").startsWith("\"g_d1_f1\", sans-serif")).toBe(true);
+    expect(buildDetectedCssFontFamily("sans-serif", "g_d1_f1")).toContain("Helvetica");
+    expect(describeDetectedFont("g_d1_f1", "sans-serif", "Helvetica")).toContain("embedded PDF font");
   });
 });

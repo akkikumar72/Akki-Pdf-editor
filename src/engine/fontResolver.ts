@@ -50,6 +50,14 @@ export const FONT_CHOICES: FontChoice[] = [
 
 const DEFAULT_FONT = FONT_CHOICES.find((font) => font.label === "Inter") ?? FONT_CHOICES[0];
 
+function isGenericFontFamily(name?: string) {
+  return /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(cleanPdfFontName(name));
+}
+
+function isPdfInternalFontName(name?: string) {
+  return /^g_d\d+_f\d+$/i.test(cleanPdfFontName(name));
+}
+
 function normalizeFontName(requested?: string) {
   return cleanPdfFontName(requested).toLowerCase().replace(/[\s_-]+/g, "");
 }
@@ -82,6 +90,12 @@ export function resolveFont(requested?: string) {
   if (!requested) return DEFAULT_FONT;
   const normalized = requested.toLowerCase();
   const compact = normalizeFontName(requested);
+  if (/sansserif/.test(compact) && /gd\d+f\d+/i.test(compact)) {
+    return FONT_CHOICES.find((font) => font.label === "Helvetica") ?? DEFAULT_FONT;
+  }
+  if (compact === "sansserif") return FONT_CHOICES.find((font) => font.label === "Helvetica") ?? DEFAULT_FONT;
+  if (compact === "serif") return FONT_CHOICES.find((font) => font.label === "Times New Roman") ?? DEFAULT_FONT;
+  if (compact === "monospace") return FONT_CHOICES.find((font) => font.label === "Courier") ?? DEFAULT_FONT;
   const exact = FONT_CHOICES.find((font) => normalizeFontName(font.label) === compact);
   if (exact) return exact;
 
@@ -105,12 +119,31 @@ export function resolveFont(requested?: string) {
 }
 
 export function buildDetectedCssFontFamily(detected?: string, fallback?: string) {
-  const choice = resolveFont(fallback ?? detected);
-  const names = [cleanPdfFontName(detected), fallback ? cleanPdfFontName(fallback) : ""]
+  const choice = resolveFont([detected, fallback].filter(Boolean).join(" "));
+  const detectedName = cleanPdfFontName(detected);
+  const fallbackName = fallback ? cleanPdfFontName(fallback) : "";
+  const exactNames = [fallbackName, detectedName].filter((name) => name && !isGenericFontFamily(name));
+  const genericNames = [detectedName, fallbackName].filter((name) => name && isGenericFontFamily(name));
+  const names = [...exactNames, ...genericNames]
     .filter(Boolean)
     .filter((name, index, list) => list.indexOf(name) === index)
     .map((name) => (/^(serif|sans-serif|monospace|cursive|fantasy)$/i.test(name) ? name : `"${name.replace(/"/g, "")}"`));
   return [...names, choice.cssFamily].join(", ");
+}
+
+export function describeDetectedFont(detected?: string, cssFontFamily?: string, replacement?: string) {
+  const detectedName = cleanPdfFontName(detected);
+  const cssName = cleanPdfFontName(cssFontFamily);
+  if (detectedName && !isPdfInternalFontName(detectedName)) {
+    return `Detected ${detectedName}; exporting with ${replacement ?? resolveFont(detectedName).label}`;
+  }
+  if (cssName && !isGenericFontFamily(cssName)) {
+    return `Detected ${cssName}; exporting with ${replacement ?? resolveFont(cssName).label}`;
+  }
+  if (detectedName || cssName) {
+    return `Using embedded PDF font for editing; exporting with ${replacement ?? resolveFont(`${cssName} ${detectedName}`).label}`;
+  }
+  return describeFallback(replacement);
 }
 
 export function resolvePdfFont(fontFamily?: string, style?: { bold?: boolean; italic?: boolean; fontWeight?: number; fontStyle?: "normal" | "italic" }) {

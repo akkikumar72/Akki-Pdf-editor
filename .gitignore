@@ -5,6 +5,7 @@ playwright-report
 test-results
 pdfSameples
 docs/assets/audit-*.png
+.hallmark/
 *.tsbuildinfo
 .DS_Store
 *.local
