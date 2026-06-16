@@ -3,6 +3,8 @@
 Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and export flow. Files stay in the browser; edits are modeled as overlays until export so the original PDF bytes are preserved during the editing session.
 
 ![Akki PDF Editor workbench](docs/assets/akki-pdf-editor-workbench.png)
+<img width="2559" height="1291" alt="Screenshot 2026-06-16 at 13 01 00" src="https://github.com/user-attachments/assets/d557350a-e653-4d63-b2aa-cad848033571" />
+
 
 ## Features
 
