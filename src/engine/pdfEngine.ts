@@ -1,9 +1,89 @@
 import { PDFDocument, PDFName, PDFString, degrees, rgb } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import type { EditOperation, LoadedPdf, TextItem } from "../types/editor";
+import type { DocumentFontInfo, DocumentFonts, EditOperation, LoadedPdf, TextItem } from "../types/editor";
 import { dataUrlToBytes } from "../utils/download";
 import { sanitizeUrl } from "../utils/url";
-import { inferFontWeight, inferItalic, resolvePdfFont } from "./fontResolver";
+import { cleanPdfFontName, inferFontWeight, inferItalic, resolvePdfFont } from "./fontResolver";
+
+type PdfFontMeta = { name?: string; bold?: boolean; italic?: boolean; data?: Uint8Array; mimetype?: string };
+
+type PdfCommonObjs = {
+  has?: (id: string) => boolean;
+  get: (id: string) => { name?: unknown; bold?: unknown; italic?: unknown; data?: unknown; mimetype?: unknown } | null | undefined;
+};
+
+type FontkitFont = {
+  familyName?: string;
+  subfamilyName?: string;
+  italicAngle?: number;
+  ["OS/2"]?: { usWeightClass?: number; usWidthClass?: number; fsSelection?: number };
+  hasGlyphForCodePoint?: (codePoint: number) => boolean;
+};
+
+function toUint8Array(value: unknown): Uint8Array | undefined {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (Array.isArray(value)) return Uint8Array.from(value as number[]);
+  return undefined;
+}
+
+/**
+ * Parse the embedded font program (extracted from pdf.js) with fontkit to read the
+ * exact family, weight (OS/2.usWeightClass), italic and width-class so replacement
+ * text can match the original precisely. Falls back to name-only info when the
+ * program is missing or unsupported (Type3/bitmap fonts).
+ */
+function buildDocumentFontInfo(key: string, meta: PdfFontMeta | undefined, postScriptName: string | undefined): DocumentFontInfo {
+  const info: DocumentFontInfo = { key, postScriptName, bytes: meta?.data, mimetype: meta?.mimetype };
+  if (meta?.data && meta.data.byteLength > 0) {
+    try {
+      const font = fontkit.create(meta.data as Buffer) as unknown as FontkitFont;
+      info.familyName = typeof font.familyName === "string" ? font.familyName : undefined;
+      info.subfamilyName = typeof font.subfamilyName === "string" ? font.subfamilyName : undefined;
+      const os2 = font["OS/2"];
+      info.weight = typeof os2?.usWeightClass === "number" ? os2.usWeightClass : undefined;
+      info.widthClass = typeof os2?.usWidthClass === "number" ? os2.usWidthClass : undefined;
+      const fsItalic = typeof os2?.fsSelection === "number" ? (os2.fsSelection & 0x01) !== 0 : false;
+      info.italic = fsItalic || (typeof font.italicAngle === "number" && font.italicAngle !== 0);
+    } catch {
+      // Unsupported/Type3/bitmap program: keep name-based info and let export fall back.
+    }
+  }
+  return info;
+}
+
+/**
+ * pdf.js text items reference fonts by a subset/internal id (e.g. `g_d0_f4`) that
+ * carries no weight/style. The real PostScript name (e.g. `Roboto-Medium`) only
+ * becomes available on `page.commonObjs` after `getOperatorList()` runs. This reads
+ * that name plus the translated font's bold/italic flags so click-to-edit can match
+ * the original family + weight instead of guessing from a meaningless id.
+ */
+function readPdfFontMeta(commonObjs: PdfCommonObjs | null, fontName: string | undefined, cache: Map<string, PdfFontMeta | undefined>): PdfFontMeta | undefined {
+  if (!fontName || !commonObjs) return undefined;
+  if (cache.has(fontName)) return cache.get(fontName);
+  let meta: PdfFontMeta | undefined;
+  try {
+    const available = typeof commonObjs.has === "function" ? commonObjs.has(fontName) : true;
+    if (available) {
+      const obj = commonObjs.get(fontName);
+      if (obj) {
+        meta = {
+          name: typeof obj.name === "string" ? obj.name : undefined,
+          bold: Boolean(obj.bold),
+          italic: Boolean(obj.italic),
+          data: toUint8Array(obj.data),
+          mimetype: typeof obj.mimetype === "string" ? obj.mimetype : undefined,
+        };
+      }
+    }
+  } catch {
+    meta = undefined;
+  }
+  cache.set(fontName, meta);
+  return meta;
+}
 
 const PDF_JS_OPTIONS = {
   cMapUrl: "/pdfjs/cmaps/",
@@ -114,10 +194,13 @@ export class PdfEngine {
     return new Uint8Array(await pdf.save({ useObjectStreams: false }));
   }
 
-  async getTextContent(bytes: Uint8Array, pageIndex?: number): Promise<TextItem[]> {
+  async extractTextAndFonts(bytes: Uint8Array, pageIndex?: number): Promise<{ items: TextItem[]; fonts: DocumentFonts }> {
     const pdfjs = await this.getPdfJs();
-    const pdf = await pdfjs.getDocument({ data: bytes.slice(), ...PDF_JS_OPTIONS }).promise;
+    // fontExtraProperties exposes the embedded font program bytes (`.data`) on commonObjs,
+    // which pdf.js otherwise drops to save memory. Required to reuse the original font.
+    const pdf = await pdfjs.getDocument({ data: bytes.slice(), fontExtraProperties: true, ...PDF_JS_OPTIONS }).promise;
     const items: TextItem[] = [];
+    const fonts: DocumentFonts = {};
 
     try {
       const pageIndexes = pageIndex === undefined
@@ -128,6 +211,14 @@ export class PdfEngine {
         const page = await pdf.getPage(currentPageIndex + 1);
         const textContent = await page.getTextContent();
         const styles = textContent.styles as Record<string, Record<string, unknown>>;
+        let commonObjs: PdfCommonObjs | null = null;
+        try {
+          await page.getOperatorList();
+          commonObjs = page.commonObjs as unknown as PdfCommonObjs;
+        } catch {
+          commonObjs = null;
+        }
+        const fontMetaCache = new Map<string, PdfFontMeta | undefined>();
         for (const item of textContent.items as Array<Record<string, unknown>>) {
           if (!("str" in item) || !String(item.str).trim()) continue;
           const str = String(item.str);
@@ -135,10 +226,22 @@ export class PdfEngine {
           const x = transform[4] ?? 0;
           const y = transform[5] ?? 0;
           const fontSize = Math.hypot(transform[2], transform[3]) || Math.abs(transform[0]) || 12;
-          const fontName = typeof item.fontName === "string" ? item.fontName : undefined;
-          const style = fontName ? styles[fontName] : undefined;
+          const subsetFontName = typeof item.fontName === "string" ? item.fontName : undefined;
+          const style = subsetFontName ? styles[subsetFontName] : undefined;
           const cssFontFamily = typeof style?.fontFamily === "string" ? style.fontFamily : undefined;
+          const fontMeta = readPdfFontMeta(commonObjs, subsetFontName, fontMetaCache);
+          const realFontName = fontMeta?.name ? cleanPdfFontName(fontMeta.name) : undefined;
+          const fontName = realFontName || subsetFontName;
+          const fontKey = subsetFontName || realFontName;
+          if (fontKey && !fonts[fontKey]) {
+            fonts[fontKey] = buildDocumentFontInfo(fontKey, fontMeta, realFontName);
+          }
+          const fontInfo = fontKey ? fonts[fontKey] : undefined;
           const styleDescriptor = [fontName, cssFontFamily].filter(Boolean).join(" ");
+          const nameWeight = inferFontWeight(styleDescriptor) ?? 400;
+          // The embedded font's OS/2 weight is authoritative; the name heuristic only fills in.
+          const fontWeight = fontInfo?.weight ?? (nameWeight === 400 && fontMeta?.bold ? 700 : nameWeight);
+          const italic = Boolean(fontInfo?.italic) || inferItalic(styleDescriptor) || Boolean(fontMeta?.italic);
           items.push({
             str,
             pageIndex: currentPageIndex,
@@ -149,10 +252,11 @@ export class PdfEngine {
               height: typeof item.height === "number" ? item.height : fontSize,
             },
             fontName,
+            fontKey,
             cssFontFamily,
             fontSize,
-            fontWeight: inferFontWeight(styleDescriptor),
-            italic: inferItalic(styleDescriptor),
+            fontWeight,
+            italic,
           });
         }
       }
@@ -160,7 +264,7 @@ export class PdfEngine {
       void pdf.destroy().catch(() => undefined);
     }
 
-    return items;
+    return { items, fonts };
   }
 
   async getPageSizes(bytes: Uint8Array) {
@@ -168,10 +272,13 @@ export class PdfEngine {
     return pdf.getPages().map((page) => page.getSize());
   }
 
-  async savePdf(originalBytes: Uint8Array, operations: EditOperation[]) {
+  async savePdf(originalBytes: Uint8Array, operations: EditOperation[], fonts?: DocumentFonts) {
     const pdf = await PDFDocument.load(originalBytes);
+    pdf.registerFontkit(fontkit);
     const pages = pdf.getPages();
     const embeddedFonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>>>();
+    const reusedFonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>> | null>();
+    const fontkitByKey = new Map<string, FontkitFont | null>();
 
     const getFont = async (fontFamily?: string, style?: { bold?: boolean; italic?: boolean; fontWeight?: number; fontStyle?: "normal" | "italic" }) => {
       const key = resolvePdfFont(fontFamily, style);
@@ -179,6 +286,43 @@ export class PdfEngine {
         embeddedFonts.set(key, await pdf.embedFont(key));
       }
       return embeddedFonts.get(key)!;
+    };
+
+    // Reuse the document's actual embedded font for a true replica, but only when it
+    // contains every glyph in the replacement string (subset fonts often don't).
+    const embeddedCovers = (key: string, text: string): boolean => {
+      const info = fonts?.[key];
+      if (!info?.bytes) return false;
+      let fk = fontkitByKey.get(key);
+      if (fk === undefined) {
+        try {
+          fk = fontkit.create(info.bytes as Buffer) as unknown as FontkitFont;
+        } catch {
+          fk = null;
+        }
+        fontkitByKey.set(key, fk);
+      }
+      if (!fk || typeof fk.hasGlyphForCodePoint !== "function") return false;
+      for (const ch of text) {
+        const cp = ch.codePointAt(0);
+        if (cp !== undefined && !fk.hasGlyphForCodePoint(cp)) return false;
+      }
+      return true;
+    };
+
+    const getReusedFont = async (key: string) => {
+      if (reusedFonts.has(key)) return reusedFonts.get(key) ?? null;
+      const info = fonts?.[key];
+      let embedded: Awaited<ReturnType<typeof pdf.embedFont>> | null = null;
+      if (info?.bytes) {
+        try {
+          embedded = await pdf.embedFont(info.bytes, { subset: true });
+        } catch {
+          embedded = null;
+        }
+      }
+      reusedFonts.set(key, embedded);
+      return embedded;
     };
 
     for (const operation of operations) {
@@ -199,12 +343,18 @@ export class PdfEngine {
       }
 
       if (operation.type === "text") {
-        const font = await getFont(operation.fontFamily, {
-          bold: operation.bold,
-          italic: operation.italic,
-          fontWeight: operation.fontWeight,
-          fontStyle: operation.fontStyle,
-        });
+        let font: Awaited<ReturnType<typeof pdf.embedFont>> | null = null;
+        if (operation.embeddedFontKey && embeddedCovers(operation.embeddedFontKey, operation.text)) {
+          font = await getReusedFont(operation.embeddedFontKey);
+        }
+        if (!font) {
+          font = await getFont(operation.fontFamily, {
+            bold: operation.bold,
+            italic: operation.italic,
+            fontWeight: operation.fontWeight,
+            fontStyle: operation.fontStyle,
+          });
+        }
         const textWidth = font.widthOfTextAtSize(operation.text, operation.fontSize);
         const x = operation.align === "center"
           ? rect.x + Math.max(0, rect.width - textWidth) / 2

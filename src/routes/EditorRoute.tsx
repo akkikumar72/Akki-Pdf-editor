@@ -103,6 +103,7 @@ export function EditorRoute() {
       <PdfCanvas
         activeTool={editor.activeTool}
         document={document}
+        documentFonts={editor.documentFonts}
         onNotice={editor.setStatus}
         onOperationAdd={editor.addOperation}
         onOperationRemove={editor.removeOperation}

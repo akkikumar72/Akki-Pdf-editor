@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 import { toPng } from "html-to-image";
-import type { EditOperation, ExportFormat, TextItem } from "../types/editor";
+import type { DocumentFonts, EditOperation, ExportFormat, TextItem } from "../types/editor";
 import { downloadBlob, safeBaseName } from "../utils/download";
 import { PdfEngine, pdfEngine as defaultPdfEngine } from "./pdfEngine";
 
@@ -9,6 +9,7 @@ export type ExportContext = {
   bytes: Uint8Array;
   operations: EditOperation[];
   textItems: TextItem[];
+  fonts?: DocumentFonts;
   pageStage?: HTMLElement | null;
 };
 
@@ -19,7 +20,7 @@ export class ExportPipeline {
     const base = safeBaseName(context.filename);
     switch (format) {
       case "pdf": {
-        const bytes = await this.engine.savePdf(context.bytes, context.operations);
+        const bytes = await this.engine.savePdf(context.bytes, context.operations, context.fonts);
         downloadBlob(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), `${base}-edited.pdf`);
         return;
       }

@@ -53,6 +53,7 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                       fontFamily: event.currentTarget.value,
                       cssFontFamily: undefined,
                       detectedFontName: undefined,
+                      embeddedFontKey: undefined,
                     } as Partial<EditOperation>)}
                 >
                   {FONT_CHOICES.map((font) => (
@@ -61,9 +62,11 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                 </select>
               </label>
               <p className="helper-text">
-                {operation.detectedFontName || operation.cssFontFamily
-                  ? describeDetectedFont(operation.detectedFontName, operation.cssFontFamily, operation.fontFamily)
-                  : describeFallback(operation.fontFamily)}
+                {operation.embeddedFontKey
+                  ? `Matched the original embedded font${operation.detectedFontName ? ` (${operation.detectedFontName})` : ""}`
+                  : operation.detectedFontName || operation.cssFontFamily
+                    ? describeDetectedFont(operation.detectedFontName, operation.cssFontFamily, operation.fontFamily)
+                    : describeFallback(operation.fontFamily)}
               </p>
               <div className="field-grid">
                 <label>
