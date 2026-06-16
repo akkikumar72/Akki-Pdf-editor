@@ -54,6 +54,7 @@ export type TextOperation = BaseOperation & {
   fontFamily: string;
   cssFontFamily?: string;
   detectedFontName?: string;
+  embeddedFontKey?: string;
   fontSize: number;
   color: string;
   bold?: boolean;
@@ -161,12 +162,32 @@ export type TextItem = {
   pageIndex: number;
   rect: PdfRect;
   fontName?: string;
+  fontKey?: string;
   cssFontFamily?: string;
   fontSize?: number;
   fontWeight?: number;
   sampledFontWeight?: number;
   italic?: boolean;
 };
+
+/**
+ * One embedded font program extracted from the source PDF, keyed for reuse so the
+ * editor can render and export replacement text with the document's actual font
+ * instead of a bundled substitute. Built per-load and held in memory only.
+ */
+export type DocumentFontInfo = {
+  key: string;
+  postScriptName?: string;
+  familyName?: string;
+  subfamilyName?: string;
+  weight?: number;
+  italic?: boolean;
+  widthClass?: number;
+  bytes?: Uint8Array;
+  mimetype?: string;
+};
+
+export type DocumentFonts = Record<string, DocumentFontInfo>;
 
 export type PageRenderInfo = {
   pageIndex: number;

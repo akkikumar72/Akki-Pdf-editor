@@ -4,7 +4,7 @@ import { exportPipeline } from "../engine/exportPipeline";
 import { pdfEngine } from "../engine/pdfEngine";
 import { editReducer, getSelectedOperation, initialEditState } from "./editModel";
 import type { EditState } from "./editModel";
-import type { EditOperation, EditorTool, ExportFormat, LoadedPdf, TextItem } from "../types/editor";
+import type { DocumentFonts, EditOperation, EditorTool, ExportFormat, LoadedPdf, TextItem } from "../types/editor";
 import { validatePdfFile } from "../utils/fileValidation";
 import { clearSessions, deleteSession, getLatestSession, getSession, listSessions, saveSession } from "../utils/storage";
 import type { SavedSession, SessionSummary } from "../utils/storage";
@@ -12,6 +12,7 @@ import type { SavedSession, SessionSummary } from "../utils/storage";
 export function useEditorController() {
   const [document, setDocument] = useState<LoadedPdf | null>(null);
   const [textItems, setTextItems] = useState<TextItem[]>([]);
+  const [documentFonts, setDocumentFonts] = useState<DocumentFonts>({});
   const [pageSizes, setPageSizes] = useState<Array<{ width: number; height: number }>>([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [scale, setScale] = useState(1.18);
@@ -33,12 +34,13 @@ export function useEditorController() {
     loaded: LoadedPdf,
     savedEditState?: Partial<Pick<EditState, "operations" | "past" | "future">>,
   ) => {
-    const [items, sizes] = await Promise.all([
-      pdfEngine.getTextContent(loaded.bytes),
+    const [content, sizes] = await Promise.all([
+      pdfEngine.extractTextAndFonts(loaded.bytes),
       pdfEngine.getPageSizes(loaded.bytes),
     ]);
     setDocument(loaded);
-    setTextItems(items);
+    setTextItems(content.items);
+    setDocumentFonts(content.fonts);
     setPageSizes(sizes);
     dispatch({
       type: "reset",
@@ -218,6 +220,7 @@ export function useEditorController() {
     await saveCurrentSession(true).catch(() => undefined);
     setDocument(null);
     setTextItems([]);
+    setDocumentFonts({});
     setPageSizes([]);
     setPageIndex(0);
     setRotation(0);
@@ -344,6 +347,7 @@ export function useEditorController() {
   return {
     document,
     textItems,
+    documentFonts,
     pageSizes,
     pageIndex,
     scale,
