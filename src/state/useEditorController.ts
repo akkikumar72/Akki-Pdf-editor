@@ -334,6 +334,7 @@ export function useEditorController() {
         bytes: document.bytes,
         operations: editState.operations,
         textItems,
+        fonts: documentFonts,
         pageStage: pageStageRef.current,
       });
       setStatus(`${format.toUpperCase()} exported`);
@@ -342,7 +343,7 @@ export function useEditorController() {
     } finally {
       setIsBusy(false);
     }
-  }, [document, editState.operations, textItems]);
+  }, [document, documentFonts, editState.operations, textItems]);
 
   return {
     document,

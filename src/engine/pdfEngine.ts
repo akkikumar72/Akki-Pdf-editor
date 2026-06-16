@@ -18,6 +18,7 @@ type FontkitFont = {
   subfamilyName?: string;
   italicAngle?: number;
   ["OS/2"]?: { usWeightClass?: number; usWidthClass?: number; fsSelection?: number };
+  hasGlyphForCodePoint?: (codePoint: number) => boolean;
 };
 
 function toUint8Array(value: unknown): Uint8Array | undefined {
@@ -271,10 +272,13 @@ export class PdfEngine {
     return pdf.getPages().map((page) => page.getSize());
   }
 
-  async savePdf(originalBytes: Uint8Array, operations: EditOperation[]) {
+  async savePdf(originalBytes: Uint8Array, operations: EditOperation[], fonts?: DocumentFonts) {
     const pdf = await PDFDocument.load(originalBytes);
+    pdf.registerFontkit(fontkit);
     const pages = pdf.getPages();
     const embeddedFonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>>>();
+    const reusedFonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>> | null>();
+    const fontkitByKey = new Map<string, FontkitFont | null>();
 
     const getFont = async (fontFamily?: string, style?: { bold?: boolean; italic?: boolean; fontWeight?: number; fontStyle?: "normal" | "italic" }) => {
       const key = resolvePdfFont(fontFamily, style);
@@ -282,6 +286,43 @@ export class PdfEngine {
         embeddedFonts.set(key, await pdf.embedFont(key));
       }
       return embeddedFonts.get(key)!;
+    };
+
+    // Reuse the document's actual embedded font for a true replica, but only when it
+    // contains every glyph in the replacement string (subset fonts often don't).
+    const embeddedCovers = (key: string, text: string): boolean => {
+      const info = fonts?.[key];
+      if (!info?.bytes) return false;
+      let fk = fontkitByKey.get(key);
+      if (fk === undefined) {
+        try {
+          fk = fontkit.create(info.bytes as Buffer) as unknown as FontkitFont;
+        } catch {
+          fk = null;
+        }
+        fontkitByKey.set(key, fk);
+      }
+      if (!fk || typeof fk.hasGlyphForCodePoint !== "function") return false;
+      for (const ch of text) {
+        const cp = ch.codePointAt(0);
+        if (cp !== undefined && !fk.hasGlyphForCodePoint(cp)) return false;
+      }
+      return true;
+    };
+
+    const getReusedFont = async (key: string) => {
+      if (reusedFonts.has(key)) return reusedFonts.get(key) ?? null;
+      const info = fonts?.[key];
+      let embedded: Awaited<ReturnType<typeof pdf.embedFont>> | null = null;
+      if (info?.bytes) {
+        try {
+          embedded = await pdf.embedFont(info.bytes, { subset: true });
+        } catch {
+          embedded = null;
+        }
+      }
+      reusedFonts.set(key, embedded);
+      return embedded;
     };
 
     for (const operation of operations) {
@@ -302,12 +343,18 @@ export class PdfEngine {
       }
 
       if (operation.type === "text") {
-        const font = await getFont(operation.fontFamily, {
-          bold: operation.bold,
-          italic: operation.italic,
-          fontWeight: operation.fontWeight,
-          fontStyle: operation.fontStyle,
-        });
+        let font: Awaited<ReturnType<typeof pdf.embedFont>> | null = null;
+        if (operation.embeddedFontKey && embeddedCovers(operation.embeddedFontKey, operation.text)) {
+          font = await getReusedFont(operation.embeddedFontKey);
+        }
+        if (!font) {
+          font = await getFont(operation.fontFamily, {
+            bold: operation.bold,
+            italic: operation.italic,
+            fontWeight: operation.fontWeight,
+            fontStyle: operation.fontStyle,
+          });
+        }
         const textWidth = font.widthOfTextAtSize(operation.text, operation.fontSize);
         const x = operation.align === "center"
           ? rect.x + Math.max(0, rect.width - textWidth) / 2
