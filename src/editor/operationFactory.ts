@@ -70,9 +70,15 @@ export function createOperationsForTool({
     const sourceFontDescriptor = [styleTextItem?.cssFontFamily, styleTextItem?.fontName].filter(Boolean).join(" ");
     const fontChoice = resolveFont(sourceFontDescriptor);
     const detectedFontWeight = styleTextItem?.fontWeight ?? styleTextItem?.sampledFontWeight;
-    const fontWeight = sampledFontWeight && sampledFontWeight >= 600
-      ? Math.max(detectedFontWeight ?? 0, sampledFontWeight)
-      : detectedFontWeight;
+    // When we recovered the real embedded font name (e.g. "UberMove-Bold"), its weight is
+    // authoritative; the canvas ink-coverage heuristic only fills in when the PDF exposes a
+    // meaningless subset id (g_d0_f4) and would otherwise false-bold small/anti-aliased text.
+    const hasReliableFontName = Boolean(styleTextItem?.fontName && !/^g_d\d+_f\d+$/i.test(styleTextItem.fontName));
+    const fontWeight = hasReliableFontName
+      ? detectedFontWeight
+      : sampledFontWeight && sampledFontWeight >= 600
+        ? Math.max(detectedFontWeight ?? 0, sampledFontWeight)
+        : detectedFontWeight;
     const italic = Boolean(styleTextItem?.italic);
     const fontSize = Math.max(1, Math.round(styleTextItem?.fontSize ?? 14));
     const text = sourceTextItem?.str ?? "New text";

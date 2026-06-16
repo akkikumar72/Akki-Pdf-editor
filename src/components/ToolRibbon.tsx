@@ -229,7 +229,6 @@ export function ToolRibbon(props: ToolRibbonProps) {
                     checked={activeHistoryId === entry.id}
                     onChange={() => setSelectedHistoryId(entry.id)}
                   />
-                  <span className="history-dialog__icon">A</span>
                   <span className="history-dialog__meta">
                     <strong>{entry.label}</strong>
                     <small>{entry.operations.length} edits before this change</small>
@@ -243,9 +242,10 @@ export function ToolRibbon(props: ToolRibbonProps) {
               )}
             </div>
             <div className="history-dialog__actions">
-              <Button variant="quiet" onClick={() => setHistoryOpen(false)}>Cancel</Button>
+              <Button variant="quiet" size="sm" onClick={() => setHistoryOpen(false)}>Cancel</Button>
               <Button
                 variant="primary"
+                size="sm"
                 disabled={!activeHistoryId}
                 onClick={() => {
                   if (!activeHistoryId) return;

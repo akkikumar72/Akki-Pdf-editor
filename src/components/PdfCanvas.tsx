@@ -18,6 +18,7 @@ import { createId } from "../utils/ids";
 import { sanitizeUrl } from "../utils/url";
 import { FloatingOperationToolbar } from "./FloatingOperationToolbar";
 import { OperationOverlay } from "./OperationOverlay";
+import { ResizeHandles, type ResizeHandle } from "./ResizeHandles";
 
 type PdfCanvasProps = {
   activeTool: EditorTool;
@@ -43,6 +44,22 @@ type DragState = {
   start: PdfPoint;
   origin: PdfPoint;
 };
+
+type ResizeState = {
+  id: string;
+  handle: ResizeHandle;
+  startPointer: { x: number; y: number };
+  startRect: ViewportRect;
+};
+
+const MIN_RESIZE_PX = 8;
+
+function isResizableOperation(operation: EditOperation) {
+  if (operation.type === "shape") return operation.kind === "rectangle" || operation.kind === "ellipse";
+  if (operation.type === "annotation") return operation.kind === "highlight" || operation.kind === "note";
+  if (operation.type === "ink" || operation.type === "link" || operation.type === "form-mark") return false;
+  return true;
+}
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -360,6 +377,7 @@ export function PdfCanvas({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePoint = useRef<PdfPoint | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [resize, setResize] = useState<ResizeState | null>(null);
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
   const [isPageRendered, setIsPageRendered] = useState(false);
@@ -515,6 +533,33 @@ export function PdfCanvas({
             void addAt({ left: point.x, top: point.y, width: 160, height: 42 });
           }}
           onPointerMove={(event) => {
+            if (resize && stageRef.current) {
+              const point = pointFromEvent(event, stageRef.current);
+              const dx = point.x - resize.startPointer.x;
+              const dy = point.y - resize.startPointer.y;
+              let { left, top, width, height } = resize.startRect;
+              if (resize.handle.includes("e")) width = resize.startRect.width + dx;
+              if (resize.handle.includes("s")) height = resize.startRect.height + dy;
+              if (resize.handle.includes("w")) {
+                left = resize.startRect.left + dx;
+                width = resize.startRect.width - dx;
+              }
+              if (resize.handle.includes("n")) {
+                top = resize.startRect.top + dy;
+                height = resize.startRect.height - dy;
+              }
+              if (width < MIN_RESIZE_PX) {
+                if (resize.handle.includes("w")) left = resize.startRect.left + resize.startRect.width - MIN_RESIZE_PX;
+                width = MIN_RESIZE_PX;
+              }
+              if (height < MIN_RESIZE_PX) {
+                if (resize.handle.includes("n")) top = resize.startRect.top + resize.startRect.height - MIN_RESIZE_PX;
+                height = MIN_RESIZE_PX;
+              }
+              const rect = clampRect(viewportRectToPdf({ left, top, width, height }, pageHeight, scale), pageWidth, pageHeight);
+              onOperationUpdate(resize.id, { rect } as Partial<EditOperation>);
+              return;
+            }
             if (!drag || !stageRef.current) return;
             const point = pointFromEvent(event, stageRef.current);
             const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
@@ -531,9 +576,18 @@ export function PdfCanvas({
             );
             onOperationUpdate(drag.id, { rect } as Partial<EditOperation>);
           }}
-          onPointerUp={() => setDrag(null)}
-          onPointerCancel={() => setDrag(null)}
-          onLostPointerCapture={() => setDrag(null)}
+          onPointerUp={() => {
+            setDrag(null);
+            setResize(null);
+          }}
+          onPointerCancel={() => {
+            setDrag(null);
+            setResize(null);
+          }}
+          onLostPointerCapture={() => {
+            setDrag(null);
+            setResize(null);
+          }}
         >
           <Document
             file={pdfFile}
@@ -585,6 +639,26 @@ export function PdfCanvas({
                 onLink={addLinkForOperation}
                 onTextPreview={(id, patch) => setTextPreview(patch ? { id, patch } : null)}
                 onUpdate={onOperationUpdate}
+              />
+            ) : null}
+            {selectedOperation && editingTextId !== selectedOperation.id && isResizableOperation(selectedOperation) ? (
+              <ResizeHandles
+                rect={pdfRectToViewport(selectedOperation.rect, pageHeight, scale)}
+                onResizeStart={(handle, event) => {
+                  if (!stageRef.current) return;
+                  try {
+                    stageRef.current.setPointerCapture(event.pointerId);
+                  } catch {
+                    // setPointerCapture can throw for non-active pointer ids; capture is an enhancement, not required.
+                  }
+                  const point = pointFromEvent(event, stageRef.current);
+                  setResize({
+                    id: selectedOperation.id,
+                    handle,
+                    startPointer: point,
+                    startRect: pdfRectToViewport(selectedOperation.rect, pageHeight, scale),
+                  });
+                }}
               />
             ) : null}
             {operations.map((operation) => (

@@ -3,7 +3,44 @@ import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { EditOperation, LoadedPdf, TextItem } from "../types/editor";
 import { dataUrlToBytes } from "../utils/download";
 import { sanitizeUrl } from "../utils/url";
-import { inferFontWeight, inferItalic, resolvePdfFont } from "./fontResolver";
+import { cleanPdfFontName, inferFontWeight, inferItalic, resolvePdfFont } from "./fontResolver";
+
+type PdfFontMeta = { name?: string; bold?: boolean; italic?: boolean };
+
+type PdfCommonObjs = {
+  has?: (id: string) => boolean;
+  get: (id: string) => { name?: unknown; bold?: unknown; italic?: unknown } | null | undefined;
+};
+
+/**
+ * pdf.js text items reference fonts by a subset/internal id (e.g. `g_d0_f4`) that
+ * carries no weight/style. The real PostScript name (e.g. `Roboto-Medium`) only
+ * becomes available on `page.commonObjs` after `getOperatorList()` runs. This reads
+ * that name plus the translated font's bold/italic flags so click-to-edit can match
+ * the original family + weight instead of guessing from a meaningless id.
+ */
+function readPdfFontMeta(commonObjs: PdfCommonObjs | null, fontName: string | undefined, cache: Map<string, PdfFontMeta | undefined>): PdfFontMeta | undefined {
+  if (!fontName || !commonObjs) return undefined;
+  if (cache.has(fontName)) return cache.get(fontName);
+  let meta: PdfFontMeta | undefined;
+  try {
+    const available = typeof commonObjs.has === "function" ? commonObjs.has(fontName) : true;
+    if (available) {
+      const obj = commonObjs.get(fontName);
+      if (obj) {
+        meta = {
+          name: typeof obj.name === "string" ? obj.name : undefined,
+          bold: Boolean(obj.bold),
+          italic: Boolean(obj.italic),
+        };
+      }
+    }
+  } catch {
+    meta = undefined;
+  }
+  cache.set(fontName, meta);
+  return meta;
+}
 
 const PDF_JS_OPTIONS = {
   cMapUrl: "/pdfjs/cmaps/",
@@ -128,6 +165,14 @@ export class PdfEngine {
         const page = await pdf.getPage(currentPageIndex + 1);
         const textContent = await page.getTextContent();
         const styles = textContent.styles as Record<string, Record<string, unknown>>;
+        let commonObjs: PdfCommonObjs | null = null;
+        try {
+          await page.getOperatorList();
+          commonObjs = page.commonObjs as unknown as PdfCommonObjs;
+        } catch {
+          commonObjs = null;
+        }
+        const fontMetaCache = new Map<string, PdfFontMeta | undefined>();
         for (const item of textContent.items as Array<Record<string, unknown>>) {
           if (!("str" in item) || !String(item.str).trim()) continue;
           const str = String(item.str);
@@ -135,10 +180,16 @@ export class PdfEngine {
           const x = transform[4] ?? 0;
           const y = transform[5] ?? 0;
           const fontSize = Math.hypot(transform[2], transform[3]) || Math.abs(transform[0]) || 12;
-          const fontName = typeof item.fontName === "string" ? item.fontName : undefined;
-          const style = fontName ? styles[fontName] : undefined;
+          const subsetFontName = typeof item.fontName === "string" ? item.fontName : undefined;
+          const style = subsetFontName ? styles[subsetFontName] : undefined;
           const cssFontFamily = typeof style?.fontFamily === "string" ? style.fontFamily : undefined;
+          const fontMeta = readPdfFontMeta(commonObjs, subsetFontName, fontMetaCache);
+          const realFontName = fontMeta?.name ? cleanPdfFontName(fontMeta.name) : undefined;
+          const fontName = realFontName || subsetFontName;
           const styleDescriptor = [fontName, cssFontFamily].filter(Boolean).join(" ");
+          const nameWeight = inferFontWeight(styleDescriptor) ?? 400;
+          const fontWeight = nameWeight === 400 && fontMeta?.bold ? 700 : nameWeight;
+          const italic = inferItalic(styleDescriptor) || Boolean(fontMeta?.italic);
           items.push({
             str,
             pageIndex: currentPageIndex,
@@ -151,8 +202,8 @@ export class PdfEngine {
             fontName,
             cssFontFamily,
             fontSize,
-            fontWeight: inferFontWeight(styleDescriptor),
-            italic: inferItalic(styleDescriptor),
+            fontWeight,
+            italic,
           });
         }
       }
