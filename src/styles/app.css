@@ -1690,7 +1690,6 @@ select:disabled {
   cursor: text;
   caret-color: var(--color-accent);
   user-select: text;
-  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 18%, transparent);
 }
 
 .operation--text.is-editing:focus {

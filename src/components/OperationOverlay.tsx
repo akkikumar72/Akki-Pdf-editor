@@ -56,8 +56,11 @@ export function OperationOverlay({
     if (!editing || operation.type !== "text" || !textRef.current) return;
     const element = textRef.current;
     element.focus({ preventScroll: true });
+    // Place a collapsed caret at the start ("cursor on the left") instead of
+    // selecting all, so editing reads like typing directly into the document.
     const range = document.createRange();
     range.selectNodeContents(element);
+    range.collapse(true);
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
