@@ -87,12 +87,18 @@ export function ToolRibbon(props: ToolRibbonProps) {
                 disabled={props.disabled}
                 title={primary.description}
                 onClick={() => {
+                  // Clicking the already-active tool toggles it back to the neutral Select tool.
+                  if (activeToolInGroup && group.primary !== "select") {
+                    props.onToolChange("select");
+                    setOpenGroup(undefined);
+                    return;
+                  }
                   if (group.tools.length === 1) {
                     props.onToolChange(group.primary);
                     setOpenGroup(undefined);
                     return;
                   }
-                  if (!activeToolInGroup) props.onToolChange(group.primary);
+                  props.onToolChange(group.primary);
                   setOpenGroup((value) => value === group.id ? undefined : group.id);
                 }}
               >

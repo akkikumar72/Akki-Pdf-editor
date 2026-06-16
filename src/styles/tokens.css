@@ -30,6 +30,13 @@
   --color-success: oklch(54% 0.15 150);
   --color-warning: oklch(80% 0.16 84);
 
+  /* Tactile button surface (Bubble-style: bright face, solid darker base edge, soft olive ghost border) */
+  --color-btn-face: oklch(80% 0.16 150);
+  --color-btn-edge: oklch(70% 0.18 150);
+  --color-btn-cast: oklch(70% 0.18 150 / 0.42);
+  --color-btn-ink: oklch(20% 0.012 250);
+  --color-btn-ghost-border: oklch(79% 0.084 115);
+
   --font-ui: "Plus Jakarta Sans", Geist, Inter, ui-sans-serif, system-ui, sans-serif;
   --font-display: "Plus Jakarta Sans", Geist, Inter, ui-sans-serif, system-ui, sans-serif;
   --font-wordmark: "Geist Mono", ui-monospace, "SFMono-Regular", monospace;

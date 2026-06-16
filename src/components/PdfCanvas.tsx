@@ -379,6 +379,20 @@ export function PdfCanvas({
     if (editingTextId && selectedId !== editingTextId) setEditingTextId(undefined);
   }, [editingTextId, selectedId]);
 
+  useEffect(() => {
+    if (!selectedId) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (editingTextId) return;
+      const active = window.document.activeElement as HTMLElement | null;
+      if (active && (active.isContentEditable || /^(input|textarea|select)$/i.test(active.tagName))) return;
+      event.preventDefault();
+      onOperationRemove(selectedId);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedId, editingTextId, onOperationRemove]);
+
   const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem) => {
     const inheritStyleFromTextItem = sourceTextItem
       ? undefined
@@ -475,12 +489,21 @@ export function PdfCanvas({
             width: pageWidth * scale,
             minHeight: pageHeight * scale,
           }}
+          onPointerDown={(event) => {
+            // Deselect only when pressing empty page area, so selecting an overlay
+            // never gets cleared by a follow-up click (keeps its toolbar persistent).
+            const target = event.target as HTMLElement;
+            const isEmptyArea = target === event.currentTarget || target.classList.contains("react-pdf__Page__canvas");
+            if (isEmptyArea && activeTool === "select") {
+              onOperationSelect(undefined);
+            }
+          }}
           onClick={(event) => {
             if (event.target !== event.currentTarget && !(event.target as HTMLElement).classList.contains("react-pdf__Page__canvas")) {
               return;
             }
             if (activeTool === "select") {
-              onOperationSelect(undefined);
+              // Selection/deselection is handled on pointer down for empty area.
               return;
             }
             if (activeTool === "image") {

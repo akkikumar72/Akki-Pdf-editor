@@ -307,14 +307,26 @@ select:disabled {
 }
 
 .button {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  min-height: 2.5rem;
-  padding: 0 var(--space-sm);
-  font-weight: 650;
+  min-height: 2.6rem;
+  padding: 0 var(--space-lg);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
   white-space: nowrap;
+  box-shadow: none;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
 .button--sm {
@@ -329,20 +341,36 @@ select:disabled {
 }
 
 .button--primary {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  box-shadow: 0 10px 22px -18px var(--color-accent);
+  border-color: transparent;
+  background: var(--color-btn-face);
+  color: var(--color-btn-ink);
+  box-shadow: 0 4px 0 0 var(--color-btn-edge), 0 6px 12px -3px var(--color-btn-cast);
 }
 
 .button--quiet {
+  border-color: transparent;
   background: transparent;
+  color: var(--color-btn-edge);
+  box-shadow: none;
 }
 
 .button--tonal {
-  border-color: color-mix(in oklch, var(--color-accent) 34%, var(--color-rule));
-  background: var(--color-accent-wash);
-  color: var(--color-accent);
+  border: 1.5px solid var(--color-btn-ghost-border);
+  background: transparent;
+  color: var(--color-btn-edge);
+  box-shadow: none;
+}
+
+.button--tonal::before,
+.button--quiet::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--color-btn-face);
+  transform: scaleY(0);
+  transform-origin: bottom;
+  transition: transform var(--dur-base) var(--ease-out);
 }
 
 .export-menu {
@@ -355,8 +383,14 @@ select:disabled {
 
 .export-menu select {
   min-width: 5.2rem;
+  appearance: none;
+  -webkit-appearance: none;
   border: 0;
-  background: transparent;
+  padding-right: 1.2rem;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236a7763' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
   color: inherit;
 }
 
@@ -377,12 +411,24 @@ select:disabled {
   }
 
   .button--primary:hover {
-    background: color-mix(in oklch, var(--color-accent) 88%, var(--color-ink));
-    border-color: color-mix(in oklch, var(--color-accent) 88%, var(--color-ink));
+    background: var(--color-btn-face);
+    border-color: transparent;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 0 0 var(--color-btn-edge), 0 12px 22px -4px var(--color-btn-cast);
   }
 
-  .button--tonal:hover {
-    background: var(--color-accent-soft);
+  .button--tonal:hover,
+  .button--quiet:hover {
+    color: var(--color-btn-ink);
+    border-color: var(--color-btn-face);
+    background: transparent;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 0 0 var(--color-btn-edge), 0 12px 22px -4px var(--color-btn-cast);
+  }
+
+  .button--tonal:hover::before,
+  .button--quiet:hover::before {
+    transform: scaleY(1);
   }
 }
 
@@ -391,6 +437,13 @@ select:disabled {
 .button:active,
 .thumbnail-button:active {
   transform: translateY(1px);
+}
+
+.button--primary:active,
+.button--tonal:active,
+.button--quiet:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 0 var(--color-btn-edge), 0 2px 6px -2px var(--color-btn-cast);
 }
 
 .tool-menu {
@@ -1820,19 +1873,27 @@ select:disabled {
 .field-stack select,
 .field-stack textarea {
   width: 100%;
-  min-height: 2.5rem;
+  min-height: 2.6rem;
   border: var(--rule-hair) solid var(--color-rule-2);
-  border-radius: var(--radius-sm);
-  background: var(--color-paper);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
   color: var(--color-ink);
-  outline: 2px solid transparent;
-  outline-offset: 1px;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .field-stack input:not([type="range"], [type="color"]),
-.field-stack select,
 .field-stack textarea {
-  padding: 0 var(--space-xs);
+  padding: 0 var(--space-sm);
+}
+
+.field-stack select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 2.1rem 0 var(--space-sm);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236a7763' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-xs) center;
 }
 
 .field-stack textarea {
@@ -1841,10 +1902,17 @@ select:disabled {
   resize: vertical;
 }
 
+.field-stack input:hover:not(:disabled),
+.field-stack select:hover:not(:disabled),
+.field-stack textarea:hover:not(:disabled) {
+  border-color: color-mix(in oklch, var(--color-accent) 50%, var(--color-rule-2));
+}
+
 .field-stack input:focus-visible,
 .field-stack select:focus-visible,
 .field-stack textarea:focus-visible {
-  outline-color: var(--color-focus);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-cast);
 }
 
 .field-grid {
@@ -2256,7 +2324,7 @@ select:disabled {
   background: var(--color-ink);
   color: var(--color-paper);
   box-shadow: 0 0.75rem 2rem -1.25rem color-mix(in oklch, var(--color-ink) 44%, transparent);
-  font-weight: 800;
+  font-weight: 600;
   transition:
     transform var(--dur-base) var(--ease-out),
     background-color var(--dur-base) var(--ease-out);
@@ -3264,59 +3332,58 @@ select:disabled {
   min-height: 3.65rem;
   padding-inline: 1.55rem;
   border-radius: 999px;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: 0;
 }
 
 .pdf-landing .button--primary,
 .pdf-landing .lumen-nav__cta {
-  border-radius: 999px;
-  border-color: var(--color-accent-edge);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
+  border-radius: var(--radius-pill);
+  border-color: transparent;
+  background: var(--color-btn-face);
+  color: var(--color-btn-ink);
   box-shadow:
-    0 0.18rem 0 var(--color-accent-edge),
-    0 0.85rem 1.45rem -0.95rem var(--color-accent-cast);
+    0 4px 0 0 var(--color-btn-edge),
+    0 6px 12px -3px var(--color-btn-cast);
 }
 
 .pdf-landing .button--tonal,
 .pdf-landing .button--quiet {
-  border: 1.5px solid color-mix(in oklch, var(--color-accent-edge) 48%, var(--color-rule));
+  border: 1.5px solid var(--color-btn-ghost-border);
   background: transparent;
-  color: var(--color-accent-edge);
+  color: var(--color-btn-edge);
   box-shadow: none;
 }
 
 .pdf-landing .button--primary:hover,
 .pdf-landing .lumen-nav__cta:hover {
-  background: color-mix(in oklch, var(--color-accent) 92%, var(--color-surface));
-  border-color: var(--color-accent-edge);
-  transform: translateY(-1px);
+  background: var(--color-btn-face);
+  border-color: transparent;
+  transform: translateY(-2px);
   box-shadow:
-    0 0.22rem 0 var(--color-accent-edge),
-    0 1rem 1.65rem -1rem var(--color-accent-cast);
+    0 6px 0 0 var(--color-btn-edge),
+    0 12px 22px -4px var(--color-btn-cast);
 }
 
 .pdf-landing .button--tonal:hover,
 .pdf-landing .button--quiet:hover {
-  border-color: var(--color-accent-edge);
-  background: color-mix(in oklch, var(--color-accent) 7%, transparent);
-  color: var(--color-accent-edge);
-  transform: translateY(-1px);
+  border-color: var(--color-btn-face);
+  background: transparent;
+  color: var(--color-btn-ink);
+  transform: translateY(-2px);
+  box-shadow:
+    0 6px 0 0 var(--color-btn-edge),
+    0 12px 22px -4px var(--color-btn-cast);
 }
 
 .pdf-landing .button--primary:active,
-.pdf-landing .lumen-nav__cta:active {
-  transform: translateY(1px);
-  box-shadow:
-    0 0.08rem 0 var(--color-accent-edge),
-    0 0.45rem 1rem -0.85rem var(--color-accent-cast);
-}
-
+.pdf-landing .lumen-nav__cta:active,
 .pdf-landing .button--tonal:active,
 .pdf-landing .button--quiet:active {
-  transform: translateY(1px);
-  box-shadow: none;
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 0 var(--color-btn-edge),
+    0 2px 6px -2px var(--color-btn-cast);
 }
 
 .pdf-landing__actions--inside {
