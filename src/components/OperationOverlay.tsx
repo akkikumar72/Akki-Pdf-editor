@@ -1,5 +1,6 @@
-import type { EditOperation } from "../types/editor";
+import type { DocumentFonts, EditOperation } from "../types/editor";
 import { resolveFont } from "../engine/fontResolver";
+import { cssFamilyForFontKey, registerEmbeddedFont } from "../engine/fontRegistry";
 import { pdfRectToViewport } from "../utils/coordinates";
 import { useEffect, useRef } from "react";
 
@@ -13,6 +14,7 @@ type OperationOverlayProps = {
   scale: number;
   selected: boolean;
   editing?: boolean;
+  documentFonts?: DocumentFonts;
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onStartTextEdit?: (id: string) => void;
   onTextChange?: (id: string, text: string) => void;
@@ -25,6 +27,7 @@ export function OperationOverlay({
   scale,
   selected,
   editing,
+  documentFonts,
   onPointerDown,
   onStartTextEdit,
   onTextChange,
@@ -32,6 +35,13 @@ export function OperationOverlay({
 }: OperationOverlayProps) {
   const textRef = useRef<HTMLDivElement | null>(null);
   const rect = pdfRectToViewport(operation.rect, pageHeight, scale);
+  const embeddedFontKey = operation.type === "text" ? operation.embeddedFontKey : undefined;
+  const embeddedFontBytes = embeddedFontKey ? documentFonts?.[embeddedFontKey]?.bytes : undefined;
+  const embeddedFamily = embeddedFontKey && embeddedFontBytes ? cssFamilyForFontKey(embeddedFontKey) : undefined;
+
+  useEffect(() => {
+    if (embeddedFontKey && embeddedFontBytes) registerEmbeddedFont(embeddedFontKey, embeddedFontBytes);
+  }, [embeddedFontKey, embeddedFontBytes]);
   const style = {
     left: rect.left,
     top: rect.top,
@@ -65,7 +75,10 @@ export function OperationOverlay({
         tabIndex={selected ? 0 : undefined}
         style={{
           ...style,
-          fontFamily: operation.cssFontFamily ?? resolveFont(operation.fontFamily).cssFamily,
+          fontFamily: [
+            embeddedFamily ? `"${embeddedFamily}"` : null,
+            operation.cssFontFamily ?? resolveFont(operation.fontFamily).cssFamily,
+          ].filter(Boolean).join(", "),
           fontSize: operation.fontSize * scale,
           fontWeight: operation.fontWeight ?? (operation.bold ? 700 : 400),
           fontStyle: operation.fontStyle ?? (operation.italic ? "italic" : "normal"),

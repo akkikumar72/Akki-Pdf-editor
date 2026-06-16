@@ -53,6 +53,7 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                       fontFamily: event.currentTarget.value,
                       cssFontFamily: undefined,
                       detectedFontName: undefined,
+                      embeddedFontKey: undefined,
                     } as Partial<EditOperation>)}
                 >
                   {FONT_CHOICES.map((font) => (

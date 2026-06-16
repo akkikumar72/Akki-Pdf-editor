@@ -2,6 +2,7 @@ import { Document, Page } from "react-pdf";
 import { ImagePlus } from "lucide-react";
 import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  DocumentFonts,
   EditOperation,
   EditorTool,
   LoadedPdf,
@@ -11,6 +12,7 @@ import type {
   ViewportRect,
 } from "../types/editor";
 import { createOperationsForTool } from "../editor/operationFactory";
+import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
 import { validateImageFile } from "../utils/fileValidation";
@@ -23,6 +25,7 @@ import { ResizeHandles, type ResizeHandle } from "./ResizeHandles";
 type PdfCanvasProps = {
   activeTool: EditorTool;
   document: LoadedPdf;
+  documentFonts?: DocumentFonts;
   operations: EditOperation[];
   pageIndex: number;
   pageSize?: { width: number; height: number };
@@ -359,6 +362,7 @@ function findNearbyTextRunForStyle(pointRect: ViewportRect, textRuns: TextItem[]
 export function PdfCanvas({
   activeTool,
   document,
+  documentFonts,
   operations,
   pageIndex,
   pageSize,
@@ -410,6 +414,11 @@ export function PdfCanvas({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedId, editingTextId, onOperationRemove]);
+
+  useEffect(() => {
+    if (!documentFonts) return;
+    for (const info of Object.values(documentFonts)) registerEmbeddedFont(info.key, info.bytes);
+  }, [documentFonts]);
 
   const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem) => {
     const inheritStyleFromTextItem = sourceTextItem
@@ -666,6 +675,7 @@ export function PdfCanvas({
                 key={operation.id}
                 operation={previewOperation(operation)}
                 editing={editingTextId === operation.id}
+                documentFonts={documentFonts}
                 pageHeight={pageHeight}
                 scale={scale}
                 selected={operation.id === selectedId}

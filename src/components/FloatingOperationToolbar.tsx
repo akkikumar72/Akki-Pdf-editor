@@ -49,6 +49,7 @@ function fontPreviewPatch(font: FontOption): Partial<TextOperation> {
     fontFamily: font.label,
     cssFontFamily: undefined,
     detectedFontName: undefined,
+    embeddedFontKey: undefined,
   };
 }
 
@@ -229,6 +230,7 @@ export function FloatingOperationToolbar({
                 {
                   bold: !operation.bold,
                   fontWeight: operation.bold ? 400 : 700,
+                  embeddedFontKey: undefined,
                 },
                 onUpdate,
               )}
@@ -247,6 +249,7 @@ export function FloatingOperationToolbar({
                 {
                   italic: !operation.italic,
                   fontStyle: operation.italic ? "normal" : "italic",
+                  embeddedFontKey: undefined,
                 },
                 onUpdate,
               )}
@@ -330,6 +333,7 @@ export function FloatingOperationToolbar({
                       fontFamily: value.label,
                       cssFontFamily: undefined,
                       detectedFontName: undefined,
+                      embeddedFontKey: undefined,
                     },
                     onUpdate,
                   );

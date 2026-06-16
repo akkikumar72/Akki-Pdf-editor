@@ -96,6 +96,7 @@ export function createOperationsForTool({
       fontFamily: styleTextItem ? fontChoice.label : resolveFont().label,
       cssFontFamily: styleTextItem ? buildDetectedCssFontFamily(styleTextItem.cssFontFamily, styleTextItem.fontName) : undefined,
       detectedFontName: styleTextItem?.fontName,
+      embeddedFontKey: styleTextItem?.fontKey,
       fontSize,
       color: styleTextItem ? sampledTextColor ?? DEFAULT_COLORS.ink : DEFAULT_COLORS.ink,
       bold: styleTextItem ? (fontWeight ?? 400) >= 600 : undefined,

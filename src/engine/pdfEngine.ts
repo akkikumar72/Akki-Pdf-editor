@@ -195,7 +195,9 @@ export class PdfEngine {
 
   async extractTextAndFonts(bytes: Uint8Array, pageIndex?: number): Promise<{ items: TextItem[]; fonts: DocumentFonts }> {
     const pdfjs = await this.getPdfJs();
-    const pdf = await pdfjs.getDocument({ data: bytes.slice(), ...PDF_JS_OPTIONS }).promise;
+    // fontExtraProperties exposes the embedded font program bytes (`.data`) on commonObjs,
+    // which pdf.js otherwise drops to save memory. Required to reuse the original font.
+    const pdf = await pdfjs.getDocument({ data: bytes.slice(), fontExtraProperties: true, ...PDF_JS_OPTIONS }).promise;
     const items: TextItem[] = [];
     const fonts: DocumentFonts = {};
 
