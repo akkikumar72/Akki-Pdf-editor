@@ -1663,10 +1663,11 @@ select:disabled {
 }
 
 .operation--text {
-  align-items: start;
+  align-items: center;
   padding: 0;
-  line-height: 1;
+  line-height: 1.15;
   white-space: pre;
+  overflow: visible;
 }
 
 .operation--text.is-editing {
