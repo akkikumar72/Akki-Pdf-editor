@@ -3,6 +3,10 @@ import { resolveFont } from "../engine/fontResolver";
 import { pdfRectToViewport } from "../utils/coordinates";
 import { useEffect, useRef } from "react";
 
+function safeImageSrc(src: string | undefined): string | undefined {
+  return src && /^data:image\/(png|jpeg|jpg);base64,/i.test(src) ? src : undefined;
+}
+
 type OperationOverlayProps = {
   operation: EditOperation;
   pageHeight: number;
@@ -107,7 +111,8 @@ export function OperationOverlay({
   }
 
   if (operation.type === "image") {
-    return <div className={className} style={style} onPointerDown={onPointerDown}><img src={operation.dataUrl} alt="" /></div>;
+    const src = safeImageSrc(operation.dataUrl);
+    return <div className={className} style={style} onPointerDown={onPointerDown}>{src ? <img src={src} alt="" /> : null}</div>;
   }
 
   if (operation.type === "signature") {
@@ -121,7 +126,7 @@ export function OperationOverlay({
         }}
         onPointerDown={onPointerDown}
       >
-        {operation.mode === "image" ? <img src={operation.value} alt="Signature" /> : operation.value}
+        {operation.mode === "image" ? (safeImageSrc(operation.value) ? <img src={safeImageSrc(operation.value)} alt="Signature" /> : null) : operation.value}
       </div>
     );
   }

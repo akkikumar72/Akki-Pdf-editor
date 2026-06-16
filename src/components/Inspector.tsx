@@ -1,6 +1,7 @@
 import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, ImageDown, SlidersHorizontal } from "lucide-react";
 import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
+import { sanitizeUrl } from "../utils/url";
 
 type InspectorProps = {
   operation?: EditOperation;
@@ -73,7 +74,12 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                     max={96}
                     step={1}
                     value={Math.round(operation.fontSize)}
-                    onChange={(event) => update({ fontSize: Math.round(Number(event.currentTarget.value)) } as Partial<EditOperation>)}
+                    onChange={(event) => {
+                      const parsed = Number(event.currentTarget.value);
+                      if (!Number.isFinite(parsed)) return;
+                      const clamped = Math.min(96, Math.max(6, Math.round(parsed)));
+                      update({ fontSize: clamped } as Partial<EditOperation>);
+                    }}
                   />
                 </label>
                 <label>
@@ -151,7 +157,14 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
           {operation.type === "link" ? (
             <label>
               URL
-              <input value={operation.href} onChange={(event) => update({ href: event.currentTarget.value } as Partial<EditOperation>)} />
+              <input
+                value={operation.href}
+                onChange={(event) => update({ href: event.currentTarget.value } as Partial<EditOperation>)}
+                onBlur={(event) => {
+                  const safe = sanitizeUrl(event.currentTarget.value);
+                  if (safe) update({ href: safe } as Partial<EditOperation>);
+                }}
+              />
             </label>
           ) : null}
         </div>

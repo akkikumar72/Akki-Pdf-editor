@@ -1,17 +1,16 @@
 import {
-  Database,
+  ArrowLeft,
   Download,
   FileDown,
+  FilePenLine,
   FilePlus2,
   FileX2,
   History,
-  Home,
   Minus,
   Plus,
   Redo2,
   RotateCw,
   Save,
-  ScissorsLineDashed,
   Trash2,
   Undo2,
   X,
@@ -39,7 +38,6 @@ type ToolRibbonProps = {
   onRestoreHistory: (id: string) => void;
   onRotate: () => void;
   onRotatePage: () => void;
-  onSaveLocal: () => void;
   onToolChange: (tool: EditorTool) => void;
   onUndo: () => void;
   onZoomIn: () => void;
@@ -57,7 +55,7 @@ export function ToolRibbon(props: ToolRibbonProps) {
   return (
     <div className="tool-ribbon">
       <div className="tool-ribbon__brand">
-        <ScissorsLineDashed aria-hidden="true" />
+        <FilePenLine aria-hidden="true" />
         <div>
           <strong>Akki PDF</strong>
           <span>Local editor</span>
@@ -65,11 +63,14 @@ export function ToolRibbon(props: ToolRibbonProps) {
       </div>
 
       <div className="tool-group tool-group--compact tool-group--document" aria-label="Document navigation">
-        <button className="icon-button" disabled={props.disabled} title="Back to home" onClick={props.onHome}>
-          <Home aria-hidden="true" />
-        </button>
-        <button className="icon-button" disabled={props.disabled} title="Save local session" onClick={props.onSaveLocal}>
-          <Database aria-hidden="true" />
+        <button
+          className="icon-button"
+          aria-label="Back to home"
+          disabled={props.disabled}
+          title="Back to home"
+          onClick={props.onHome}
+        >
+          <ArrowLeft aria-hidden="true" />
         </button>
       </div>
 
@@ -86,12 +87,18 @@ export function ToolRibbon(props: ToolRibbonProps) {
                 disabled={props.disabled}
                 title={primary.description}
                 onClick={() => {
+                  // Clicking the already-active tool toggles it back to the neutral Select tool.
+                  if (activeToolInGroup && group.primary !== "select") {
+                    props.onToolChange("select");
+                    setOpenGroup(undefined);
+                    return;
+                  }
                   if (group.tools.length === 1) {
                     props.onToolChange(group.primary);
                     setOpenGroup(undefined);
                     return;
                   }
-                  if (!activeToolInGroup) props.onToolChange(group.primary);
+                  props.onToolChange(group.primary);
                   setOpenGroup((value) => value === group.id ? undefined : group.id);
                 }}
               >

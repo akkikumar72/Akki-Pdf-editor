@@ -18,12 +18,15 @@ Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and ex
 - React + Vite + TypeScript
 - PDF rendering: `react-pdf` / PDF.js
 - PDF writing: `pdf-lib` + `@pdf-lib/fontkit`
-- Spreadsheet export: SheetJS `xlsx`
+- Spreadsheet export: minimal OOXML writer built with `fflate` (no SheetJS dependency)
 - UI icons: `lucide-react`
 - Font picker: `react-select`
 - Tests: Vitest + Playwright
+- Lint/format: ESLint + Prettier
 
 ## Run Locally
+
+This project uses **npm** (Node 20+). Do not mix package managers.
 
 ```bash
 npm install
@@ -35,10 +38,19 @@ Open [http://localhost:5173](http://localhost:5173).
 ## Test And Build
 
 ```bash
+npm run typecheck
+npm run lint
 npm run test
 npm run build
 npm run e2e
 ```
+
+## Deploy
+
+Deployed as a static SPA on Vercel. `vercel.json` sets the build command (`npm run build`),
+output directory (`dist`), security headers (including a Content-Security-Policy tuned for
+the PDF.js worker/WASM), and long-lived caching for the copied `/pdfjs/*` assets. The Node
+version is pinned via `.nvmrc` / the `engines` field.
 
 ## Project Shape
 

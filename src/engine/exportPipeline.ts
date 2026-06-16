@@ -17,33 +17,40 @@ export class ExportPipeline {
 
   async export(format: ExportFormat, context: ExportContext) {
     const base = safeBaseName(context.filename);
-    if (format === "pdf") {
-      const bytes = await this.engine.savePdf(context.bytes, context.operations);
-      downloadBlob(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), `${base}-edited.pdf`);
-      return;
-    }
-    if (format === "txt") {
-      downloadBlob(new Blob([this.toText(context.textItems)], { type: "text/plain;charset=utf-8" }), `${base}.txt`);
-      return;
-    }
-    if (format === "csv") {
-      downloadBlob(new Blob([this.toCsv(context.textItems, context.operations)], { type: "text/csv;charset=utf-8" }), `${base}.csv`);
-      return;
-    }
-    if (format === "xlsx") {
-      downloadBlob(
-        new Blob([this.toXlsxBytes(context.textItems, context.operations)], {
-          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        }),
-        `${base}.xlsx`,
-      );
-      return;
-    }
-    if (format === "png") {
-      if (!context.pageStage) throw new Error("No rendered page is available for PNG export.");
-      const dataUrl = await toPng(context.pageStage, { cacheBust: true, pixelRatio: 2 });
-      const response = await fetch(dataUrl);
-      downloadBlob(await response.blob(), `${base}-page.png`);
+    switch (format) {
+      case "pdf": {
+        const bytes = await this.engine.savePdf(context.bytes, context.operations);
+        downloadBlob(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), `${base}-edited.pdf`);
+        return;
+      }
+      case "txt": {
+        downloadBlob(new Blob([this.toText(context.textItems)], { type: "text/plain;charset=utf-8" }), `${base}.txt`);
+        return;
+      }
+      case "csv": {
+        downloadBlob(new Blob([this.toCsv(context.textItems, context.operations)], { type: "text/csv;charset=utf-8" }), `${base}.csv`);
+        return;
+      }
+      case "xlsx": {
+        downloadBlob(
+          new Blob([this.toXlsxBytes(context.textItems, context.operations)], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          }),
+          `${base}.xlsx`,
+        );
+        return;
+      }
+      case "png": {
+        if (!context.pageStage) throw new Error("No rendered page is available for PNG export.");
+        const dataUrl = await toPng(context.pageStage, { cacheBust: true, pixelRatio: 2 });
+        const response = await fetch(dataUrl);
+        downloadBlob(await response.blob(), `${base}-page.png`);
+        return;
+      }
+      default: {
+        const exhaustive: never = format;
+        throw new Error(`Unsupported export format: ${String(exhaustive)}`);
+      }
     }
   }
 
@@ -55,7 +62,9 @@ export class ExportPipeline {
 
   toCsv(textItems: TextItem[], operations: EditOperation[]) {
     const rows = this.tableRows(textItems, operations);
-    return rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
+    return rows
+      .map((row) => row.map((cell) => `"${neutralizeFormula(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
   }
 
   toXlsxBytes(textItems: TextItem[], operations: EditOperation[]) {
@@ -97,6 +106,15 @@ export class ExportPipeline {
 
 export const exportPipeline = new ExportPipeline();
 
+/**
+ * Neutralize spreadsheet formula injection (CSV/XLSX). Cells whose first
+ * character can start a formula (`= + - @`) or a control char (tab/CR) are
+ * prefixed with a single quote so Excel/Calc treat them as literal text.
+ */
+function neutralizeFormula(cell: string) {
+  return /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
+}
+
 function xmlEscape(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -121,7 +139,7 @@ function createWorkbookZip(rows: string[][]) {
   const sheetRows = rows.map((row, rowIndex) => {
     const cells = row.map((cell, columnIndex) => {
       const ref = `${columnName(columnIndex)}${rowIndex + 1}`;
-      return `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(cell)}</t></is></c>`;
+      return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(neutralizeFormula(cell))}</t></is></c>`;
     }).join("");
     return `<row r="${rowIndex + 1}">${cells}</row>`;
   }).join("");

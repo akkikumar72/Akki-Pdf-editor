@@ -1,0 +1,62 @@
+# AGENTS.md
+
+Repo-specific guidance for AI agents and contributors working on Akki PDF Editor.
+
+## What this is
+
+A local-first, fully client-side PDF editor (no backend). Imported PDFs stay in the
+browser; edits are modeled as overlay operations and only written into PDF bytes on export.
+
+## Stack & commands
+
+- React 18 + Vite + TypeScript (strict). Package manager: **npm only** (Node 20+). Never
+  add `yarn.lock`/`pnpm-lock.yaml` — a single `package-lock.json` is the source of truth.
+- Install: `npm install` (use `npm ci --ignore-scripts` in CI).
+- Quality gates (all must pass before merge/deploy):
+  - `npm run typecheck` — `tsc -b`, exit 0
+  - `npm run lint` — ESLint flat config, exit 0
+  - `npm run test` — Vitest unit suite
+  - `npm run build` — `tsc -b && vite build`
+  - `npm run e2e` — Playwright (needs a Chromium install)
+
+## Architecture / layer map
+
+- `src/engine/` — PDF loading, page sizing, text extraction, writing/export, font
+  resolution. The boundary that hides `pdf-lib` and PDF.js. UI must not reach past it.
+- `src/state/` — `editModel.ts` reducer: operations, selection, undo/redo. The reducer's
+  `default` branch is exhaustive (`never`) — adding an `EditAction` variant must be handled.
+- `src/editor/` — operation factories, page operations, selection behavior, tool registry.
+- `src/components/` — workbench UI (tool hub, ribbon, canvas, rail, inspector, status bar,
+  inline toolbar).
+- `src/utils/` — shared helpers (`coordinates`, `download`, `url`, `fileValidation`, `ids`,
+  `storage`).
+- `src/styles/` — `tokens.css` + `app.css` design system (Plus Jakarta Sans).
+
+## Conventions & invariants
+
+- The operation set (`EditOperation` union in `src/types/editor.ts`) is dispatched in
+  lockstep across the factory, overlay renderer, PDF writer, and inspector. Adding an
+  operation type means touching all four.
+- Security (enforced; keep it that way):
+  - Link URLs go through `sanitizeUrl` (`src/utils/url.ts`) at create, edit, and export.
+    Only `http`/`https`/`mailto` survive; `javascript:`/`data:` are rejected.
+  - Imported files are validated by size + magic bytes (`src/utils/fileValidation.ts`)
+    before parsing.
+  - CSV/XLSX cells starting with `= + - @` are formula-neutralized in `exportPipeline.ts`.
+  - `<img>` overlays only render `data:image/(png|jpeg)` sources.
+- PDF.js documents opened in `pdfEngine` are destroyed in a `finally` block.
+
+## Static assets / deploy
+
+- PDF.js `cmaps`, `standard_fonts`, and `wasm` are copied to `dist/pdfjs/` by
+  `vite-plugin-static-copy` and referenced as root-absolute `/pdfjs/*` URLs. A root-domain
+  Vercel deploy serves them correctly; a subpath deploy would require a `base` change.
+- `vercel.json` defines build/output, the CSP (must keep `worker-src 'self' blob:` and
+  `script-src 'wasm-unsafe-eval'` for PDF.js), and `/pdfjs/*` caching.
+- No runtime environment variables are required. The only optional one is
+  `PLAYWRIGHT_CHROME_EXECUTABLE_PATH` for e2e.
+
+## Plans
+
+Implementation plans live in `plans/` with an index at `plans/README.md`. Read it before
+starting larger work and update the status table when a plan lands.

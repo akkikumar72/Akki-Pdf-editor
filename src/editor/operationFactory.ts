@@ -2,6 +2,7 @@ import { buildDetectedCssFontFamily, resolveFont } from "../engine/fontResolver"
 import type { EditOperation, EditorTool, TextItem, ViewportRect } from "../types/editor";
 import { viewportRectToPdf } from "../utils/coordinates";
 import { createId } from "../utils/ids";
+import { sanitizeUrl } from "../utils/url";
 import { toolLabel } from "./toolRegistry";
 
 type Prompt = (message: string, defaultValue?: string) => string | null;
@@ -195,12 +196,14 @@ export function createOperationsForTool({
   if (activeTool === "link") {
     const href = prompt("Link URL", "https://");
     if (!href) return [];
+    const safeHref = sanitizeUrl(href);
+    if (!safeHref) return [];
     return [{
       id: createId("link"),
       type: "link",
       pageIndex,
       rect: { ...rect, width: Math.max(rect.width, 160), height: Math.max(rect.height, 28) },
-      href,
+      href: safeHref,
       opacity: 1,
       createdAt: now,
     }];
