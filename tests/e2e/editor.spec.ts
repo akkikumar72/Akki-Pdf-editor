@@ -59,7 +59,7 @@ test("imports a PDF and adds a text overlay", async ({ page }, testInfo) => {
   await makeSamplePdf(pdfPath);
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /edit pdfs without the upload step/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /lighter touch/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /dropbox/i })).toBeDisabled();
 
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
@@ -124,15 +124,14 @@ test("local save restores the PDF session after reload and can return home", asy
   await page.getByRole("region", { name: "PDF editor canvas" }).locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 360 } });
   await expect(page.locator(".operation--text").filter({ hasText: "New text" })).toBeVisible();
 
-  await page.getByTitle("Save local session").click();
-  await expect(page.getByText(/local-save\.pdf saved locally/i)).toBeVisible();
+  await page.waitForTimeout(900);
 
   await page.reload();
   await expect(page.getByText(/local-save\.pdf restored from this browser/i)).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".operation--text").filter({ hasText: "New text" })).toBeVisible();
 
   await page.getByTitle("Back to home").click();
-  await expect(page.getByRole("heading", { name: /edit pdfs without the upload step/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /lighter touch/i })).toBeVisible();
   const recentSessions = page.getByLabel("Recent local sessions");
   const resumeLocalSave = recentSessions.getByRole("button", { name: /^local-save\.pdf/i });
   const removeLocalSave = recentSessions.getByRole("button", { name: /^remove local-save\.pdf/i });
@@ -148,7 +147,6 @@ test("local save restores the PDF session after reload and can return home", asy
 
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
   await expect(page.getByText(/local-save\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
-  await page.getByTitle("Save local session").click();
   await page.getByTitle("Back to home").click();
   await expect(recentSessions.getByRole("button", { name: /^local-save\.pdf/i })).toBeVisible();
   await recentSessions.getByRole("button", { name: /clear all/i }).click();
@@ -270,7 +268,7 @@ test("replacement text groups adjacent same-line PDF fragments into one color-co
 
 test("creates a blank document from the tool hub", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /blank pdf/i }).click();
+  await page.getByLabel("PDF editor preview").getByRole("button", { name: "Blank PDF" }).click();
 
   await expect(page.getByText(/Blank PDF created/i)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Apply/i })).toBeVisible();

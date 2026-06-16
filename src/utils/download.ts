@@ -11,8 +11,16 @@ export function downloadBlob(blob: Blob, filename: string) {
 }
 
 export function dataUrlToBytes(dataUrl: string) {
-  const [, base64 = ""] = dataUrl.split(",");
-  const binary = atob(base64);
+  const [header = "", base64 = ""] = dataUrl.split(",");
+  if (!/^data:/i.test(header) || !base64) {
+    throw new Error("Malformed data URL: expected a base64 data: payload.");
+  }
+  let binary: string;
+  try {
+    binary = atob(base64);
+  } catch {
+    throw new Error("Malformed data URL: invalid base64 payload.");
+  }
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);

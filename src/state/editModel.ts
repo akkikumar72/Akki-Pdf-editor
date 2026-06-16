@@ -151,8 +151,11 @@ export function editReducer(state: EditState, action: EditAction): EditState {
         past: action.past ?? [],
         future: action.future ?? [],
       };
-    default:
+    default: {
+      const exhaustive: never = action;
+      void exhaustive;
       return state;
+    }
   }
 }
 

@@ -12,8 +12,10 @@ import type {
 } from "../types/editor";
 import { createOperationsForTool } from "../editor/operationFactory";
 import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
-import { pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
+import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
+import { validateImageFile } from "../utils/fileValidation";
 import { createId } from "../utils/ids";
+import { sanitizeUrl } from "../utils/url";
 import { FloatingOperationToolbar } from "./FloatingOperationToolbar";
 import { OperationOverlay } from "./OperationOverlay";
 
@@ -29,6 +31,7 @@ type PdfCanvasProps = {
   stageRef: MutableRefObject<HTMLDivElement | null>;
   textItems: TextItem[];
   onDocumentLoad?: (proxy: unknown) => void;
+  onNotice?: (message: string) => void;
   onOperationAdd: (operation: EditOperation) => void;
   onOperationRemove: (id: string) => void;
   onOperationSelect: (id?: string) => void;
@@ -348,6 +351,7 @@ export function PdfCanvas({
   stageRef,
   textItems,
   onDocumentLoad,
+  onNotice,
   onOperationAdd,
   onOperationRemove,
   onOperationSelect,
@@ -423,18 +427,28 @@ export function PdfCanvas({
     if (operation.type === "link") {
       const href = window.prompt("Link URL", operation.href);
       if (!href) return;
-      onOperationUpdate(operation.id, { href } as Partial<EditOperation>);
+      const safeHref = sanitizeUrl(href);
+      if (!safeHref) {
+        onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
+        return;
+      }
+      onOperationUpdate(operation.id, { href: safeHref } as Partial<EditOperation>);
       return;
     }
 
     const href = window.prompt("Link URL", "https://");
     if (!href) return;
+    const safeHref = sanitizeUrl(href);
+    if (!safeHref) {
+      onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
+      return;
+    }
     onOperationAdd({
       id: createId("link"),
       type: "link",
       pageIndex: operation.pageIndex,
       rect: { ...operation.rect },
-      href,
+      href: safeHref,
       opacity: 1,
       createdAt: Date.now(),
     });
@@ -481,16 +495,22 @@ export function PdfCanvas({
             if (!drag || !stageRef.current) return;
             const point = pointFromEvent(event, stageRef.current);
             const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
-            onOperationUpdate(drag.id, {
-              rect: {
+            const dragged = operations.find((operation) => operation.id === drag.id);
+            const rect = clampRect(
+              {
                 x: drag.origin.x + (pdfPoint.x - drag.start.x),
                 y: drag.origin.y + (pdfPoint.y - drag.start.y),
-                width: operations.find((operation) => operation.id === drag.id)?.rect.width ?? 1,
-                height: operations.find((operation) => operation.id === drag.id)?.rect.height ?? 1,
+                width: dragged?.rect.width ?? 1,
+                height: dragged?.rect.height ?? 1,
               },
-            } as Partial<EditOperation>);
+              pageWidth,
+              pageHeight,
+            );
+            onOperationUpdate(drag.id, { rect } as Partial<EditOperation>);
           }}
           onPointerUp={() => setDrag(null)}
+          onPointerCancel={() => setDrag(null)}
+          onLostPointerCapture={() => setDrag(null)}
         >
           <Document
             file={pdfFile}
@@ -556,7 +576,9 @@ export function PdfCanvas({
                   event.stopPropagation();
                   onOperationSelect(operation.id);
                   if (editingTextId === operation.id) return;
-                  const point = pointFromEvent(event, stageRef.current!);
+                  if (!stageRef.current) return;
+                  stageRef.current.setPointerCapture(event.pointerId);
+                  const point = pointFromEvent(event, stageRef.current);
                   const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
                   setDrag({ id: operation.id, start: pdfPoint, origin: { x: operation.rect.x, y: operation.rect.y } });
                 }}
@@ -578,21 +600,34 @@ export function PdfCanvas({
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
               const point = pendingImagePoint.current;
-              if (!file || !point) return;
-              void readFileAsDataUrl(file).then((dataUrl) => {
-                const rect = viewportRectToPdf({ left: point.x, top: point.y, width: 180, height: 120 }, pageHeight, scale);
-                onOperationAdd({
-                  id: createId("image"),
-                  type: "image",
-                  pageIndex,
-                  rect,
-                  dataUrl,
-                  mimeType: file.type === "image/jpeg" ? "image/jpeg" : "image/png",
-                  opacity: 1,
-                  createdAt: Date.now(),
-                });
-              });
               event.currentTarget.value = "";
+              if (!file || !point) return;
+              void (async () => {
+                const validation = await validateImageFile(file);
+                if (!validation.ok) {
+                  onNotice?.(validation.reason);
+                  pendingImagePoint.current = null;
+                  return;
+                }
+                try {
+                  const dataUrl = await readFileAsDataUrl(file);
+                  const rect = viewportRectToPdf({ left: point.x, top: point.y, width: 180, height: 120 }, pageHeight, scale);
+                  onOperationAdd({
+                    id: createId("image"),
+                    type: "image",
+                    pageIndex,
+                    rect,
+                    dataUrl,
+                    mimeType: file.type === "image/jpeg" ? "image/jpeg" : "image/png",
+                    opacity: 1,
+                    createdAt: Date.now(),
+                  });
+                } catch {
+                  onNotice?.("Could not read that image file.");
+                } finally {
+                  pendingImagePoint.current = null;
+                }
+              })();
             }}
           />
         </div>

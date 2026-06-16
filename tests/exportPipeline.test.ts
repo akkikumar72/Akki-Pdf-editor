@@ -43,4 +43,28 @@ describe("export pipeline", () => {
     expect(sheet).toContain("Name");
     expect(sheet).toContain("A&amp;B &lt;test&gt;");
   });
+
+  it("neutralizes CSV formula-injection payloads", () => {
+    const dangerous: TextItem[] = [
+      { str: "=cmd|'/c calc'!A0", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } },
+      { str: "+1+2", pageIndex: 0, rect: { x: 160, y: 700, width: 40, height: 12 } },
+      { str: "@SUM(A1)", pageIndex: 0, rect: { x: 10, y: 680, width: 80, height: 12 } },
+      { str: "-2+3", pageIndex: 0, rect: { x: 160, y: 680, width: 40, height: 12 } },
+    ];
+    const csv = new ExportPipeline().toCsv(dangerous, []);
+    expect(csv).toContain("\"'=cmd|'/c calc'!A0\"");
+    expect(csv).toContain("\"'+1+2\"");
+    expect(csv).toContain("\"'@SUM(A1)\"");
+    expect(csv).toContain("\"'-2+3\"");
+    expect(csv).not.toMatch(/"=cmd/);
+  });
+
+  it("neutralizes XLSX formula-injection payloads", () => {
+    const bytes = new ExportPipeline().toXlsxBytes(
+      [{ str: "=HYPERLINK(1)", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } }],
+      [],
+    );
+    const sheet = strFromU8(unzipSync(bytes)["xl/worksheets/sheet1.xml"]);
+    expect(sheet).toContain("&apos;=HYPERLINK(1)");
+  });
 });

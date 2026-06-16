@@ -2,6 +2,7 @@ import { PDFDocument, PDFName, PDFString, degrees, rgb } from "pdf-lib";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { EditOperation, LoadedPdf, TextItem } from "../types/editor";
 import { dataUrlToBytes } from "../utils/download";
+import { sanitizeUrl } from "../utils/url";
 import { inferFontWeight, inferItalic, resolvePdfFont } from "./fontResolver";
 
 const PDF_JS_OPTIONS = {
@@ -17,6 +18,16 @@ function hexToRgb(color: string) {
     : normalized.padEnd(6, "0").slice(0, 6);
   const number = Number.parseInt(value, 16);
   return rgb(((number >> 16) & 255) / 255, ((number >> 8) & 255) / 255, (number & 255) / 255);
+}
+
+/**
+ * Resolve a fill color for pdf-lib, treating missing/"transparent"/non-hex
+ * values as no fill instead of producing NaN color operands.
+ */
+function fillColorOrUndefined(color?: string) {
+  if (!color || color === "transparent") return undefined;
+  if (!/^#?[0-9a-f]{3}([0-9a-f]{3})?$/i.test(color.trim())) return undefined;
+  return hexToRgb(color);
 }
 
 function dataUrlMimeType(dataUrl: string) {
@@ -56,12 +67,16 @@ export class PdfEngine {
       ...PDF_JS_OPTIONS,
     });
     const pdf = await task.promise;
-    return {
-      name: file.name,
-      bytes,
-      pageCount: pdf.numPages,
-      fingerprint: Array.isArray(pdf.fingerprints) ? pdf.fingerprints[0] ?? undefined : undefined,
-    };
+    try {
+      return {
+        name: file.name,
+        bytes,
+        pageCount: pdf.numPages,
+        fingerprint: Array.isArray(pdf.fingerprints) ? pdf.fingerprints[0] ?? undefined : undefined,
+      };
+    } finally {
+      void pdf.destroy().catch(() => undefined);
+    }
   }
 
   async createBlankDocument(name = "blank-document.pdf", size: [number, number] = [612, 792]): Promise<LoadedPdf> {
@@ -102,42 +117,47 @@ export class PdfEngine {
   async getTextContent(bytes: Uint8Array, pageIndex?: number): Promise<TextItem[]> {
     const pdfjs = await this.getPdfJs();
     const pdf = await pdfjs.getDocument({ data: bytes.slice(), ...PDF_JS_OPTIONS }).promise;
-    const pageIndexes = pageIndex === undefined
-      ? Array.from({ length: pdf.numPages }, (_, index) => index)
-      : [pageIndex];
     const items: TextItem[] = [];
 
-    for (const currentPageIndex of pageIndexes) {
-      const page = await pdf.getPage(currentPageIndex + 1);
-      const textContent = await page.getTextContent();
-      const styles = textContent.styles as Record<string, Record<string, unknown>>;
-      for (const item of textContent.items as Array<Record<string, unknown>>) {
-        if (!("str" in item) || !String(item.str).trim()) continue;
-        const str = String(item.str);
-        const transform = Array.isArray(item.transform) ? item.transform as number[] : [1, 0, 0, 12, 0, 0];
-        const x = transform[4] ?? 0;
-        const y = transform[5] ?? 0;
-        const fontSize = Math.hypot(transform[2], transform[3]) || Math.abs(transform[0]) || 12;
-        const fontName = typeof item.fontName === "string" ? item.fontName : undefined;
-        const style = fontName ? styles[fontName] : undefined;
-        const cssFontFamily = typeof style?.fontFamily === "string" ? style.fontFamily : undefined;
-        const styleDescriptor = [fontName, cssFontFamily].filter(Boolean).join(" ");
-        items.push({
-          str,
-          pageIndex: currentPageIndex,
-          rect: {
-            x,
-            y,
-            width: typeof item.width === "number" ? item.width : str.length * fontSize * 0.5,
-            height: typeof item.height === "number" ? item.height : fontSize,
-          },
-          fontName,
-          cssFontFamily,
-          fontSize,
-          fontWeight: inferFontWeight(styleDescriptor),
-          italic: inferItalic(styleDescriptor),
-        });
+    try {
+      const pageIndexes = pageIndex === undefined
+        ? Array.from({ length: pdf.numPages }, (_, index) => index)
+        : [pageIndex];
+
+      for (const currentPageIndex of pageIndexes) {
+        const page = await pdf.getPage(currentPageIndex + 1);
+        const textContent = await page.getTextContent();
+        const styles = textContent.styles as Record<string, Record<string, unknown>>;
+        for (const item of textContent.items as Array<Record<string, unknown>>) {
+          if (!("str" in item) || !String(item.str).trim()) continue;
+          const str = String(item.str);
+          const transform = Array.isArray(item.transform) ? item.transform as number[] : [1, 0, 0, 12, 0, 0];
+          const x = transform[4] ?? 0;
+          const y = transform[5] ?? 0;
+          const fontSize = Math.hypot(transform[2], transform[3]) || Math.abs(transform[0]) || 12;
+          const fontName = typeof item.fontName === "string" ? item.fontName : undefined;
+          const style = fontName ? styles[fontName] : undefined;
+          const cssFontFamily = typeof style?.fontFamily === "string" ? style.fontFamily : undefined;
+          const styleDescriptor = [fontName, cssFontFamily].filter(Boolean).join(" ");
+          items.push({
+            str,
+            pageIndex: currentPageIndex,
+            rect: {
+              x,
+              y,
+              width: typeof item.width === "number" ? item.width : str.length * fontSize * 0.5,
+              height: typeof item.height === "number" ? item.height : fontSize,
+            },
+            fontName,
+            cssFontFamily,
+            fontSize,
+            fontWeight: inferFontWeight(styleDescriptor),
+            italic: inferItalic(styleDescriptor),
+          });
+        }
       }
+    } finally {
+      void pdf.destroy().catch(() => undefined);
     }
 
     return items;
@@ -263,7 +283,7 @@ export class PdfEngine {
             yScale: rect.height / 2,
             borderColor: hexToRgb(operation.stroke),
             borderWidth: operation.strokeWidth,
-            color: operation.fill ? hexToRgb(operation.fill) : undefined,
+            color: fillColorOrUndefined(operation.fill),
             opacity,
           });
         } else if (operation.kind === "line" || operation.kind === "arrow") {
@@ -290,7 +310,7 @@ export class PdfEngine {
             height: rect.height,
             borderColor: hexToRgb(operation.stroke),
             borderWidth: operation.strokeWidth,
-            color: operation.fill ? hexToRgb(operation.fill) : undefined,
+            color: fillColorOrUndefined(operation.fill),
             opacity,
           });
         }
@@ -444,6 +464,8 @@ export class PdfEngine {
       }
 
       if (operation.type === "link") {
+        const safeHref = sanitizeUrl(operation.href);
+        if (!safeHref) continue;
         const annotation = pdf.context.obj({
           Type: "Annot",
           Subtype: "Link",
@@ -452,7 +474,7 @@ export class PdfEngine {
           A: {
             Type: "Action",
             S: "URI",
-            URI: PDFString.of(operation.href),
+            URI: PDFString.of(safeHref),
           },
         });
         const annotations = page.node.Annots();

@@ -1,33 +1,37 @@
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600&family=Space+Grotesk:wght@600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600&family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
 
 /* Hallmark · pre-emit critique: P5 H4 E5 S5 R5 V5 */
-/* Hallmark · macrostructure: Bento Grid + Workbench app shell
- * theme: custom · vibe: "clinical clarity, graphite, quiet teal" · paper: oklch(98.4% 0.006 210) · accent: oklch(45% 0.135 190)
- * display: Space Grotesk · body: Geist · axes: light / geometric-sans / chromatic-teal
- * studied: no · context: explicit · v1.0.0
+/* Hallmark · genre: soft tactile · macrostructure: Split Studio · nav: N9 · footer: Ft5 · enrichment: Tier-A product surface
+ * theme: custom · vibe: guided sourdough calm, local PDF workbench
+ * paper: oklch(96.8% 0.022 92) · accent: oklch(69% 0.17 145)
+ * display/body: Plus Jakarta Sans · fallback: Geist, Inter, ui-sans-serif · axes: light / geometric-sans / green
+ * context: explicit · v1.2.0
  */
 :root {
-  --color-paper: oklch(98.4% 0.006 210);
-  --color-paper-2: oklch(96% 0.008 210);
-  --color-paper-3: oklch(91.8% 0.01 210);
-  --color-surface: oklch(99.2% 0.004 210);
-  --color-surface-2: oklch(94.6% 0.009 210);
-  --color-ink: oklch(17.5% 0.01 225);
-  --color-ink-2: oklch(29% 0.012 225);
-  --color-muted: oklch(46.5% 0.012 220);
-  --color-rule: oklch(84.5% 0.01 210);
-  --color-rule-2: oklch(74.5% 0.012 210);
-  --color-accent: oklch(45% 0.135 190);
-  --color-accent-soft: oklch(92% 0.046 190);
-  --color-accent-wash: oklch(96.8% 0.024 190);
-  --color-accent-ink: oklch(98.4% 0.006 210);
-  --color-focus: oklch(50% 0.17 190);
+  --color-paper: oklch(96.8% 0.022 92);
+  --color-paper-2: oklch(93.6% 0.03 94);
+  --color-paper-3: oklch(88.5% 0.034 96);
+  --color-surface: oklch(98.6% 0.014 96);
+  --color-surface-2: oklch(94.8% 0.026 100);
+  --color-ink: oklch(18% 0.025 126);
+  --color-ink-2: oklch(31% 0.03 126);
+  --color-muted: oklch(47% 0.028 118);
+  --color-rule: oklch(82% 0.034 104);
+  --color-rule-2: oklch(70% 0.045 108);
+  --color-accent: oklch(69% 0.17 145);
+  --color-accent-edge: oklch(55% 0.15 145);
+  --color-accent-cast: oklch(69% 0.17 145 / 0.38);
+  --color-accent-soft: oklch(90.5% 0.09 145);
+  --color-accent-wash: oklch(95.2% 0.058 140);
+  --color-accent-ink: oklch(17% 0.035 142);
+  --color-sky: oklch(89% 0.065 178);
+  --color-focus: oklch(55% 0.16 146);
   --color-error: oklch(55% 0.2 28);
   --color-success: oklch(54% 0.15 150);
   --color-warning: oklch(80% 0.16 84);
 
-  --font-ui: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-display: "Space Grotesk", "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-ui: "Plus Jakarta Sans", Geist, Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", Geist, Inter, ui-sans-serif, system-ui, sans-serif;
   --font-wordmark: "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
   --font-mono: "Geist Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
@@ -79,4 +83,9 @@
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-fast: 120ms;
   --dur-base: 180ms;
+  --dur-nav: 420ms;
+
+  --lumen-bar-h: 5rem;
+  --radius-pill: 999px;
+  --z-sticky: 200;
 }
