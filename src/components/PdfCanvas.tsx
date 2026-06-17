@@ -5,6 +5,7 @@ import type {
   DocumentFonts,
   EditOperation,
   EditorTool,
+  InkOperation,
   LoadedPdf,
   PdfPoint,
   PdfRect,
@@ -633,7 +634,19 @@ export function PdfCanvas({
             viewportRect = snapped.rect;
             setActiveGuides(snapped.guides);
             const rect = clampRect(viewportRectToPdf(viewportRect, pageHeight, scale), pageWidth, pageHeight);
-            onOperationUpdate(drag.id, { rect } as Partial<EditOperation>);
+            const patch: Partial<EditOperation> = { rect };
+            if (dragged.type === "ink") {
+              // Ink strokes render and export from absolute `points`, not `rect`,
+              // so a moved stroke must translate every point by the same delta or
+              // the visible/exported stroke stays at its original location.
+              const deltaX = rect.x - dragged.rect.x;
+              const deltaY = rect.y - dragged.rect.y;
+              (patch as Partial<InkOperation>).points = dragged.points.map((point) => ({
+                x: point.x + deltaX,
+                y: point.y + deltaY,
+              }));
+            }
+            onOperationUpdate(drag.id, patch);
           }}
           onPointerUp={() => {
             setDrag(null);

@@ -329,6 +329,16 @@ export function useEditorController() {
     setIsBusy(true);
     setStatus(`Exporting ${format.toUpperCase()}...`);
     try {
+      if (format === "png" && editState.selectedId) {
+        // The PNG snapshot captures the whole page stage, which includes the
+        // selection outline, floating toolbar, and resize handles. Clear the
+        // selection and wait for the DOM to repaint so none of that editor
+        // chrome is baked into the exported image.
+        dispatch({ type: "select", id: undefined });
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+      }
       await exportPipeline.export(format, {
         filename: document.name,
         bytes: document.bytes,
@@ -343,7 +353,7 @@ export function useEditorController() {
     } finally {
       setIsBusy(false);
     }
-  }, [document, documentFonts, editState.operations, textItems]);
+  }, [document, documentFonts, editState.operations, editState.selectedId, textItems]);
 
   return {
     document,

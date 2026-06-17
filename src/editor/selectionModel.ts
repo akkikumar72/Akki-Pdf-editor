@@ -22,6 +22,15 @@ export function duplicateOperation(operation: EditOperation): EditOperation {
     }));
   }
 
+  if (duplicate.type === "text") {
+    // A duplicated replacement must not re-mask the original text's location.
+    // sourceCoverRect anchors a whiteout box to the original PDF glyph bounds;
+    // copying it would paint a stray mask over the source while the moved copy
+    // has no mask of its own. Drop it so the duplicate behaves like free text.
+    delete duplicate.sourceCoverRect;
+    duplicate.whiteout = false;
+  }
+
   return duplicate;
 }
 
