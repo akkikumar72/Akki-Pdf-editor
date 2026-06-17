@@ -1,26 +1,44 @@
-import type { EditOperation } from "../types/editor";
+import type { EditOperation, PdfPoint } from "../types/editor";
 import { createId } from "../utils/ids";
 
 const DUPLICATE_OFFSET = 12;
 
-export function duplicateOperation(operation: EditOperation): EditOperation {
-  const duplicate = {
+/** Shift a list of absolute points by a uniform delta. */
+export function translatePoints(points: PdfPoint[], dx: number, dy: number): PdfPoint[] {
+  return points.map((point) => ({ x: point.x + dx, y: point.y + dy }));
+}
+
+/**
+ * Move an operation by a uniform delta. Ink strokes render and export from their
+ * absolute `points`, not `rect`, so both must shift by the same amount to keep the
+ * bounding box and the stroke in lockstep. This is the single source of truth for
+ * operation translation, shared by drag and duplicate.
+ */
+export function translateOperation(operation: EditOperation, dx: number, dy: number): EditOperation {
+  const moved = {
     ...operation,
-    id: createId(operation.type),
-    rect: {
-      ...operation.rect,
-      x: operation.rect.x + DUPLICATE_OFFSET,
-      y: Math.max(0, operation.rect.y - DUPLICATE_OFFSET),
-    },
-    createdAt: Date.now(),
+    rect: { ...operation.rect, x: operation.rect.x + dx, y: operation.rect.y + dy },
   } as EditOperation;
 
-  if (duplicate.type === "ink") {
-    duplicate.points = duplicate.points.map((point) => ({
-      x: point.x + DUPLICATE_OFFSET,
-      y: Math.max(0, point.y - DUPLICATE_OFFSET),
-    }));
+  if (moved.type === "ink") {
+    moved.points = translatePoints(moved.points, dx, dy);
   }
+
+  return moved;
+}
+
+export function duplicateOperation(operation: EditOperation): EditOperation {
+  // A single clamped delta applied uniformly keeps ink rect and points aligned.
+  // Clamping rect.y and each point.y independently (as a per-axis Math.max would)
+  // skews a stroke duplicated within DUPLICATE_OFFSET of the top edge.
+  const dx = DUPLICATE_OFFSET;
+  const dy = Math.max(0, operation.rect.y - DUPLICATE_OFFSET) - operation.rect.y;
+
+  const duplicate = {
+    ...translateOperation(operation, dx, dy),
+    id: createId(operation.type),
+    createdAt: Date.now(),
+  } as EditOperation;
 
   if (duplicate.type === "text") {
     // A duplicated replacement must not re-mask the original text's location.

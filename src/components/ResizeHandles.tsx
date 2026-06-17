@@ -32,6 +32,7 @@ export function ResizeHandles({ rect, onResizeStart }: ResizeHandlesProps) {
       className="resize-frame"
       style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
       aria-hidden="true"
+      data-export-ignore=""
     >
       {HANDLES.map((handle) => (
         <div

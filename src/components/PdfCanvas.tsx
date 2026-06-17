@@ -15,7 +15,7 @@ import type {
 } from "../types/editor";
 import { createOperationsForTool } from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
-import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
+import { duplicateOperation as cloneOperation, translatePoints } from "../editor/selectionModel";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
 import { collectAlignmentLines, snapViewportRect, type GuideLine } from "../utils/alignmentGuides";
 import { validateImageFile } from "../utils/fileValidation";
@@ -636,15 +636,13 @@ export function PdfCanvas({
             const rect = clampRect(viewportRectToPdf(viewportRect, pageHeight, scale), pageWidth, pageHeight);
             const patch: Partial<EditOperation> = { rect };
             if (dragged.type === "ink") {
-              // Ink strokes render and export from absolute `points`, not `rect`,
-              // so a moved stroke must translate every point by the same delta or
-              // the visible/exported stroke stays at its original location.
-              const deltaX = rect.x - dragged.rect.x;
-              const deltaY = rect.y - dragged.rect.y;
-              (patch as Partial<InkOperation>).points = dragged.points.map((point) => ({
-                x: point.x + deltaX,
-                y: point.y + deltaY,
-              }));
+              // Ink renders/exports from absolute `points`, so a moved stroke must
+              // translate every point by the same delta the rect moved (shared helper).
+              (patch as Partial<InkOperation>).points = translatePoints(
+                dragged.points,
+                rect.x - dragged.rect.x,
+                rect.y - dragged.rect.y,
+              );
             }
             onOperationUpdate(drag.id, patch);
           }}
@@ -682,7 +680,7 @@ export function PdfCanvas({
             />
           </Document>
 
-          <div className={`text-hit-layer ${canPickExistingText ? "is-active" : ""}`} aria-hidden={canPickExistingText ? undefined : true}>
+          <div className={`text-hit-layer ${canPickExistingText ? "is-active" : ""}`} aria-hidden={canPickExistingText ? undefined : true} data-export-ignore="">
             {editableTextRuns.map((item, index) => {
               // Hide the hit target once this PDF run has been replaced, so the user
               // can't stack a second replacement (which would create duplicate text).
@@ -710,7 +708,7 @@ export function PdfCanvas({
             })}
           </div>
 
-          <div className="guides-layer" aria-hidden="true">
+          <div className="guides-layer" aria-hidden="true" data-export-ignore="">
             {activeGuides.map((guide, index) => (
               <div
                 key={`${guide.orientation}-${guide.position}-${index}`}
