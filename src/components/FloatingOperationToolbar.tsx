@@ -223,7 +223,6 @@ export function FloatingOperationToolbar({
       ref={toolbarRef}
       className={`floating-toolbar ${isText ? "floating-toolbar--text" : ""}`}
       data-placement={toolbarPlacement.placement}
-      data-export-ignore=""
       aria-label="Inline edit tools"
       role="toolbar"
       style={{ left: toolbarLeft, top: toolbarTop }}
