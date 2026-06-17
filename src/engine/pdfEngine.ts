@@ -10,7 +10,9 @@ type PdfFontMeta = { name?: string; bold?: boolean; italic?: boolean; data?: Uin
 
 type PdfCommonObjs = {
   has?: (id: string) => boolean;
-  get: (id: string) => { name?: unknown; bold?: unknown; italic?: unknown; data?: unknown; mimetype?: unknown } | null | undefined;
+  get: (
+    id: string,
+  ) => { name?: unknown; bold?: unknown; italic?: unknown; data?: unknown; mimetype?: unknown } | null | undefined;
 };
 
 type FontkitFont = {
@@ -34,7 +36,11 @@ function toUint8Array(value: unknown): Uint8Array | undefined {
  * text can match the original precisely. Falls back to name-only info when the
  * program is missing or unsupported (Type3/bitmap fonts).
  */
-function buildDocumentFontInfo(key: string, meta: PdfFontMeta | undefined, postScriptName: string | undefined): DocumentFontInfo {
+function buildDocumentFontInfo(
+  key: string,
+  meta: PdfFontMeta | undefined,
+  postScriptName: string | undefined,
+): DocumentFontInfo {
   const info: DocumentFontInfo = { key, postScriptName, bytes: meta?.data, mimetype: meta?.mimetype };
   if (meta?.data && meta.data.byteLength > 0) {
     try {
@@ -60,7 +66,11 @@ function buildDocumentFontInfo(key: string, meta: PdfFontMeta | undefined, postS
  * that name plus the translated font's bold/italic flags so click-to-edit can match
  * the original family + weight instead of guessing from a meaningless id.
  */
-function readPdfFontMeta(commonObjs: PdfCommonObjs | null, fontName: string | undefined, cache: Map<string, PdfFontMeta | undefined>): PdfFontMeta | undefined {
+function readPdfFontMeta(
+  commonObjs: PdfCommonObjs | null,
+  fontName: string | undefined,
+  cache: Map<string, PdfFontMeta | undefined>,
+): PdfFontMeta | undefined {
   if (!fontName || !commonObjs) return undefined;
   if (cache.has(fontName)) return cache.get(fontName);
   let meta: PdfFontMeta | undefined;
@@ -93,9 +103,13 @@ const PDF_JS_OPTIONS = {
 
 function hexToRgb(color: string) {
   const normalized = color.replace("#", "");
-  const value = normalized.length === 3
-    ? normalized.split("").map((char) => char + char).join("")
-    : normalized.padEnd(6, "0").slice(0, 6);
+  const value =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : normalized.padEnd(6, "0").slice(0, 6);
   const number = Number.parseInt(value, 16);
   return rgb(((number >> 16) & 255) / 255, ((number >> 8) & 255) / 255, (number & 255) / 255);
 }
@@ -114,7 +128,13 @@ function dataUrlMimeType(dataUrl: string) {
   return dataUrl.match(/^data:(.*?);/)?.[1] ?? "image/png";
 }
 
-function drawCheckMark(page: ReturnType<PDFDocument["getPage"]>, rect: EditOperation["rect"], color: string, opacity: number, thickness = 1.4) {
+function drawCheckMark(
+  page: ReturnType<PDFDocument["getPage"]>,
+  rect: EditOperation["rect"],
+  color: string,
+  opacity: number,
+  thickness = 1.4,
+) {
   page.drawLine({
     start: { x: rect.x + rect.width * 0.2, y: rect.y + rect.height * 0.5 },
     end: { x: rect.x + rect.width * 0.42, y: rect.y + rect.height * 0.25 },
@@ -152,7 +172,7 @@ export class PdfEngine {
         name: file.name,
         bytes,
         pageCount: pdf.numPages,
-        fingerprint: Array.isArray(pdf.fingerprints) ? pdf.fingerprints[0] ?? undefined : undefined,
+        fingerprint: Array.isArray(pdf.fingerprints) ? (pdf.fingerprints[0] ?? undefined) : undefined,
       };
     } finally {
       void pdf.destroy().catch(() => undefined);
@@ -194,7 +214,10 @@ export class PdfEngine {
     return new Uint8Array(await pdf.save({ useObjectStreams: false }));
   }
 
-  async extractTextAndFonts(bytes: Uint8Array, pageIndex?: number): Promise<{ items: TextItem[]; fonts: DocumentFonts }> {
+  async extractTextAndFonts(
+    bytes: Uint8Array,
+    pageIndex?: number,
+  ): Promise<{ items: TextItem[]; fonts: DocumentFonts }> {
     const pdfjs = await this.getPdfJs();
     // fontExtraProperties exposes the embedded font program bytes (`.data`) on commonObjs,
     // which pdf.js otherwise drops to save memory. Required to reuse the original font.
@@ -203,9 +226,8 @@ export class PdfEngine {
     const fonts: DocumentFonts = {};
 
     try {
-      const pageIndexes = pageIndex === undefined
-        ? Array.from({ length: pdf.numPages }, (_, index) => index)
-        : [pageIndex];
+      const pageIndexes =
+        pageIndex === undefined ? Array.from({ length: pdf.numPages }, (_, index) => index) : [pageIndex];
 
       for (const currentPageIndex of pageIndexes) {
         const page = await pdf.getPage(currentPageIndex + 1);
@@ -222,7 +244,7 @@ export class PdfEngine {
         for (const item of textContent.items as Array<Record<string, unknown>>) {
           if (!("str" in item) || !String(item.str).trim()) continue;
           const str = String(item.str);
-          const transform = Array.isArray(item.transform) ? item.transform as number[] : [1, 0, 0, 12, 0, 0];
+          const transform = Array.isArray(item.transform) ? (item.transform as number[]) : [1, 0, 0, 12, 0, 0];
           const x = transform[4] ?? 0;
           const y = transform[5] ?? 0;
           const fontSize = Math.hypot(transform[2], transform[3]) || Math.abs(transform[0]) || 12;
@@ -280,7 +302,10 @@ export class PdfEngine {
     const reusedFonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>> | null>();
     const fontkitByKey = new Map<string, FontkitFont | null>();
 
-    const getFont = async (fontFamily?: string, style?: { bold?: boolean; italic?: boolean; fontWeight?: number; fontStyle?: "normal" | "italic" }) => {
+    const getFont = async (
+      fontFamily?: string,
+      style?: { bold?: boolean; italic?: boolean; fontWeight?: number; fontStyle?: "normal" | "italic" },
+    ) => {
       const key = resolvePdfFont(fontFamily, style);
       if (!embeddedFonts.has(key)) {
         embeddedFonts.set(key, await pdf.embedFont(key));
@@ -332,12 +357,15 @@ export class PdfEngine {
       const opacity = operation.opacity ?? 1;
 
       if (operation.type === "whiteout" || (operation.type === "text" && operation.whiteout)) {
+        // For a moved replacement, keep the mask anchored to the original PDF text bounds
+        // (sourceCoverRect) so the underlying glyph never reappears at its old position.
+        const maskRect = operation.type === "text" ? (operation.sourceCoverRect ?? rect) : rect;
         page.drawRectangle({
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          color: hexToRgb(operation.type === "whiteout" ? operation.color : operation.whiteoutColor ?? "#ffffff"),
+          x: maskRect.x,
+          y: maskRect.y,
+          width: maskRect.width,
+          height: maskRect.height,
+          color: hexToRgb(operation.type === "whiteout" ? operation.color : (operation.whiteoutColor ?? "#ffffff")),
           opacity,
         });
       }
@@ -356,11 +384,12 @@ export class PdfEngine {
           });
         }
         const textWidth = font.widthOfTextAtSize(operation.text, operation.fontSize);
-        const x = operation.align === "center"
-          ? rect.x + Math.max(0, rect.width - textWidth) / 2
-          : operation.align === "right"
-            ? rect.x + Math.max(0, rect.width - textWidth)
-            : rect.x;
+        const x =
+          operation.align === "center"
+            ? rect.x + Math.max(0, rect.width - textWidth) / 2
+            : operation.align === "right"
+              ? rect.x + Math.max(0, rect.width - textWidth)
+              : rect.x;
         page.drawText(operation.text, {
           x,
           y: rect.y + Math.max(2, rect.height - operation.fontSize) / 2,
@@ -387,9 +416,8 @@ export class PdfEngine {
       if (operation.type === "annotation" && operation.kind !== "highlight") {
         const strokeWidth = operation.strokeWidth ?? 2;
         if (operation.kind === "strikeout" || operation.kind === "underline") {
-          const y = operation.kind === "strikeout"
-            ? rect.y + rect.height * 0.55
-            : rect.y + Math.max(1, rect.height * 0.12);
+          const y =
+            operation.kind === "strikeout" ? rect.y + rect.height * 0.55 : rect.y + Math.max(1, rect.height * 0.12);
           page.drawLine({
             start: { x: rect.x, y },
             end: { x: rect.x + rect.width, y },
@@ -482,9 +510,8 @@ export class PdfEngine {
         const dataUrl = operation.type === "image" ? operation.dataUrl : operation.value;
         const bytes = dataUrlToBytes(dataUrl);
         const mime = dataUrlMimeType(dataUrl);
-        const image = mime.includes("jpeg") || mime.includes("jpg")
-          ? await pdf.embedJpg(bytes)
-          : await pdf.embedPng(bytes);
+        const image =
+          mime.includes("jpeg") || mime.includes("jpg") ? await pdf.embedJpg(bytes) : await pdf.embedPng(bytes);
         page.drawImage(image, {
           x: rect.x,
           y: rect.y,
@@ -533,8 +560,20 @@ export class PdfEngine {
         if (operation.mark === "check") {
           drawCheckMark(page, rect, operation.color, opacity, Math.max(1.2, Math.min(rect.width, rect.height) * 0.08));
         } else if (operation.mark === "cross") {
-          page.drawLine({ start: { x: rect.x, y: rect.y }, end: { x: rect.x + rect.width, y: rect.y + rect.height }, color: hexToRgb(operation.color), thickness: 1.6, opacity });
-          page.drawLine({ start: { x: rect.x + rect.width, y: rect.y }, end: { x: rect.x, y: rect.y + rect.height }, color: hexToRgb(operation.color), thickness: 1.6, opacity });
+          page.drawLine({
+            start: { x: rect.x, y: rect.y },
+            end: { x: rect.x + rect.width, y: rect.y + rect.height },
+            color: hexToRgb(operation.color),
+            thickness: 1.6,
+            opacity,
+          });
+          page.drawLine({
+            start: { x: rect.x + rect.width, y: rect.y },
+            end: { x: rect.x, y: rect.y + rect.height },
+            color: hexToRgb(operation.color),
+            thickness: 1.6,
+            opacity,
+          });
         } else {
           page.drawEllipse({
             x: rect.x + rect.width / 2,

@@ -1,18 +1,22 @@
 import { Bold, ChevronDown, Copy, Italic, Link2, Move, Palette, Trash2, Type } from "lucide-react";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Select, { components, type GroupBase, type OptionProps, type SingleValue, type StylesConfig } from "react-select";
 import { FONT_CHOICES } from "../engine/fontResolver";
 import type { FontChoice } from "../engine/fontResolver";
 import type { EditOperation, TextOperation, ViewportRect } from "../types/editor";
+import { clampToolbarLeft, getToolbarPlacement, TOOLBAR_FALLBACK_HEIGHT_PX } from "../utils/toolbarPlacement";
 
 type FloatingOperationToolbarProps = {
   operation: EditOperation;
   pageWidth: number;
   rect: ViewportRect;
   scale: number;
+  hidden?: boolean;
+  moveModeActive?: boolean;
   onDelete: (id: string) => void;
   onDuplicate: (operation: EditOperation) => void;
   onLink: (operation: EditOperation) => void;
+  onMoveToggle?: () => void;
   onTextPreview: (id: string, patch?: Partial<TextOperation>) => void;
   onUpdate: (id: string, patch: Partial<EditOperation>) => void;
 };
@@ -21,22 +25,6 @@ const FONT_SIZE_OPTIONS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48,
 type OpenMenu = "size" | undefined;
 type FontOption = FontChoice & { value: string };
 const FontPreviewContext = createContext<((font: FontOption) => void) | undefined>(undefined);
-
-function clampToolbarLeft(left: number, pageWidth: number) {
-  const maxLeft = Math.max(8, pageWidth - 560);
-  return Math.min(Math.max(8, left), maxLeft);
-}
-
-function getToolbarPlacement(rect: ViewportRect, isText: boolean) {
-  const estimatedWidth = isText ? 430 : 250;
-  const left = rect.left + rect.width / 2 - estimatedWidth / 2;
-  const shouldPlaceBelow = rect.top < 58;
-  return {
-    left,
-    top: shouldPlaceBelow ? rect.top + rect.height + 10 : Math.max(8, rect.top - 48),
-    placement: shouldPlaceBelow ? "below" : "above",
-  };
-}
 
 function updateTextStyle(operation: TextOperation, patch: Partial<TextOperation>, onUpdate: FloatingOperationToolbarProps["onUpdate"]) {
   onUpdate(operation.id, patch as Partial<EditOperation>);
@@ -171,18 +159,40 @@ export function FloatingOperationToolbar({
   pageWidth,
   rect,
   scale,
+  hidden = false,
+  moveModeActive = false,
   onDelete,
   onDuplicate,
   onLink,
+  onMoveToggle,
   onTextPreview,
   onUpdate,
 }: FloatingOperationToolbarProps) {
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const [toolbarSize, setToolbarSize] = useState({ width: 418, height: TOOLBAR_FALLBACK_HEIGHT_PX });
   const [openMenu, setOpenMenu] = useState<OpenMenu>();
   const [fontInputValue, setFontInputValue] = useState("");
   const isText = operation.type === "text";
-  const toolbarPlacement = getToolbarPlacement(rect, isText);
+  const stageWidth = pageWidth * scale;
+
+  useLayoutEffect(() => {
+    const node = toolbarRef.current;
+    if (!node) return;
+    const measure = () => {
+      const next = node.getBoundingClientRect();
+      if (next.width > 0 && next.height > 0) {
+        setToolbarSize({ width: next.width, height: next.height });
+      }
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isText, operation.id]);
+
+  const toolbarPlacement = getToolbarPlacement(rect, toolbarSize.width, toolbarSize.height);
   const toolbarTop = toolbarPlacement.top;
-  const toolbarLeft = clampToolbarLeft(toolbarPlacement.left, pageWidth * scale);
+  const toolbarLeft = clampToolbarLeft(toolbarPlacement.left, toolbarSize.width, stageWidth, rect);
   const currentFontSize = isText ? Math.round(operation.fontSize) : 14;
   const fontSizeOptions = useMemo(() => {
     if (!isText || FONT_SIZE_OPTIONS.includes(currentFontSize)) return FONT_SIZE_OPTIONS;
@@ -206,8 +216,11 @@ export function FloatingOperationToolbar({
     }
   };
 
+  if (hidden) return null;
+
   return (
     <div
+      ref={toolbarRef}
       className={`floating-toolbar ${isText ? "floating-toolbar--text" : ""}`}
       data-placement={toolbarPlacement.placement}
       aria-label="Inline edit tools"
@@ -364,9 +377,16 @@ export function FloatingOperationToolbar({
       <button type="button" className="floating-toolbar__button" aria-label="Add link" title="Add link" onClick={() => onLink(operation)}>
         <Link2 aria-hidden="true" />
       </button>
-      <span className="floating-toolbar__button floating-toolbar__button--passive" aria-label="Move handle" title="Drag selected overlay to move">
+      <button
+        type="button"
+        className="floating-toolbar__button"
+        aria-label="Move"
+        aria-pressed={moveModeActive}
+        title={moveModeActive ? "Move mode on — drag to reposition" : "Move — drag overlay to reposition"}
+        onClick={() => onMoveToggle?.()}
+      >
         <Move aria-hidden="true" />
-      </span>
+      </button>
       <button type="button" className="floating-toolbar__button" aria-label="Duplicate" title="Duplicate" onClick={() => onDuplicate(operation)}>
         <Copy aria-hidden="true" />
       </button>

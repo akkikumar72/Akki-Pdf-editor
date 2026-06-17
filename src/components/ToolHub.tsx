@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AuroraBackground } from "./AuroraBackground";
+import { AkkiPdfLogoLink } from "./AkkiPdfLogo";
 import {
   LumenCloudIcon,
-  LumenDocumentEditIcon,
   LumenShieldNetworkIcon,
   LumenTrashIcon,
   LumenUploadIcon,
@@ -87,10 +87,7 @@ export function ToolHub({
     <div className={`tool-hub lumen pdf-landing ${isDragging ? "is-dragging" : ""}`}>
       <header className="lumen-nav" id="lumen-nav" ref={navRef}>
         <nav className="lumen-nav__inner" aria-label="PDF editor">
-          <a className="lumen-wordmark" href="#editor" aria-label="Akki PDF home">
-            <LumenDocumentEditIcon aria-hidden="true" />
-            <span>Akki PDF</span>
-          </a>
+          <AkkiPdfLogoLink className="lumen-wordmark" href="#editor" aria-label="AkkiPDF home" />
           <button className="lumen-nav__cta" type="button" onClick={() => inputRef.current?.click()}>
             Choose file
             <LumenUploadIcon aria-hidden="true" />
@@ -271,10 +268,7 @@ export function ToolHub({
           <p className="pdf-footer__statement">Files stay close.</p>
 
           <div className="pdf-footer__meta">
-            <a className="pdf-footer__brand" href="#editor" aria-label="Akki PDF home">
-              <LumenDocumentEditIcon aria-hidden="true" />
-              <span>Akki PDF</span>
-            </a>
+            <AkkiPdfLogoLink className="pdf-footer__brand" href="#editor" aria-label="AkkiPDF home" />
 
             <p className="pdf-footer__col">
               <span>Local workbench</span>
@@ -299,7 +293,7 @@ export function ToolHub({
             </nav>
 
             <p className="pdf-footer__col pdf-footer__copy">
-              <span>© 2026 Akki PDF</span>
+              <span>© 2026 AkkiPDF</span>
               <span>PDF · TXT · CSV · XLSX · PNG</span>
               <span><LumenShieldNetworkIcon aria-hidden="true" /> Local unless you export</span>
             </p>

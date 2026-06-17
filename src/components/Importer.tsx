@@ -1,5 +1,6 @@
-import { FileText, FolderOpen, LockKeyhole, ShieldCheck, UploadCloud } from "lucide-react";
+import { FolderOpen, LockKeyhole, ShieldCheck, UploadCloud } from "lucide-react";
 import { useRef, useState } from "react";
+import { AkkiPdfMark } from "./AkkiPdfLogo";
 
 type ImporterProps = {
   isBusy: boolean;
@@ -30,9 +31,9 @@ export function Importer({ isBusy, onOpen }: ImporterProps) {
       }}
     >
       <div className="importer__header">
-        <div className="brand-lockup">
-          <FileText aria-hidden="true" />
-          <span>Akki PDF</span>
+        <div className="brand-lockup akki-logo">
+          <AkkiPdfMark className="akki-logo__mark" aria-hidden="true" />
+          <span className="akki-logo__wordmark">AkkiPDF</span>
         </div>
         <span className="privacy-note"><ShieldCheck aria-hidden="true" /> Local only</span>
       </div>

@@ -14,6 +14,8 @@ type OperationOverlayProps = {
   scale: number;
   selected: boolean;
   editing?: boolean;
+  dragging?: boolean;
+  moveModeActive?: boolean;
   documentFonts?: DocumentFonts;
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onStartTextEdit?: (id: string) => void;
@@ -27,6 +29,8 @@ export function OperationOverlay({
   scale,
   selected,
   editing,
+  dragging = false,
+  moveModeActive = false,
   documentFonts,
   onPointerDown,
   onStartTextEdit,
@@ -34,6 +38,12 @@ export function OperationOverlay({
   onTextCommit,
 }: OperationOverlayProps) {
   const textRef = useRef<HTMLDivElement | null>(null);
+  const wasEditing = useRef(false);
+  const editingText = useRef(operation.type === "text" ? operation.text : "");
+  if (operation.type === "text" && editing && !wasEditing.current) {
+    editingText.current = operation.text;
+  }
+  wasEditing.current = Boolean(editing);
   const rect = pdfRectToViewport(operation.rect, pageHeight, scale);
   const embeddedFontKey = operation.type === "text" ? operation.embeddedFontKey : undefined;
   const embeddedFontBytes = embeddedFontKey ? documentFonts?.[embeddedFontKey]?.bytes : undefined;
@@ -50,7 +60,13 @@ export function OperationOverlay({
     opacity: operation.opacity ?? 1,
   };
 
-  const className = `operation operation--${operation.type} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""}`;
+  const className = [
+    `operation operation--${operation.type}`,
+    selected ? "is-selected" : "",
+    editing ? "is-editing" : "",
+    dragging ? "is-dragging" : "",
+    moveModeActive ? "is-move-mode" : "",
+  ].filter(Boolean).join(" ");
 
   useEffect(() => {
     if (!editing || operation.type !== "text" || !textRef.current) return;
@@ -111,7 +127,7 @@ export function OperationOverlay({
           }
         }}
       >
-        {operation.text}
+        {editing ? editingText.current : operation.text}
       </div>
     );
   }

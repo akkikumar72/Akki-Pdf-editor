@@ -35,6 +35,23 @@ describe("operation factory", () => {
     expect(operation.color).toBe("#f8fafc");
     expect(operation.whiteout).toBe(true);
     expect(operation.whiteoutColor).toBe("#d7ecff");
+    expect(operation.sourceCoverRect).toEqual({ x: 72, y: 700, width: 110, height: 20 });
+  });
+
+  it("does not set a source cover rect for plain new text", () => {
+    const [operation] = createOperationsForTool({
+      activeTool: "text",
+      viewportRect: { left: 100, top: 100, width: 120, height: 22 },
+      pageHeight: 792,
+      pageIndex: 0,
+      scale: 1,
+      operations: [],
+      prompt: () => null,
+    });
+
+    expect(operation.type).toBe("text");
+    if (operation.type !== "text") throw new Error("Expected text operation");
+    expect(operation.sourceCoverRect).toBeUndefined();
   });
 
   it("uses sampled rendered weight when PDF font metadata is generic", () => {
@@ -85,7 +102,7 @@ describe("operation factory", () => {
     if (operation.type !== "text") throw new Error("Expected text operation");
     expect(operation.text).toBe("New text");
     expect(operation.fontFamily).toBe("Helvetica");
-    expect(operation.cssFontFamily?.startsWith("\"g_d1_f1\", sans-serif")).toBe(true);
+    expect(operation.cssFontFamily?.startsWith('"g_d1_f1", sans-serif')).toBe(true);
     expect(operation.color).toBe("#ffffff");
     expect(operation.whiteout).toBe(false);
     expect(operation.whiteoutColor).toBeUndefined();
@@ -99,7 +116,7 @@ describe("operation factory", () => {
       pageIndex: 0,
       scale: 1,
       operations: [],
-      prompt: (message) => message === "Field name" ? "status" : "Paid, Pending",
+      prompt: (message) => (message === "Field name" ? "status" : "Paid, Pending"),
     });
 
     expect(operation.type).toBe("form-field");

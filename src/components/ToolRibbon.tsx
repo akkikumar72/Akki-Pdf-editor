@@ -1,8 +1,6 @@
 import {
-  ArrowLeft,
   Download,
   FileDown,
-  FilePenLine,
   FilePlus2,
   FileX2,
   History,
@@ -19,6 +17,7 @@ import { useState } from "react";
 import { TOOL_GROUPS } from "../editor/toolRegistry";
 import type { EditHistoryEntry } from "../state/editModel";
 import type { EditorTool, ExportFormat } from "../types/editor";
+import { AkkiPdfLogo } from "./AkkiPdfLogo";
 import { Button } from "./ui/button";
 
 type ToolRibbonProps = {
@@ -54,25 +53,13 @@ export function ToolRibbon(props: ToolRibbonProps) {
 
   return (
     <div className="tool-ribbon">
-      <div className="tool-ribbon__brand">
-        <FilePenLine aria-hidden="true" />
-        <div>
-          <strong>Akki PDF</strong>
-          <span>Local editor</span>
-        </div>
-      </div>
-
-      <div className="tool-group tool-group--compact tool-group--document" aria-label="Document navigation">
-        <button
-          className="icon-button"
-          aria-label="Back to home"
-          disabled={props.disabled}
-          title="Back to home"
-          onClick={props.onHome}
-        >
-          <ArrowLeft aria-hidden="true" />
-        </button>
-      </div>
+      <AkkiPdfLogo
+        className="tool-ribbon__brand"
+        aria-label="AkkiPDF home"
+        disabled={props.disabled}
+        title="Back to home"
+        onClick={props.onHome}
+      />
 
       <div className="tool-group tool-group--tools" role="toolbar" aria-label="Editing tools">
         {TOOL_GROUPS.map((group) => {

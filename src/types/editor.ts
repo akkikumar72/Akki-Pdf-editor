@@ -65,6 +65,9 @@ export type TextOperation = BaseOperation & {
   align: TextAlign;
   whiteout?: boolean;
   whiteoutColor?: string;
+  // Original PDF text bounds for a replacement overlay. The mask at this rect stays
+  // fixed even when the editable text is dragged, so the underlying glyph never reappears.
+  sourceCoverRect?: PdfRect;
 };
 
 export type WhiteoutOperation = BaseOperation & {
