@@ -1756,20 +1756,6 @@ select:disabled {
   box-shadow: none;
 }
 
-/* During PNG export, hide editor-only chrome so it isn't baked into the image:
-   nodes tagged data-export-ignore (toolbar, resize handles, guides, hit targets)
-   are removed from layout, and the selection outline drawn on the overlay itself
-   is neutralized. */
-.page-stage.is-exporting [data-export-ignore] {
-  display: none !important;
-}
-
-.page-stage.is-exporting .operation.is-selected {
-  border-color: transparent;
-  box-shadow: none;
-  outline: none;
-}
-
 .operation.is-move-mode:not(.is-editing) {
   cursor: move;
 }

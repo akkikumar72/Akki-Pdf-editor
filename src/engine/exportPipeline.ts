@@ -1,5 +1,4 @@
 import { strToU8, zipSync } from "fflate";
-import { toPng } from "html-to-image";
 import type { DocumentFonts, EditOperation, ExportFormat, TextItem } from "../types/editor";
 import { downloadBlob, safeBaseName } from "../utils/download";
 import { PdfEngine, pdfEngine as defaultPdfEngine } from "./pdfEngine";
@@ -10,7 +9,6 @@ export type ExportContext = {
   operations: EditOperation[];
   textItems: TextItem[];
   fonts?: DocumentFonts;
-  pageStage?: HTMLElement | null;
 };
 
 export class ExportPipeline {
@@ -39,24 +37,6 @@ export class ExportPipeline {
           }),
           `${base}.xlsx`,
         );
-        return;
-      }
-      case "png": {
-        const stage = context.pageStage;
-        if (!stage) throw new Error("No rendered page is available for PNG export.");
-        // Keep editor-only chrome out of the snapshot without mutating selection
-        // state. The `is-exporting` class hides `data-export-ignore` nodes (toolbar,
-        // resize handles, guides, hit targets) and removes the selection outline via
-        // CSS. Toggling the class on the live element is synchronous, so html-to-image
-        // clones a chrome-free DOM with no React re-render or animation-frame wait.
-        stage.classList.add("is-exporting");
-        try {
-          const dataUrl = await toPng(stage, { cacheBust: true, pixelRatio: 2 });
-          const response = await fetch(dataUrl);
-          downloadBlob(await response.blob(), `${base}-page.png`);
-        } finally {
-          stage.classList.remove("is-exporting");
-        }
         return;
       }
       default: {
