@@ -7,6 +7,7 @@ import type {
   EditorTool,
   LoadedPdf,
   PdfPoint,
+  PdfRect,
   TextOperation,
   TextItem,
   ViewportRect,
@@ -15,6 +16,7 @@ import { createOperationsForTool } from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
+import { collectAlignmentLines, snapViewportRect, type GuideLine } from "../utils/alignmentGuides";
 import { validateImageFile } from "../utils/fileValidation";
 import { createId } from "../utils/ids";
 import { sanitizeUrl } from "../utils/url";
@@ -58,10 +60,24 @@ type ResizeState = {
 const MIN_RESIZE_PX = 8;
 
 function isResizableOperation(operation: EditOperation) {
+  if (operation.type === "text") return false;
   if (operation.type === "shape") return operation.kind === "rectangle" || operation.kind === "ellipse";
   if (operation.type === "annotation") return operation.kind === "highlight" || operation.kind === "note";
   if (operation.type === "ink" || operation.type === "link" || operation.type === "form-mark") return false;
   return true;
+}
+
+function canDragOperation(operation: EditOperation, editingTextId?: string) {
+  if (operation.type === "text" && editingTextId === operation.id) return false;
+  return true;
+}
+
+function rectsOverlapSignificantly(a: PdfRect, b: PdfRect) {
+  const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+  const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+  const overlapArea = overlapX * overlapY;
+  const smaller = Math.max(1, Math.min(a.width * a.height, b.width * b.height));
+  return overlapArea / smaller >= 0.5;
 }
 
 function readFileAsDataUrl(file: File) {
@@ -382,6 +398,8 @@ export function PdfCanvas({
   const pendingImagePoint = useRef<PdfPoint | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [resize, setResize] = useState<ResizeState | null>(null);
+  const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
+  const [moveModeOperationId, setMoveModeOperationId] = useState<string | undefined>();
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
   const [isPageRendered, setIsPageRendered] = useState(false);
@@ -391,6 +409,14 @@ export function PdfCanvas({
   const canPickExistingText = isPageRendered && (activeTool === "select" || activeTool === "text");
   const pdfFile = useMemo(() => ({ data: document.bytes.slice() }), [document.bytes]);
   const editableTextRuns = useMemo(() => groupEditableTextRuns(textItems), [textItems]);
+  const replacedSourceRects = useMemo(
+    () =>
+      operations
+        .filter((operation): operation is TextOperation =>
+          operation.type === "text" && operation.pageIndex === pageIndex && Boolean(operation.sourceCoverRect))
+        .map((operation) => operation.sourceCoverRect!),
+    [operations, pageIndex],
+  );
 
   useEffect(() => {
     setIsPageRendered(false);
@@ -400,6 +426,14 @@ export function PdfCanvas({
   useEffect(() => {
     if (editingTextId && selectedId !== editingTextId) setEditingTextId(undefined);
   }, [editingTextId, selectedId]);
+
+  useEffect(() => {
+    if (editingTextId && editingTextId === moveModeOperationId) setMoveModeOperationId(undefined);
+  }, [editingTextId, moveModeOperationId]);
+
+  useEffect(() => {
+    if (!selectedId) setMoveModeOperationId(undefined);
+  }, [selectedId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -455,12 +489,12 @@ export function PdfCanvas({
       sampledFontWeight,
     });
     nextOperations.forEach(onOperationAdd);
-    const replacementText = sourceTextItem
-      ? nextOperations.find((operation): operation is TextOperation => operation.type === "text")
-      : undefined;
-    if (replacementText) {
-      onOperationSelect(replacementText.id);
-      window.requestAnimationFrame(() => setEditingTextId(replacementText.id));
+    const createdText = nextOperations.find(
+      (operation): operation is TextOperation => operation.type === "text",
+    );
+    if (createdText) {
+      onOperationSelect(createdText.id);
+      window.requestAnimationFrame(() => setEditingTextId(createdText.id));
     }
   };
 
@@ -573,29 +607,51 @@ export function PdfCanvas({
             const point = pointFromEvent(event, stageRef.current);
             const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
             const dragged = operations.find((operation) => operation.id === drag.id);
-            const rect = clampRect(
+            if (!dragged) return;
+
+            const nextPdfRect = clampRect(
               {
                 x: drag.origin.x + (pdfPoint.x - drag.start.x),
                 y: drag.origin.y + (pdfPoint.y - drag.start.y),
-                width: dragged?.rect.width ?? 1,
-                height: dragged?.rect.height ?? 1,
+                width: dragged.rect.width,
+                height: dragged.rect.height,
               },
               pageWidth,
               pageHeight,
             );
+            let viewportRect = pdfRectToViewport(nextPdfRect, pageHeight, scale);
+            const alignmentLines = collectAlignmentLines({
+              movingId: drag.id,
+              operations,
+              textItems,
+              pageIndex,
+              pageWidth,
+              pageHeight,
+              scale,
+            });
+            const snapped = snapViewportRect(viewportRect, alignmentLines);
+            viewportRect = snapped.rect;
+            setActiveGuides(snapped.guides);
+            const rect = clampRect(viewportRectToPdf(viewportRect, pageHeight, scale), pageWidth, pageHeight);
             onOperationUpdate(drag.id, { rect } as Partial<EditOperation>);
           }}
           onPointerUp={() => {
             setDrag(null);
             setResize(null);
+            setActiveGuides([]);
+            setMoveModeOperationId(undefined);
           }}
           onPointerCancel={() => {
             setDrag(null);
             setResize(null);
+            setActiveGuides([]);
+            setMoveModeOperationId(undefined);
           }}
           onLostPointerCapture={() => {
             setDrag(null);
             setResize(null);
+            setActiveGuides([]);
+            setMoveModeOperationId(undefined);
           }}
         >
           <Document
@@ -615,6 +671,11 @@ export function PdfCanvas({
 
           <div className={`text-hit-layer ${canPickExistingText ? "is-active" : ""}`} aria-hidden={canPickExistingText ? undefined : true}>
             {editableTextRuns.map((item, index) => {
+              // Hide the hit target once this PDF run has been replaced, so the user
+              // can't stack a second replacement (which would create duplicate text).
+              if (replacedSourceRects.some((coverRect) => rectsOverlapSignificantly(coverRect, item.rect))) {
+                return null;
+              }
               const rect = pdfRectToViewport(item.rect, pageHeight, scale);
               return (
                 <button
@@ -636,16 +697,48 @@ export function PdfCanvas({
             })}
           </div>
 
+          <div className="guides-layer" aria-hidden="true">
+            {activeGuides.map((guide, index) => (
+              <div
+                key={`${guide.orientation}-${guide.position}-${index}`}
+                className={`guide guide--${guide.orientation}${guide.snapped ? " is-snapped" : ""}`}
+                style={guide.orientation === "horizontal" ? { top: guide.position } : { left: guide.position }}
+              />
+            ))}
+          </div>
+
           <div className="operation-layer">
+            {operations.map((operation) => {
+              if (operation.type !== "text" || !operation.sourceCoverRect) return null;
+              const coverRect = pdfRectToViewport(operation.sourceCoverRect, pageHeight, scale);
+              return (
+                <div
+                  key={`source-cover-${operation.id}`}
+                  className="operation operation--source-cover"
+                  aria-hidden="true"
+                  style={{
+                    left: coverRect.left,
+                    top: coverRect.top,
+                    width: coverRect.width,
+                    height: coverRect.height,
+                    background: operation.whiteoutColor ?? "#fff",
+                  }}
+                />
+              );
+            })}
             {selectedOperation ? (
               <FloatingOperationToolbar
                 operation={selectedOperation}
                 pageWidth={pageWidth}
                 rect={pdfRectToViewport(selectedOperation.rect, pageHeight, scale)}
                 scale={scale}
+                hidden={Boolean(drag)}
+                moveModeActive={moveModeOperationId === selectedOperation.id}
                 onDelete={onOperationRemove}
                 onDuplicate={(operation) => onOperationAdd(cloneOperation(operation))}
                 onLink={addLinkForOperation}
+                onMoveToggle={() =>
+                  setMoveModeOperationId((current) => (current === selectedOperation.id ? undefined : selectedOperation.id))}
                 onTextPreview={(id, patch) => setTextPreview(patch ? { id, patch } : null)}
                 onUpdate={onOperationUpdate}
               />
@@ -679,10 +772,20 @@ export function PdfCanvas({
                 pageHeight={pageHeight}
                 scale={scale}
                 selected={operation.id === selectedId}
+                dragging={drag?.id === operation.id}
+                moveModeActive={moveModeOperationId === operation.id}
                 onPointerDown={(event) => {
                   event.stopPropagation();
                   onOperationSelect(operation.id);
-                  if (editingTextId === operation.id) return;
+                  // With the Text tool active, clicking a text overlay edits it in place
+                  // (Sejda-style) rather than starting a move-drag.
+                  if (activeTool === "text" && operation.type === "text") {
+                    if (editingTextId !== operation.id) setEditingTextId(operation.id);
+                    return;
+                  }
+                  // Move-drag is only available in Select tool or when move mode is explicitly on.
+                  if (activeTool !== "select" && moveModeOperationId !== operation.id) return;
+                  if (!canDragOperation(operation, editingTextId)) return;
                   if (!stageRef.current) return;
                   stageRef.current.setPointerCapture(event.pointerId);
                   const point = pointFromEvent(event, stageRef.current);

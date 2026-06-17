@@ -297,9 +297,249 @@ These appear for text boxes, images, shapes, signatures, etc.:
 
 ---
 
-## 6. Suggested implementation priority for Akki PDF Editor
+## 6. Text move UX — Sejda reference (verified live 2026-06-17)
+
+Observed on the live Sejda editor with an existing-text overlay (`#text-editable-2`,
+content **"Akki Pathak"**) on an Uber receipt PDF. Reproduced by selecting the text,
+clicking **Move** on the floating toolbar, and dragging while inspecting DOM/CSS.
+
+### 6.1 Why this matters for Akki PDF Editor
+
+Akki currently differs in three ways that hurt text repositioning UX:
+
+| Behavior | Sejda (target) | Akki PDF Editor (today) |
+|----------|----------------|-------------------------|
+| Move activation | **Two paths:** click Move *or* direct cursor-drag on text | Any pointer-down on overlay starts drag immediately |
+| Move toolbar feedback | Cursor changes to `move` after Move click; drag works even without it | Move icon is passive/decorative (`floating-toolbar__button--passive`) |
+| Text resize chrome | **No** resize handles on text | `ResizeHandles` shown for text (`isResizableOperation` returns `true`) |
+| Alignment feedback | Smart snap guides during drag | None |
+| Toolbar placement | **Left-aligned** with text, ~15px above | **Centered** then clamped — can end up **276px+ away horizontally** |
+
+The user goal: **drag text naturally (with or without clicking Move) → see alignment
+guides → toolbar stays tight to the selected block → no heavy crop/resize bar on text.**
+
+### 6.2 Move mode activation (two equivalent paths)
+
+**Path A — click Move, then drag (explicit mode)**
+
+1. User selects a text overlay (click on it).
+2. Floating contextual toolbar appears **above** the element (follows its position).
+3. Text overlay has jQuery-UI draggable **disabled by default**
+   (`ui-draggable-disabled`; `draggable('option', 'disabled') === true`).
+4. User clicks the **Move** button (`.move-btn`, four-way arrow icon) on the toolbar.
+5. Drag becomes enabled: `ui-draggable-disabled` removed, element `cursor: move`.
+6. User drags the text box itself (Move is a mode gate, not a drag handle).
+7. On drag end, drag is **auto-disabled again** (returns to edit-safe state).
+
+**Path B — direct cursor drag (implicit move) — VERIFIED**
+
+User can **skip the Move click entirely**: pointer-down on the selected text and
+drag immediately repositions it. Observed behavior:
+
+- Drag succeeds even while `draggable('option', 'disabled') === true` (jQuery UI
+  still handles the gesture on `.ui-draggable-handle`).
+- Alignment guides appear during drag (~84 lines observed).
+- The Move button does **not** gain an `.active` / `aria-pressed` class — Sejda
+  does not visually “select” the Move icon when drag starts implicitly.
+- Implicit feedback is the drag itself + snap guides, not toolbar button state.
+- After explicit Move click, cursor becomes `move`; during implicit drag it stays
+  `auto` — both paths work.
+
+> Akki takeaway: support **both** paths. Default: pointer-down on a selected text
+> overlay starts move-drag (with guides). Optional: clicking Move sets `moveMode` and
+> changes cursor to `move`. Do **not** require Move click before every drag — that
+> would be a regression vs Sejda. Wire the passive Move icon in
+> `FloatingOperationToolbar.tsx` as an optional explicit toggle, not the only gate.
+
+### 6.3 Drag behavior
+
+- **Containment:** element stays within the page wrapper (`.page-wrap`).
+- **No resize handles** on text during move or selection (confirmed: `ui-resizable`
+  absent, zero `.ui-resizable-handle` nodes).
+- **Border chrome is minimal:** `.text-editable { border: 2px dashed transparent; }`
+  — no heavy selection frame or crop bar.
+- **Floating toolbar hides during drag** (`#text-editable-menu { display: none }`),
+  then reappears at the new position after drop.
+- Pointer cursor: `grab` in move mode, `grabbing` while dragging.
+
+> Akki takeaway: exclude `type === "text"` from `isResizableOperation()` (or add a
+> separate `isMoveOnlyOperation()`). Hide `FloatingOperationToolbar` while dragging.
+
+### 6.4 Alignment guides (“grid view”)
+
+This is **not** a literal dot-grid background. It is **Figma-style smart alignment
+guides** that appear **only while dragging**.
+
+**DOM structure (per page):**
+
+```html
+<div class="page-wrap rendered">
+  <!-- canvas, textLayer, annotationLayer, … -->
+  <div class="guidesLayer"></div>   <!-- empty when idle -->
+  <div class="text-editable …">Akki Pathak</div>
+</div>
+```
+
+**During drag**, `guidesLayer` is populated with many guide lines (~76 observed on a
+busy receipt page). Each guide:
+
+```html
+<div class="guide horizontal" style="top: 76px;"></div>
+<div class="guide vertical" style="left: 1318px;"></div>
+<!-- when snapped: -->
+<div class="guide horizontal snapped" style="top: 107px;"></div>
+```
+
+**CSS (from Sejda stylesheet):**
+
+```css
+.guidesLayer { position: absolute; top: 0; pointer-events: none; mix-blend-mode: multiply; }
+.guide.horizontal { border-top: 1px dashed rgb(255, 215, 157); height: 1px; width: 100%; }
+.guide.vertical   { border-left: 1px dashed rgb(255, 215, 157); height: 100%; width: 1px; }
+.guide.horizontal.snapped { border-top: 1px solid rgb(255, 140, 66); }
+.guide.vertical.snapped   { border-left: 1px solid rgb(255, 140, 66); }
+```
+
+**Guide sources:** edges of other page content — existing PDF text runs, other
+overlays (shapes, stamps, whiteout), and sibling edit elements. Guides are
+recomputed on every drag move.
+
+**Snap behavior:**
+
+- jQuery draggable `snapTolerance: 20` (px).
+- When the moving element's edge aligns within tolerance, the guide gets `.snapped`
+  (dashed yellow → solid orange) and the element position snaps.
+- **All guides are removed** when drag ends (`guidesLayer` innerHTML cleared).
+
+> Akki takeaway: add a `guidesLayer` sibling inside `.page-stage` in `PdfCanvas.tsx`.
+> On drag move, compute candidate horizontal/vertical lines from:
+> - PDF.js text layer item rects (`textItems`)
+> - Other `EditOperation` rects on the same page
+> - Page margins (optional: edges at 0 / pageWidth / pageHeight)
+> Render matching guides in viewport coords; highlight snapped pairs in accent orange.
+> Clear on pointer-up.
+
+### 6.5 Interaction flow (step-by-step)
+
+```
+Select text overlay
+  → floating toolbar visible (Bold, Italic, Font, Size, Color, Link, Move, Clone, Delete)
+Click Move icon
+  → cursor: grab; drag enabled; resize handles stay hidden
+Pointer down on text + drag
+  → toolbar hides
+  → alignment guides appear in guidesLayer
+  → element follows pointer; snaps when near guide (±20px)
+Pointer up
+  → guides cleared
+  → drag disabled again
+  → toolbar reappears above new position
+  → edit state unchanged (text content, font, etc. preserved)
+```
+
+### 6.6 Suggested Akki implementation checklist
+
+**State (`PdfCanvas` or editor controller):**
+
+- [ ] `moveModeOperationId: string | null` — optional explicit toggle when Move clicked.
+- [ ] Allow drag on selected text pointer-down **without** requiring move mode first.
+- [ ] Do not enter text edit mode while dragging.
+
+**`FloatingOperationToolbar.tsx`:**
+
+- [ ] Change Move from passive `<span>` to `<button>` (optional explicit move toggle).
+- [ ] Fix `getToolbarPlacement` — **left-align** with text, ~12–15px vertical gap.
+- [ ] Fix `clampToolbarLeft` — clamp near text block, not just page edge.
+- [ ] Measure actual toolbar width via ref instead of `estimatedWidth = 430`.
+- [ ] `aria-pressed={moveModeActive}` when explicit move mode is on.
+
+**`PdfCanvas.tsx`:**
+
+- [ ] Start drag on selected text pointer-down (implicit move path).
+- [ ] Remove text from `isResizableOperation()` (keep resize for shapes/images).
+- [ ] Hide toolbar while dragging; reposition after drop.
+- [ ] Render `<div class="guides-layer" aria-hidden="true">` inside page stage.
+- [ ] In drag move branch: compute guides, apply snap, update operation rect.
+- [ ] Clear guides in `onPointerUp`.
+
+**`app.css`:**
+
+- [ ] `.guides-layer` + `.guide.horizontal` / `.guide.vertical` / `.snapped` (match Sejda colors or use design tokens).
+- [ ] `.operation--text.is-selected` — lighter selection chrome (no resize frame).
+- [ ] `.operation.is-move-mode { cursor: grab; }`
+
+**Tests:**
+
+- [ ] E2E: select text → click Move → drag → assert position changed and no resize handles visible.
+- [ ] Unit: snap helper returns snapped rect when within tolerance.
+
+### 6.7 Floating toolbar placement — VERIFIED (Sejda vs Akki gap)
+
+Measured live with **"Akki Pathak"** selected on both editors (same Uber receipt).
+
+| Metric | Sejda | Akki PDF Editor (today) |
+|--------|-------|-------------------------|
+| Vertical gap (toolbar bottom → text top) | **~15px** | **~12px** (OK) |
+| Horizontal offset (toolbar left − text left) | **0px** (left-aligned) | **−276px** (toolbar far left of text) |
+| Center alignment delta | **~10px** (toolbar ≈ centered on text) | **−177px** (toolbar not near text) |
+| Toolbar width vs text width | 411px vs 390px | 418px vs 218px |
+
+**Sejda positioning rules (observed):**
+
+- Toolbar `#text-editable-menu` is **left-aligned with the text block**
+  (`menu.style.left === text.style.left`, offset 0px).
+- Placed **directly above** with a tight ~15px gap.
+- Toolbar repositions on every selection/drag end to follow the element.
+
+**Akki root cause (`FloatingOperationToolbar.tsx`):**
+
+```ts
+// Current — centers toolbar on text, then clamps to page edge
+left = rect.left + rect.width / 2 - estimatedWidth / 2   // estimatedWidth = 430 for text
+top  = rect.top - 48                                      // placement "above"
+clampToolbarLeft(left, pageWidth)                         // maxLeft = pageWidth - 560
+```
+
+When text sits on the **right side** of the page (e.g. "Akki Pathak" at
+`left: 1049px` on a `722px`-wide stage), centering would place the toolbar off-page.
+`clampToolbarLeft` snaps it to `left: 162px` — **276px away** from the text.
+Visually the toolbar looks detached even though vertical gap is fine.
+
+**Recommended Akki fix:**
+
+1. **Left-align** toolbar with text (`left = rect.left`), matching Sejda — not
+   center-on-text with a hard page clamp.
+2. Use **measured toolbar width** (ref/`getBoundingClientRect`) instead of
+   `estimatedWidth = 430`.
+3. Clamp relative to **both page bounds and text block** so toolbar stays adjacent:
+   `clamp(left, 8, min(pageWidth - toolbarWidth - 8, textRight - toolbarWidth))`.
+4. Tighten vertical offset: Sejda ≈ **15px** gap; Akki uses `top - 48` which works
+   only because toolbar height (~36px) absorbs the rest — prefer explicit
+   `top = rect.top - toolbarHeight - 12`.
+5. After drag, **recompute placement** from updated operation rect (Sejda does this).
+
+> Files to change when implementing: `FloatingOperationToolbar.tsx`
+> (`getToolbarPlacement`, `clampToolbarLeft`) and possibly measure toolbar via ref
+> instead of hard-coded width estimates.
+
+### 6.8 Out of scope (for this pass)
+
+- The top-right `fa-th-large` grid icon on Sejda pages — appears unrelated to drag
+  guides (guides appear during drag without toggling it). Treat as page-layout tool
+  unless further investigation proves otherwise.
+- Move-via-dragging-the-Move-button itself — Sejda uses Move as a **mode toggle**,
+  not a drag handle.
+
+---
+
+## 7. Suggested implementation priority for Akki PDF Editor
+
+> **Near-term UX win:** Section 6 (text move + alignment guides) should land with or
+> immediately after core text — it replaces the current “always draggable + resize
+> handles on text” pattern.
 
 1. **Core text** — add/edit/delete text + font family, size, bold/italic, color, alignment.
+   - Include **§6 text move mode** (Move toolbar button, no text resize handles, snap guides).
 2. **Shapes** — rectangle, ellipse, line, arrow with border/fill/width.
 3. **Annotate** — highlight, underline, strikethrough, freehand draw.
 4. **Whiteout** — cover existing content.
