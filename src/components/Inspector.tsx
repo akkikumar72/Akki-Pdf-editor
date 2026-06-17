@@ -1,4 +1,4 @@
-import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, SlidersHorizontal } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, ImageDown, SlidersHorizontal } from "lucide-react";
 import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeUrl } from "../utils/url";
@@ -185,6 +185,7 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
           <button onClick={() => onExport("txt")}><FileText aria-hidden="true" /> TXT</button>
           <button onClick={() => onExport("csv")}><FileSpreadsheet aria-hidden="true" /> CSV</button>
           <button onClick={() => onExport("xlsx")}><FileSpreadsheet aria-hidden="true" /> XLSX</button>
+          <button onClick={() => onExport("png")}><ImageDown aria-hidden="true" /> PNG</button>
         </div>
       </section>
 

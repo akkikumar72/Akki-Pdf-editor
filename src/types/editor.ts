@@ -210,7 +210,7 @@ export type EditorDocument = LoadedPdf & {
   textItems: TextItem[];
 };
 
-export type ExportFormat = "pdf" | "txt" | "csv" | "xlsx";
+export type ExportFormat = "pdf" | "txt" | "csv" | "xlsx" | "png";
 
 export type ViewportRect = {
   left: number;

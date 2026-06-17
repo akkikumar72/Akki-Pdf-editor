@@ -22,7 +22,7 @@ do an interactive browser check.
 2. Load `/pdf-editor`, confirm the React root mounts, canvases render, and there is no Vite
    error overlay or console exception.
 3. Exercise the core flows: tool switching (Select/Text/etc.), selecting an overlay (inline
-   toolbar + Inspector populate), undo/redo, and at least one export path (e.g. CSV).
+   toolbar + Inspector populate), undo/redo, and at least one export path (e.g. PNG).
 4. Prefer accessibility refs/labels over coordinate clicks; capture before/after screenshots
    as evidence.
 5. Leave the document state restored (undo any test edits) and unlock the browser when done.

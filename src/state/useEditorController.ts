@@ -329,12 +329,15 @@ export function useEditorController() {
     setIsBusy(true);
     setStatus(`Exporting ${format.toUpperCase()}...`);
     try {
+      // PNG export strips editor chrome at snapshot time (see exportPipeline),
+      // so the user's selection is left untouched here.
       await exportPipeline.export(format, {
         filename: document.name,
         bytes: document.bytes,
         operations: editState.operations,
         textItems,
         fonts: documentFonts,
+        pageStage: pageStageRef.current,
       });
       setStatus(`${format.toUpperCase()} exported`);
     } catch (error) {

@@ -680,7 +680,7 @@ export function PdfCanvas({
             />
           </Document>
 
-          <div className={`text-hit-layer ${canPickExistingText ? "is-active" : ""}`} aria-hidden={canPickExistingText ? undefined : true}>
+          <div className={`text-hit-layer ${canPickExistingText ? "is-active" : ""}`} aria-hidden={canPickExistingText ? undefined : true} data-export-ignore="">
             {editableTextRuns.map((item, index) => {
               // Hide the hit target once this PDF run has been replaced, so the user
               // can't stack a second replacement (which would create duplicate text).
@@ -708,7 +708,7 @@ export function PdfCanvas({
             })}
           </div>
 
-          <div className="guides-layer" aria-hidden="true">
+          <div className="guides-layer" aria-hidden="true" data-export-ignore="">
             {activeGuides.map((guide, index) => (
               <div
                 key={`${guide.orientation}-${guide.position}-${index}`}
