@@ -59,6 +59,17 @@ describe("export pipeline", () => {
     expect(csv).not.toMatch(/"=cmd/);
   });
 
+  it("neutralizes formula payloads prefixed with a leading newline or tab", () => {
+    const dangerous: TextItem[] = [
+      { str: "\n=cmd", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } },
+      { str: "\t=SUM(A1)", pageIndex: 0, rect: { x: 160, y: 700, width: 80, height: 12 } },
+    ];
+    const csv = new ExportPipeline().toCsv(dangerous, []);
+    expect(csv).toContain("'\n=cmd");
+    expect(csv).toContain("'\t=SUM(A1)");
+    expect(csv).not.toMatch(/"\n=cmd/);
+  });
+
   it("neutralizes XLSX formula-injection payloads", () => {
     const bytes = new ExportPipeline().toXlsxBytes(
       [{ str: "=HYPERLINK(1)", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } }],

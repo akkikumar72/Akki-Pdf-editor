@@ -109,11 +109,13 @@ export const exportPipeline = new ExportPipeline();
 
 /**
  * Neutralize spreadsheet formula injection (CSV/XLSX). Cells whose first
- * character can start a formula (`= + - @`) or a control char (tab/CR) are
+ * character can start a formula (`= + - @`) or a control char (tab/CR/LF) are
  * prefixed with a single quote so Excel/Calc treat them as literal text.
+ * The leading line-feed is included because some spreadsheet apps strip
+ * leading whitespace/newlines before evaluating a cell (CWE-1236).
  */
 function neutralizeFormula(cell: string) {
-  return /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
+  return /^[=+\-@\t\r\n]/.test(cell) ? `'${cell}` : cell;
 }
 
 function xmlEscape(value: string) {

@@ -164,8 +164,10 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                 value={operation.href}
                 onChange={(event) => update({ href: event.currentTarget.value } as Partial<EditOperation>)}
                 onBlur={(event) => {
-                  const safe = sanitizeUrl(event.currentTarget.value);
-                  if (safe) update({ href: safe } as Partial<EditOperation>);
+                  // Never leave an unsafe URL in the edit model. sanitizeUrl returns the
+                  // safe form (http/https/mailto) or null; on null, clear the field rather
+                  // than keeping the raw value the onChange already wrote.
+                  update({ href: sanitizeUrl(event.currentTarget.value) ?? "" } as Partial<EditOperation>);
                 }}
               />
             </label>
