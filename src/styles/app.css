@@ -1714,8 +1714,9 @@ select:disabled {
 }
 
 .text-hit-layer.is-active .text-hit:hover {
-  border-color: color-mix(in oklch, var(--color-accent) 50%, transparent);
-  background: color-mix(in oklch, var(--color-accent-soft) 24%, transparent);
+  outline: 1.5px dashed var(--color-accent);
+  outline-offset: 1px;
+  background: transparent;
 }
 
 .text-hit:focus-visible {

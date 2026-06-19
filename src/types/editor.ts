@@ -68,6 +68,8 @@ export type TextOperation = BaseOperation & {
   // Original PDF text bounds for a replacement overlay. The mask at this rect stays
   // fixed even when the editable text is dragged, so the underlying glyph never reappears.
   sourceCoverRect?: PdfRect;
+  // Stable id of the extracted PDF text run this replacement originated from.
+  sourceRunId?: string;
 };
 
 export type WhiteoutOperation = BaseOperation & {
@@ -161,6 +163,7 @@ export type EditOperation =
   | TableRegionOperation;
 
 export type TextItem = {
+  id: string;
   str: string;
   pageIndex: number;
   rect: PdfRect;

@@ -13,7 +13,7 @@ import type {
   TextItem,
   ViewportRect,
 } from "../types/editor";
-import { createOperationsForTool, estimateSingleLineTextWidth } from "../editor/operationFactory";
+import { createOperationsForTool } from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation, translatePoints } from "../editor/selectionModel";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
@@ -59,6 +59,7 @@ type ResizeState = {
 };
 
 const MIN_RESIZE_PX = 8;
+const TEXT_HIT_PADDING_PX = 2;
 
 function isResizableOperation(operation: EditOperation) {
   if (operation.type === "text") return false;
@@ -289,6 +290,15 @@ function chooseRunStyleItem(items: TextItem[]) {
   ), items[0]);
 }
 
+function isRunSuppressed(
+  run: TextItem,
+  replacedByRunId: Set<string>,
+  replacedCoverRects: PdfRect[],
+) {
+  if (replacedByRunId.has(run.id)) return true;
+  return replacedCoverRects.some((coverRect) => rectsOverlapSignificantly(coverRect, run.rect));
+}
+
 function mergeTextRun(items: TextItem[]): TextItem {
   const sorted = [...items].sort((a, b) => a.rect.x - b.rect.x);
   const styleItem = chooseRunStyleItem(sorted);
@@ -310,6 +320,7 @@ function mergeTextRun(items: TextItem[]): TextItem {
 
   return {
     ...styleItem,
+    id: sorted[0].id,
     str: text,
     rect: {
       x,
@@ -348,40 +359,6 @@ function groupEditableTextRuns(items: TextItem[]) {
 
   if (current.length) runs.push(mergeTextRun(current));
   return runs;
-}
-
-/**
- * Split a (possibly multi-word) editable run into per-word hit items so the
- * Select/Text tools target only the word nearest the pointer instead of the
- * whole line. Word x-extents are approximated proportionally from glyph-width
- * estimates because an extracted run carries no per-character offsets; the
- * resulting boxes are click targets only, and the overlay can be nudged after.
- */
-function splitRunIntoWords(run: TextItem): TextItem[] {
-  const segments = run.str.match(/\S+|\s+/g);
-  if (!segments || segments.length <= 1) return [run];
-  const fontSize = run.fontSize ?? run.rect.height;
-  const widths = segments.map((segment) => Math.max(0.001, estimateSingleLineTextWidth(segment, fontSize, run.fontWeight)));
-  const total = widths.reduce((sum, value) => sum + value, 0) || 1;
-  const words: TextItem[] = [];
-  let offset = 0;
-  segments.forEach((segment, index) => {
-    const fraction = widths[index] / total;
-    if (/\S/.test(segment)) {
-      words.push({
-        ...run,
-        str: segment,
-        rect: {
-          x: run.rect.x + offset * run.rect.width,
-          y: run.rect.y,
-          width: Math.max(fraction * run.rect.width, 1),
-          height: run.rect.height,
-        },
-      });
-    }
-    offset += fraction;
-  });
-  return words.length ? words : [run];
 }
 
 function findNearbyTextRunForStyle(pointRect: ViewportRect, textRuns: TextItem[], pageHeight: number, scale: number) {
@@ -444,16 +421,21 @@ export function PdfCanvas({
   const canPickExistingText = isPageRendered && (activeTool === "select" || activeTool === "text");
   const pdfFile = useMemo(() => ({ data: document.bytes.slice() }), [document.bytes]);
   const editableTextRuns = useMemo(() => groupEditableTextRuns(textItems), [textItems]);
-  // Selection/replacement targets one word at a time (nearest the pointer), so
-  // clicking a dense line no longer grabs the whole phrase.
-  const editableWordItems = useMemo(() => editableTextRuns.flatMap(splitRunIntoWords), [editableTextRuns]);
-  const replacedSourceRects = useMemo(
+  const replacedTextOps = useMemo(
     () =>
-      operations
-        .filter((operation): operation is TextOperation =>
-          operation.type === "text" && operation.pageIndex === pageIndex && Boolean(operation.sourceCoverRect))
-        .map((operation) => operation.sourceCoverRect!),
+      operations.filter(
+        (operation): operation is TextOperation =>
+          operation.type === "text" && operation.pageIndex === pageIndex && Boolean(operation.sourceCoverRect),
+      ),
     [operations, pageIndex],
+  );
+  const replacedByRunId = useMemo(
+    () => new Set(replacedTextOps.map((operation) => operation.sourceRunId).filter(Boolean) as string[]),
+    [replacedTextOps],
+  );
+  const replacedCoverRects = useMemo(
+    () => replacedTextOps.map((operation) => operation.sourceCoverRect!),
+    [replacedTextOps],
   );
 
   useEffect(() => {
@@ -718,27 +700,31 @@ export function PdfCanvas({
           </Document>
 
           <div className={`text-hit-layer ${canPickExistingText ? "is-active" : ""}`} aria-hidden={canPickExistingText ? undefined : true}>
-            {editableWordItems.map((item, index) => {
-              // Hide the hit target once this PDF run has been replaced, so the user
-              // can't stack a second replacement (which would create duplicate text).
-              if (replacedSourceRects.some((coverRect) => rectsOverlapSignificantly(coverRect, item.rect))) {
+            {editableTextRuns.map((item) => {
+              if (isRunSuppressed(item, replacedByRunId, replacedCoverRects)) {
                 return null;
               }
               const rect = pdfRectToViewport(item.rect, pageHeight, scale);
+              const hitRect = {
+                left: rect.left - TEXT_HIT_PADDING_PX,
+                top: rect.top - TEXT_HIT_PADDING_PX,
+                width: rect.width + TEXT_HIT_PADDING_PX * 2,
+                height: rect.height + TEXT_HIT_PADDING_PX * 2,
+              };
               return (
                 <button
-                  key={`${item.str}-${index}`}
+                  key={item.id}
                   className="text-hit"
                   style={{
-                    left: rect.left,
-                    top: rect.top,
-                    width: Math.max(rect.width, 16),
-                    height: Math.max(rect.height, 12),
+                    left: hitRect.left,
+                    top: hitRect.top,
+                    width: hitRect.width,
+                    height: hitRect.height,
                   }}
                   title={`Replace: ${item.str}`}
                   onClick={(event) => {
                     event.stopPropagation();
-                    void addAt({ left: rect.left, top: rect.top, width: Math.max(rect.width, 16), height: Math.max(rect.height, 12) }, item);
+                    void addAt(hitRect, item);
                   }}
                 />
               );
