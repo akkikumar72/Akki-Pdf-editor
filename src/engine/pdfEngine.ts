@@ -241,6 +241,7 @@ export class PdfEngine {
           commonObjs = null;
         }
         const fontMetaCache = new Map<string, PdfFontMeta | undefined>();
+        let pageItemIndex = 0;
         for (const item of textContent.items as Array<Record<string, unknown>>) {
           if (!("str" in item) || !String(item.str).trim()) continue;
           const str = String(item.str);
@@ -265,6 +266,7 @@ export class PdfEngine {
           const fontWeight = fontInfo?.weight ?? (nameWeight === 400 && fontMeta?.bold ? 700 : nameWeight);
           const italic = Boolean(fontInfo?.italic) || inferItalic(styleDescriptor) || Boolean(fontMeta?.italic);
           items.push({
+            id: `${currentPageIndex}:${pageItemIndex}`,
             str,
             pageIndex: currentPageIndex,
             rect: {
@@ -280,6 +282,7 @@ export class PdfEngine {
             fontWeight,
             italic,
           });
+          pageItemIndex += 1;
         }
       }
     } finally {

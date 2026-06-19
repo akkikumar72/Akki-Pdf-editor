@@ -30,11 +30,13 @@ describe("selection model", () => {
       whiteout: true,
       whiteoutColor: "#ffffff",
       sourceCoverRect: { x: 10, y: 20, width: 120, height: 30 },
+      sourceRunId: "0:1",
     };
 
     const copy = duplicateOperation(replacement) as TextOperation;
 
     expect(copy.sourceCoverRect).toBeUndefined();
+    expect(copy.sourceRunId).toBeUndefined();
     expect(copy.whiteout).toBe(false);
   });
 

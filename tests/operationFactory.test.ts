@@ -3,6 +3,7 @@ import { createOperationsForTool } from "../src/editor/operationFactory";
 import type { TextItem } from "../src/types/editor";
 
 const textItem: TextItem = {
+  id: "0:0",
   str: "Invoice total",
   pageIndex: 0,
   rect: { x: 72, y: 700, width: 110, height: 20 },
@@ -36,6 +37,7 @@ describe("operation factory", () => {
     expect(operation.whiteout).toBe(true);
     expect(operation.whiteoutColor).toBe("#d7ecff");
     expect(operation.sourceCoverRect).toEqual({ x: 72, y: 700, width: 110, height: 20 });
+    expect(operation.sourceRunId).toBe("0:0");
   });
 
   it("does not set a source cover rect for plain new text", () => {

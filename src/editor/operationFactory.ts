@@ -39,14 +39,6 @@ const FORM_KIND_BY_TOOL = {
   "form-signature": "signature",
 } as const;
 
-export function estimateSingleLineTextWidth(text: string, fontSize: number, fontWeight?: number) {
-  const uppercaseCount = [...text].filter((char) => /[A-Z]/.test(char)).length;
-  const uppercaseRatio = text.length ? uppercaseCount / text.length : 0;
-  const weightFactor = (fontWeight ?? 400) >= 600 ? 1.08 : 1;
-  const averageGlyphWidth = uppercaseRatio > 0.65 ? 0.64 : 0.56;
-  return text.length * fontSize * averageGlyphWidth * weightFactor;
-}
-
 export function createOperationsForTool({
   activeTool,
   viewportRect,
@@ -82,17 +74,18 @@ export function createOperationsForTool({
     const italic = Boolean(styleTextItem?.italic);
     const fontSize = Math.max(1, Math.round(styleTextItem?.fontSize ?? 14));
     const text = sourceTextItem?.str ?? "New text";
-    const replacementWidth = isReplacement
-      ? Math.max(rect.width, estimateSingleLineTextWidth(text, fontSize, fontWeight))
-      : Math.max(rect.width, 130);
+    // A run-level replacement is sized exactly to the source PDF run bounds so the
+    // editable overlay and its whiteout mask sit tightly over the original glyphs
+    // (Sejda-style in-place edit). New free text keeps its placeholder size.
+    const replacementRect = sourceTextItem
+      ? { ...sourceTextItem.rect }
+      : { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, 28) };
     return [
       {
         id: createId("text"),
         type: "text",
         pageIndex,
-        rect: isReplacement
-          ? { ...rect, width: Math.max(replacementWidth, 16), height: Math.max(rect.height, fontSize) }
-          : { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, 28) },
+        rect: replacementRect,
         text,
         fontFamily: styleTextItem ? fontChoice.label : resolveFont().label,
         cssFontFamily: styleTextItem
@@ -109,9 +102,8 @@ export function createOperationsForTool({
         align: "left",
         whiteout: isReplacement,
         whiteoutColor: isReplacement ? (sampledBackgroundColor ?? DEFAULT_COLORS.whiteout) : undefined,
-        sourceCoverRect: isReplacement
-          ? { ...rect, width: Math.max(rect.width, 16), height: Math.max(rect.height, fontSize) }
-          : undefined,
+        sourceCoverRect: isReplacement ? { ...replacementRect } : undefined,
+        sourceRunId: sourceTextItem?.id,
         opacity: 1,
         createdAt: now,
       },

@@ -4,10 +4,10 @@ import { ExportPipeline } from "../src/engine/exportPipeline";
 import type { TextItem } from "../src/types/editor";
 
 const items: TextItem[] = [
-  { str: "Name", pageIndex: 0, rect: { x: 10, y: 700, width: 40, height: 12 } },
-  { str: "Amount", pageIndex: 0, rect: { x: 160, y: 700, width: 54, height: 12 } },
-  { str: "Akki", pageIndex: 0, rect: { x: 10, y: 680, width: 40, height: 12 } },
-  { str: "$42", pageIndex: 0, rect: { x: 160, y: 680, width: 28, height: 12 } },
+  { id: "0:0", str: "Name", pageIndex: 0, rect: { x: 10, y: 700, width: 40, height: 12 } },
+  { id: "0:1", str: "Amount", pageIndex: 0, rect: { x: 160, y: 700, width: 54, height: 12 } },
+  { id: "0:2", str: "Akki", pageIndex: 0, rect: { x: 10, y: 680, width: 40, height: 12 } },
+  { id: "0:3", str: "$42", pageIndex: 0, rect: { x: 160, y: 680, width: 28, height: 12 } },
 ];
 
 describe("export pipeline", () => {
@@ -33,7 +33,7 @@ describe("export pipeline", () => {
   it("writes a minimal XLSX workbook with escaped inline strings", () => {
     const bytes = new ExportPipeline().toXlsxBytes([
       ...items,
-      { str: "A&B <test>", pageIndex: 0, rect: { x: 10, y: 640, width: 80, height: 12 } },
+      { id: "0:4", str: "A&B <test>", pageIndex: 0, rect: { x: 10, y: 640, width: 80, height: 12 } },
     ], []);
     const files = unzipSync(bytes);
     const sheet = strFromU8(files["xl/worksheets/sheet1.xml"]);
@@ -46,10 +46,10 @@ describe("export pipeline", () => {
 
   it("neutralizes CSV formula-injection payloads", () => {
     const dangerous: TextItem[] = [
-      { str: "=cmd|'/c calc'!A0", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } },
-      { str: "+1+2", pageIndex: 0, rect: { x: 160, y: 700, width: 40, height: 12 } },
-      { str: "@SUM(A1)", pageIndex: 0, rect: { x: 10, y: 680, width: 80, height: 12 } },
-      { str: "-2+3", pageIndex: 0, rect: { x: 160, y: 680, width: 40, height: 12 } },
+      { id: "0:0", str: "=cmd|'/c calc'!A0", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } },
+      { id: "0:1", str: "+1+2", pageIndex: 0, rect: { x: 160, y: 700, width: 40, height: 12 } },
+      { id: "0:2", str: "@SUM(A1)", pageIndex: 0, rect: { x: 10, y: 680, width: 80, height: 12 } },
+      { id: "0:3", str: "-2+3", pageIndex: 0, rect: { x: 160, y: 680, width: 40, height: 12 } },
     ];
     const csv = new ExportPipeline().toCsv(dangerous, []);
     expect(csv).toContain("\"'=cmd|'/c calc'!A0\"");
@@ -61,8 +61,8 @@ describe("export pipeline", () => {
 
   it("neutralizes formula payloads prefixed with a leading newline or tab", () => {
     const dangerous: TextItem[] = [
-      { str: "\n=cmd", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } },
-      { str: "\t=SUM(A1)", pageIndex: 0, rect: { x: 160, y: 700, width: 80, height: 12 } },
+      { id: "0:0", str: "\n=cmd", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } },
+      { id: "0:1", str: "\t=SUM(A1)", pageIndex: 0, rect: { x: 160, y: 700, width: 80, height: 12 } },
     ];
     const csv = new ExportPipeline().toCsv(dangerous, []);
     expect(csv).toContain("'\n=cmd");
@@ -72,7 +72,7 @@ describe("export pipeline", () => {
 
   it("neutralizes XLSX formula-injection payloads", () => {
     const bytes = new ExportPipeline().toXlsxBytes(
-      [{ str: "=HYPERLINK(1)", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } }],
+      [{ id: "0:0", str: "=HYPERLINK(1)", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } }],
       [],
     );
     const sheet = strFromU8(unzipSync(bytes)["xl/worksheets/sheet1.xml"]);

@@ -50,7 +50,7 @@ async function makeSplitTextRunPdf(path: string) {
   page.drawRectangle({ x: 68, y: 656, width: 260, height: 52, color: rgb(0.05, 0.08, 0.13) });
   page.drawText(firstWord, { x: 82, y: 674, size, font, color: rgb(1, 1, 1) });
   page.drawText("Expertise", {
-    x: 82 + font.widthOfTextAtSize(firstWord, size) + 4,
+    x: 400,
     y: 674,
     size,
     font,
@@ -114,11 +114,10 @@ test("select mode can click existing PDF text to create a replacement overlay", 
   await expect(page.getByText(/sample\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
   await expect(page.getByRole("button", { name: /^select$/i })).toHaveAttribute("aria-pressed", "true");
-  // Selection is scoped to the word nearest the pointer, so "Invoice total"
-  // exposes a per-word hit rather than one phrase-wide target.
+  // Run-level hit targets the full extracted phrase.
   await page
     .getByRole("region", { name: "PDF editor canvas" })
-    .locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice']")
+    .locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']")
     .click();
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
@@ -186,7 +185,7 @@ test("timestamped undo history can restore a selected edit checkpoint", async ({
 
   await page
     .getByRole("region", { name: "PDF editor canvas" })
-    .locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice']")
+    .locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']")
     .click();
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   const inlineEditor = canvas.locator(".operation--text[contenteditable='true']");
@@ -214,7 +213,7 @@ test("replacement text overlays sample the existing PDF background", async ({ pa
 
   await page
     .getByRole("region", { name: "PDF editor canvas" })
-    .locator(".text-hit-layer.is-active .text-hit[title='Replace: Colored']")
+    .locator(".text-hit-layer.is-active .text-hit[title='Replace: Colored background text']")
     .click();
 
   await expect(page.locator(".operation--text")).toHaveCSS("background-color", "rgb(199, 230, 255)");
@@ -231,7 +230,7 @@ test("replacement text overlays sample the existing PDF text color", async ({ pa
 
   await page
     .getByRole("region", { name: "PDF editor canvas" })
-    .locator(".text-hit-layer.is-active .text-hit[title='Replace: White']")
+    .locator(".text-hit-layer.is-active .text-hit[title='Replace: White foreground text']")
     .click();
 
   await expect(page.locator(".operation--text")).toHaveCSS("background-color", "rgb(13, 20, 33)");
@@ -252,14 +251,13 @@ test("new text added near an existing line inherits that line style", async ({ p
 
   const sourceHit = page
     .getByRole("region", { name: "PDF editor canvas" })
-    .locator(".text-hit-layer.is-active .text-hit[title='Replace: White']");
+    .locator(".text-hit-layer.is-active .text-hit[title='Replace: White foreground text']");
   const sourceBox = await sourceHit.boundingBox();
   expect(sourceBox).not.toBeNull();
   if (!sourceBox) throw new Error("Expected source text hit box");
 
   await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
-  // Click just left of the first word on the same line — off the per-word hit
-  // targets but aligned with the line — so this adds new text (not a
+  // Click just left of the run hit target so this adds new text (not a
   // replacement) that inherits the line's white-on-dark style.
   await page.mouse.click(sourceBox.x - 24, sourceBox.y + sourceBox.height / 2);
 
@@ -272,7 +270,7 @@ test("new text added near an existing line inherits that line style", async ({ p
   expect(textColor.blue).toBeGreaterThan(235);
 });
 
-test("select scopes to the word nearest the pointer, not the whole line", async ({
+test("left and right runs on the same line stay independently selectable", async ({
   page,
 }, testInfo) => {
   const pdfPath = testInfo.outputPath("split-text-run.pdf");
@@ -283,13 +281,11 @@ test("select scopes to the word nearest the pointer, not the whole line", async 
   await expect(page.getByText(/split-text-run\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
-  // Each word on the line is its own hit target; the rest of the line stays
-  // independently selectable.
+  await expect(canvas.locator(".text-hit[title='Replace: Technical']")).toHaveCount(1);
   await expect(canvas.locator(".text-hit[title='Replace: Expertise']")).toHaveCount(1);
   await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Technical']").click();
 
   const replacement = page.locator(".operation--text");
-  // Only the clicked word is replaced — not the whole "Technical Expertise" run.
   await expect(replacement).toHaveText("Technical");
   await expect(replacement).toHaveCSS("background-color", "rgb(13, 20, 33)");
   await expect(replacement).toHaveCSS("font-weight", "700");
@@ -299,8 +295,22 @@ test("select scopes to the word nearest the pointer, not the whole line", async 
   expect(textColor.green).toBeGreaterThan(235);
   expect(textColor.blue).toBeGreaterThan(235);
 
-  // The neighbouring word remains a live target after the first replacement.
   await expect(canvas.locator(".text-hit[title='Replace: Expertise']")).toHaveCount(1);
+});
+
+test("hovering a PDF text run shows a dashed accent outline", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("hover-outline.pdf");
+  await makeSamplePdf(pdfPath);
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/hover-outline\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  const canvas = page.getByRole("region", { name: "PDF editor canvas" });
+  const hit = canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']");
+  await hit.hover();
+  const outlineStyle = await hit.evaluate((node) => getComputedStyle(node).outlineStyle);
+  expect(outlineStyle).toBe("dashed");
 });
 
 test("aligns the inline toolbar with text and supports drag move with guides", async ({ page }, testInfo) => {
@@ -409,15 +419,15 @@ test("moving a replacement keeps the original PDF text masked at its source", as
   await expect(page.getByText(/mask-sample\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
-  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice']").click();
+  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']").click();
   const replacement = canvas.locator(".operation--text").filter({ hasText: "Invoice" });
   await expect(replacement).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(replacement).not.toHaveClass(/is-editing/);
 
-  // A fixed source mask is rendered and the replaced word can no longer be re-hit (no duplicates).
+  // A fixed source mask is rendered and the replaced run can no longer be re-hit (no duplicates).
   await expect(canvas.locator(".operation--source-cover")).toHaveCount(1);
-  await expect(canvas.locator(".text-hit[title='Replace: Invoice']")).toHaveCount(0);
+  await expect(canvas.locator(".text-hit[title='Replace: Invoice total']")).toHaveCount(0);
 
   const coverBefore = await canvas.locator(".operation--source-cover").boundingBox();
   expect(coverBefore).not.toBeNull();
@@ -449,7 +459,7 @@ test("text tool click on existing PDF text replaces and edits immediately", asyn
 
   await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
-  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice']").click();
+  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']").click();
 
   const replacement = canvas.locator(".operation--text").filter({ hasText: "Invoice" });
   await expect(replacement).toBeVisible();
