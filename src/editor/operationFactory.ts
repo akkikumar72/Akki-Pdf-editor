@@ -39,7 +39,7 @@ const FORM_KIND_BY_TOOL = {
   "form-signature": "signature",
 } as const;
 
-function estimateSingleLineTextWidth(text: string, fontSize: number, fontWeight?: number) {
+export function estimateSingleLineTextWidth(text: string, fontSize: number, fontWeight?: number) {
   const uppercaseCount = [...text].filter((char) => /[A-Z]/.test(char)).length;
   const uppercaseRatio = text.length ? uppercaseCount / text.length : 0;
   const weightFactor = (fontWeight ?? 400) >= 600 ? 1.08 : 1;

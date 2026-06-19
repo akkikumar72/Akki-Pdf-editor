@@ -13,7 +13,7 @@ import type {
   TextItem,
   ViewportRect,
 } from "../types/editor";
-import { createOperationsForTool } from "../editor/operationFactory";
+import { createOperationsForTool, estimateSingleLineTextWidth } from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation, translatePoints } from "../editor/selectionModel";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
@@ -350,6 +350,40 @@ function groupEditableTextRuns(items: TextItem[]) {
   return runs;
 }
 
+/**
+ * Split a (possibly multi-word) editable run into per-word hit items so the
+ * Select/Text tools target only the word nearest the pointer instead of the
+ * whole line. Word x-extents are approximated proportionally from glyph-width
+ * estimates because an extracted run carries no per-character offsets; the
+ * resulting boxes are click targets only, and the overlay can be nudged after.
+ */
+function splitRunIntoWords(run: TextItem): TextItem[] {
+  const segments = run.str.match(/\S+|\s+/g);
+  if (!segments || segments.length <= 1) return [run];
+  const fontSize = run.fontSize ?? run.rect.height;
+  const widths = segments.map((segment) => Math.max(0.001, estimateSingleLineTextWidth(segment, fontSize, run.fontWeight)));
+  const total = widths.reduce((sum, value) => sum + value, 0) || 1;
+  const words: TextItem[] = [];
+  let offset = 0;
+  segments.forEach((segment, index) => {
+    const fraction = widths[index] / total;
+    if (/\S/.test(segment)) {
+      words.push({
+        ...run,
+        str: segment,
+        rect: {
+          x: run.rect.x + offset * run.rect.width,
+          y: run.rect.y,
+          width: Math.max(fraction * run.rect.width, 1),
+          height: run.rect.height,
+        },
+      });
+    }
+    offset += fraction;
+  });
+  return words.length ? words : [run];
+}
+
 function findNearbyTextRunForStyle(pointRect: ViewportRect, textRuns: TextItem[], pageHeight: number, scale: number) {
   const pointX = pointRect.left + pointRect.width / 2;
   const pointY = pointRect.top + pointRect.height / 2;
@@ -410,6 +444,9 @@ export function PdfCanvas({
   const canPickExistingText = isPageRendered && (activeTool === "select" || activeTool === "text");
   const pdfFile = useMemo(() => ({ data: document.bytes.slice() }), [document.bytes]);
   const editableTextRuns = useMemo(() => groupEditableTextRuns(textItems), [textItems]);
+  // Selection/replacement targets one word at a time (nearest the pointer), so
+  // clicking a dense line no longer grabs the whole phrase.
+  const editableWordItems = useMemo(() => editableTextRuns.flatMap(splitRunIntoWords), [editableTextRuns]);
   const replacedSourceRects = useMemo(
     () =>
       operations
@@ -681,7 +718,7 @@ export function PdfCanvas({
           </Document>
 
           <div className={`text-hit-layer ${canPickExistingText ? "is-active" : ""}`} aria-hidden={canPickExistingText ? undefined : true}>
-            {editableTextRuns.map((item, index) => {
+            {editableWordItems.map((item, index) => {
               // Hide the hit target once this PDF run has been replaced, so the user
               // can't stack a second replacement (which would create duplicate text).
               if (replacedSourceRects.some((coverRect) => rectsOverlapSignificantly(coverRect, item.rect))) {
