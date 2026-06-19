@@ -6,19 +6,19 @@ alwaysApply: true
 # Verify core UI after substantial changes
 
 After completing any of the following, run a `control-ui` browser pass against the
-running dev server (`npm run dev`, served at `http://localhost:5173/pdf-editor`) to
+running dev server (`bun run dev`, served at `http://localhost:5173/pdf-editor`) to
 confirm no core functionality regressed — do not consider the work done until this passes:
 
 - An `/improve` run that implements fixes.
 - Any "bigger" feature addition or bug fix (anything beyond a one-line/trivial tweak).
 
-Automated suites (`npm run test`, `npm run e2e`) are necessary but NOT sufficient — also
+Automated suites (`bun run test`, `bun run e2e`) are necessary but NOT sufficient — also
 do an interactive browser check.
 
 ## What the control-ui pass must cover
 
 1. Reuse the already-running dev server if present (check the terminals folder); only start
-   `npm run dev` if nothing is serving. Confirm `http://localhost:5173/pdf-editor` returns 200.
+   `bun run dev` if nothing is serving. Confirm `http://localhost:5173/pdf-editor` returns 200.
 2. Load `/pdf-editor`, confirm the React root mounts, canvases render, and there is no Vite
    error overlay or console exception.
 3. Exercise the core flows: tool switching (Select/Text/etc.), selecting an overlay (inline

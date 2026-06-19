@@ -85,12 +85,12 @@ Turned into plans: **003** (BUG-01-adjacent exhaustive dispatch / DEBT-01), **00
 - **DEBT-01** lives in plan 003. **DEBT-02/03** dedupe color + font-name helpers (S); **DEBT-04** `as Partial<EditOperation>` cast cluster (M); **DEBT-05** split `PdfCanvas` god file (L); **DEBT-07** reconcile the two text editors (Inspector vs FloatingOperationToolbar) (M); **DEBT-08** consolidate PDF.js worker setup behind the engine (S).
 - **SEC-04** CSP `style-src 'unsafe-inline'` hardening — MED, largely by-design for React inline styles.
 - **DX-01/DX-02/DOC-01** CI does not run the `e2e` or `format:check` gates that AGENTS.md/README call mandatory (`.github/workflows/ci.yml`) — S; either wire them or soften the docs.
-- **DEP-01** react-pdf 9 + pdfjs-dist 4.8.69 are a coupled 2-major migration (defer; `npm audit` clean); **DEP-02** `tailwind-merge` is dead weight (no Tailwind) — S.
+- **DEP-01** react-pdf 9 + pdfjs-dist 4.8.69 are a coupled 2-major migration (defer; `bun audit` clean); **DEP-02** `tailwind-merge` is dead weight (no Tailwind) — S.
 - **DIR-01** Forms export as flat graphics, not real AcroForm fields (`pdfEngine.ts:589`); **DIR-03** signature `drawn`/`image` modes are dead enum branches; **DIR-05** cloud/Web-URL import (shipped-but-disabled UI).
 
 ## Findings considered and rejected
 
-- Replacing `fflate` with a full spreadsheet library: rejected for v1 because the current export only needs a single inline-string worksheet, and `npm audit --audit-level=moderate` is clean with the small writer.
+- Replacing `fflate` with a full spreadsheet library: rejected for v1 because the current export only needs a single inline-string worksheet, and `bun audit --audit-level=moderate` is clean with the small writer.
 - Clearing `selectedId` on page delete (audit suggested it as a bug): rejected — `loadPdfState` already dispatches `reset`, which clears `selectedId`, so there is no stale-selection bug on the page-delete path.
 - 2026-06-17 — Converting `savePdf`/`OperationOverlay` to switches was **not** shipped in the direct batch (only planned as 003): it is MED-risk (draw-order regressions on `text + whiteout`) and wants the plan-002 writer split first, so it was left for review rather than landed unreviewed.
-- 2026-06-17 — `npm audit` re-run: **0 vulnerabilities**; no dependency security finding to act on. The pdfjs-dist 2-major lag is intentional coupling with react-pdf 9, not drift (DEP-01, deferred).
+- 2026-06-17 — `bun audit` re-run: **0 vulnerabilities**; no dependency security finding to act on. The pdfjs-dist 2-major lag is intentional coupling with react-pdf 9, not drift (DEP-01, deferred).

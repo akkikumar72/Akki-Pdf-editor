@@ -28,10 +28,10 @@
 
 | Purpose | Command | Expected on success |
 |---------|---------|---------------------|
-| Unit tests | `npm run test` | exit 0; all tests pass |
-| Build | `npm run build` | exit 0; production build completes |
-| Browser tests | `npm run e2e` | exit 0; all Playwright tests pass |
-| Security audit | `npm audit --audit-level=moderate` | exit 0; zero vulnerabilities |
+| Unit tests | `bun run test` | exit 0; all tests pass |
+| Build | `bun run build` | exit 0; production build completes |
+| Browser tests | `bun run e2e` | exit 0; all Playwright tests pass |
+| Security audit | `bun audit --audit-level=moderate` | exit 0; zero vulnerabilities |
 
 ## Scope
 
@@ -51,29 +51,29 @@
 
 Create `src/engine/operationWriters.ts` with a `PdfWriterContext` containing `pdf`, `page`, `rect`, `opacity`, `getFont`, and color/data helpers needed by operation writers. Move helpers such as `hexToRgb`, `dataUrlMimeType`, and vector checkmark drawing only if they are writer-specific.
 
-**Verify**: `npm run build` -> exit 0.
+**Verify**: `bun run build` -> exit 0.
 
 ### Step 2: Move operation-family writers one at a time
 
 Extract writer functions for `text/whiteout`, `annotation`, `shape/ink`, `media/signature/stamp`, `form`, and `link`. `PdfEngine.savePdf` should keep responsibility for loading/saving the document and iterating operations, but dispatch to the writer registry.
 
-**Verify**: after each family, run `npm run test` -> all tests pass.
+**Verify**: after each family, run `bun run test` -> all tests pass.
 
 ### Step 3: Add export regression tests
 
 Add a test that creates a one-page PDF, writes at least text, highlight, shape, stamp, form field, and link operations, then loads the resulting bytes with `pdf-lib` to confirm save output is valid and page count is preserved. Avoid brittle binary snapshots.
 
-**Verify**: `npm run test` -> all tests pass and includes the new export validity test.
+**Verify**: `bun run test` -> all tests pass and includes the new export validity test.
 
 ### Step 4: Final gate
 
 Run the full release gate.
 
 **Verify**:
-- `npm run test` -> all tests pass
-- `npm run build` -> exit 0
-- `npm run e2e` -> all tests pass
-- `npm audit --audit-level=moderate` -> zero vulnerabilities
+- `bun run test` -> all tests pass
+- `bun run build` -> exit 0
+- `bun run e2e` -> all tests pass
+- `bun audit --audit-level=moderate` -> zero vulnerabilities
 
 ## Done criteria
 

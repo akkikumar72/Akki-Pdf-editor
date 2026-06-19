@@ -46,9 +46,9 @@ the effective (edited) text.
 
 | Purpose | Command | Expected on success |
 |---------|---------|---------------------|
-| Typecheck | `npm run typecheck` | exit 0 |
-| Unit tests | `npm run test` | all pass |
-| Build | `npm run build` | exit 0 |
+| Typecheck | `bun run typecheck` | exit 0 |
+| Unit tests | `bun run test` | all pass |
+| Build | `bun run build` | exit 0 |
 
 ## Scope
 
@@ -75,7 +75,7 @@ Add a private helper `effectiveTextItems(textItems, operations)` that:
 Reuse the page+rect overlap predicate style already used in `tableRows`
 (`exportPipeline.ts:80-86`); define a small `rectsOverlap` helper if needed.
 
-**Verify**: `npm run typecheck` → exit 0.
+**Verify**: `bun run typecheck` → exit 0.
 
 ### Step 2: Route all three data exporters through the effective items
 
@@ -83,7 +83,7 @@ Have `toText`, `toCsv`, and `tableRows` consume `effectiveTextItems(...)` instea
 the raw `textItems`. (`toXlsxBytes` already goes through `tableRows`.) The
 `table-region` filtering must apply **after** the effective merge.
 
-**Verify**: `npm run test` → all pass.
+**Verify**: `bun run test` → all pass.
 
 ### Step 3: Add regression tests
 
@@ -92,11 +92,11 @@ an original item makes CSV emit the new string and not the original; (b) a `whit
 op removes the original cell from output; (c) an added `text` op with no overlap
 appears as a new cell. Model structure after the existing `toCsv` tests.
 
-**Verify**: `npm run test` → all pass, including the new cases.
+**Verify**: `bun run test` → all pass, including the new cases.
 
 ## Done criteria
 
-- [ ] `npm run typecheck`, `npm run test`, `npm run build` all exit 0
+- [ ] `bun run typecheck`, `bun run test`, `bun run build` all exit 0
 - [ ] CSV/XLSX/TXT reflect replacement text, drop whiteout-covered text, and include added text
 - [ ] Formula-neutralization still applied to the new synthetic cells
 - [ ] `plans/README.md` status row updated

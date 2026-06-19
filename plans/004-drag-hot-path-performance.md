@@ -47,11 +47,11 @@ granularity or alignment guides.
 
 | Purpose | Command | Expected on success |
 |---------|---------|---------------------|
-| Typecheck | `npm run typecheck` | exit 0 |
-| Lint | `npm run lint` | exit 0 |
-| Unit tests | `npm run test` | all pass |
-| Build | `npm run build` | exit 0 |
-| Browser tests | `npm run e2e` | all pass; the drag-with-guides test (`tests/e2e/editor.spec.ts:306`) and the source-mask move test (`:359`) must still pass |
+| Typecheck | `bun run typecheck` | exit 0 |
+| Lint | `bun run lint` | exit 0 |
+| Unit tests | `bun run test` | all pass |
+| Build | `bun run build` | exit 0 |
+| Browser tests | `bun run e2e` | all pass; the drag-with-guides test (`tests/e2e/editor.spec.ts:306`) and the source-mask move test (`:359`) must still pass |
 
 ## Scope
 
@@ -75,7 +75,7 @@ Compute the filtered current-page `textItems` with `useMemo` in
 `useEditorController` (mirror `visibleOperations`) and pass the stable reference to
 both `PdfCanvas` and `Inspector`, instead of `.filter(...)` inline in `EditorRoute`.
 
-**Verify**: `npm run test` → all pass; `npm run typecheck` → exit 0.
+**Verify**: `bun run test` → all pass; `bun run typecheck` → exit 0.
 
 ### Step 2: Keep the live drag/resize rect in local component state
 
@@ -84,7 +84,7 @@ state and render the dragged overlay from it. Do **not** dispatch on each move.
 Dispatch a single `update` on `onPointerUp`/`onPointerCancel`/`onLostPointerCapture`.
 Keep alignment-guide feedback working (guides may read the live local rect).
 
-**Verify**: `npm run e2e` → the drag-with-guides test still passes; manually confirm
+**Verify**: `bun run e2e` → the drag-with-guides test still passes; manually confirm
 one undo step reverts a full drag.
 
 ### Step 3: Memoize the overlay and stabilize its callbacks
@@ -93,7 +93,7 @@ Wrap `OperationOverlay` in `React.memo`. Hoist/`useCallback` the per-item handle
 in `PdfCanvas` so identities are stable (pass `operation.id`; avoid inline closures
 that change every render). Be careful with the `previewOperation(operation)` wrapper.
 
-**Verify**: `npm run e2e` → all pass; `npm run build` → exit 0.
+**Verify**: `bun run e2e` → all pass; `bun run build` → exit 0.
 
 ## Test plan
 
@@ -102,12 +102,12 @@ that change every render). Be careful with the `previewOperation(operation)` wra
   masking. Both must pass unchanged.
 - Optionally add a unit test asserting a single `update` action results from a
   simulated drag sequence if a hook test harness is introduced (see plan 006).
-- Verification: `npm run test` and `npm run e2e` → all pass.
+- Verification: `bun run test` and `bun run e2e` → all pass.
 
 ## Done criteria
 
-- [ ] `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` all exit 0
-- [ ] `npm run e2e` passes (drag-with-guides + source-mask-move tests included)
+- [ ] `bun run typecheck`, `bun run lint`, `bun run test`, `bun run build` all exit 0
+- [ ] `bun run e2e` passes (drag-with-guides + source-mask-move tests included)
 - [ ] A drag gesture produces exactly one undoable history entry
 - [ ] `OperationOverlay` is wrapped in `React.memo` with stable callbacks
 - [ ] `plans/README.md` status row updated

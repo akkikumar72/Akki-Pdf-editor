@@ -9,15 +9,16 @@ browser; edits are modeled as overlay operations and only written into PDF bytes
 
 ## Stack & commands
 
-- React 18 + Vite + TypeScript (strict). Package manager: **npm only** (Node 20+). Never
-  add `yarn.lock`/`pnpm-lock.yaml` — a single `package-lock.json` is the source of truth.
-- Install: `npm install` (use `npm ci --ignore-scripts` in CI).
+- React 18 + Vite + TypeScript (strict). Package manager: **bun only** (Node 20+). Never
+  add `package-lock.json`/`yarn.lock`/`pnpm-lock.yaml` — a single `bun.lock` is the source
+  of truth.
+- Install: `bun install` (use `bun install --frozen-lockfile --ignore-scripts` in CI).
 - Quality gates (all must pass before merge/deploy):
-  - `npm run typecheck` — `tsc -b`, exit 0
-  - `npm run lint` — ESLint flat config, exit 0
-  - `npm run test` — Vitest unit suite
-  - `npm run build` — `tsc -b && vite build`
-  - `npm run e2e` — Playwright (needs a Chromium install)
+  - `bun run typecheck` — `tsc -b`, exit 0
+  - `bun run lint` — ESLint flat config, exit 0
+  - `bun run test` — Vitest unit suite
+  - `bun run build` — `tsc -b && vite build`
+  - `bun run e2e` — Playwright (needs a Chromium install)
 
 ## Architecture / layer map
 

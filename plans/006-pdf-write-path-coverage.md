@@ -47,9 +47,9 @@ null-stage error path ships silently. This plan raises the write-path oracle fro
 
 | Purpose | Command | Expected on success |
 |---------|---------|---------------------|
-| Typecheck | `npm run typecheck` | exit 0 |
-| Unit tests | `npm run test` | all pass, including new cases |
-| Build | `npm run build` | exit 0 |
+| Typecheck | `bun run typecheck` | exit 0 |
+| Unit tests | `bun run test` | all pass, including new cases |
+| Build | `bun run build` | exit 0 |
 
 ## Scope
 
@@ -74,7 +74,7 @@ at `sourceCoverRect` (not `rect`), and the font-reuse path is exercised when gly
 are covered vs. falling back when not. Keep assertions robust, not brittle binary
 snapshots.
 
-**Verify**: `npm run test` → all pass.
+**Verify**: `bun run test` → all pass.
 
 ### Step 2: Cover `ExportPipeline.export()` dispatch
 
@@ -83,18 +83,18 @@ Construct `new ExportPipeline(fakeEngine)` with a stub `savePdf`, spy on
 Assert each format produces a blob of the right MIME/extension, and that
 `export("png", { pageStage: null })` rejects with the expected message.
 
-**Verify**: `npm run test` → all pass.
+**Verify**: `bun run test` → all pass.
 
 ## Test plan
 
 - New cases live in the two existing test files; model structure after the current
   tests in each.
-- Verification: `npm run test` → all pass; the suite count increases by the number
+- Verification: `bun run test` → all pass; the suite count increases by the number
   of added cases.
 
 ## Done criteria
 
-- [ ] `npm run typecheck`, `npm run test`, `npm run build` all exit 0
+- [ ] `bun run typecheck`, `bun run test`, `bun run build` all exit 0
 - [ ] Each major `savePdf` draw branch has at least one content assertion
 - [ ] `ExportPipeline.export()` has tests for all five formats + the PNG null-stage error
 - [ ] `plans/README.md` status row updated

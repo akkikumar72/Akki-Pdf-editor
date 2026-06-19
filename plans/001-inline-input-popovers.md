@@ -29,9 +29,9 @@ The editor now has a Sejda-style inline object toolbar for selected content, but
 
 | Purpose | Command | Expected on success |
 |---------|---------|---------------------|
-| Unit tests | `npm run test` | exit 0; all tests pass |
-| Build | `npm run build` | exit 0; production build completes |
-| Browser tests | `npm run e2e` | exit 0; all Playwright tests pass |
+| Unit tests | `bun run test` | exit 0; all tests pass |
+| Build | `bun run build` | exit 0; production build completes |
+| Browser tests | `bun run e2e` | exit 0; all Playwright tests pass |
 
 ## Scope
 
@@ -54,13 +54,13 @@ The editor now has a Sejda-style inline object toolbar for selected content, but
 
 Create a small typed model for pending editor input, for example `PendingInputRequest = { kind: "link" | "stamp" | "signature" | "annotation" | "form-field" | "password"; anchor?: ViewportRect; defaultValue?: string; ... }`. Store it in `PdfCanvas` for page-scoped inputs and in `App` for password input.
 
-**Verify**: `npm run test` -> all tests pass.
+**Verify**: `bun run test` -> all tests pass.
 
 ### Step 2: Add an inline popover component
 
 Add a component that renders near the selected overlay or clicked page position. It should support one text input, optional multiline textarea, optional comma-separated options input for dropdown fields, Confirm/Cancel buttons, Escape to cancel, Enter to confirm for single-line inputs, and focus trapping while open.
 
-**Verify**: `npm run build` -> exit 0.
+**Verify**: `bun run build` -> exit 0.
 
 ### Step 3: Replace prompt calls
 
@@ -72,13 +72,13 @@ Change `createOperationsForTool` so it can either create immediately or return a
 
 Add Playwright coverage for opening the Forms dropdown, placing a text field through the inline popover, editing a selected link through the inline popover, and canceling a stamp input.
 
-**Verify**: `npm run e2e` -> all tests pass.
+**Verify**: `bun run e2e` -> all tests pass.
 
 ## Done criteria
 
 - [ ] No `window.prompt` calls remain in `src/components/PdfCanvas.tsx` or `src/editor/operationFactory.ts`
 - [ ] Inline inputs are keyboard reachable and dismissible
-- [ ] `npm run test`, `npm run build`, and `npm run e2e` all pass
+- [ ] `bun run test`, `bun run build`, and `bun run e2e` all pass
 - [ ] `plans/README.md` marks this plan DONE
 
 ## STOP conditions

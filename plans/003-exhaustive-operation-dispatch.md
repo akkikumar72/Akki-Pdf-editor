@@ -59,11 +59,11 @@ makes the compiler enforce the invariant.
 
 | Purpose | Command | Expected on success |
 |---------|---------|---------------------|
-| Typecheck | `npm run typecheck` | exit 0, no errors |
-| Lint | `npm run lint` | exit 0 |
-| Unit tests | `npm run test` | all pass |
-| Build | `npm run build` | exit 0 |
-| Browser tests | `npm run e2e` | all pass (needs Chromium) |
+| Typecheck | `bun run typecheck` | exit 0, no errors |
+| Lint | `bun run lint` | exit 0 |
+| Unit tests | `bun run test` | all pass |
+| Build | `bun run build` | exit 0 |
+| Browser tests | `bun run e2e` | all pass (needs Chromium) |
 
 ## Scope
 
@@ -87,7 +87,7 @@ Preserve every existing rendered output exactly (the combined
 `whiteout || annotation+highlight` branch can stay a small helper or be split into
 the `whiteout` and `annotation` cases). Keep `safeImageSrc` gating unchanged.
 
-**Verify**: `npm run typecheck` → exit 0; `npm run test` → all pass.
+**Verify**: `bun run typecheck` → exit 0; `bun run test` → all pass.
 
 ### Step 2: Convert the `savePdf` operation loop to an exhaustive switch
 
@@ -96,16 +96,16 @@ Refactor the per-operation `if` blocks into `switch (operation.type)`. For the
 the text, replicating the current behavior. Add an explicit no-op `table-region`
 case with a comment. End with a `never` default.
 
-**Verify**: `npm run test` → all pass (including `tests/pdfEngineSave.test.ts`);
-`npm run build` → exit 0.
+**Verify**: `bun run test` → all pass (including `tests/pdfEngineSave.test.ts`);
+`bun run build` → exit 0.
 
 ### Step 3: Prove the guard works, then revert the probe
 
 Temporarily add a 13th member to the `EditOperation` union locally and confirm BOTH
-`npm run typecheck` fails at the `savePdf` and `OperationOverlay` defaults. Then
+`bun run typecheck` fails at the `savePdf` and `OperationOverlay` defaults. Then
 remove the probe. (Do not commit the probe.)
 
-**Verify**: with probe present `npm run typecheck` → fails at both files; after
+**Verify**: with probe present `bun run typecheck` → fails at both files; after
 removing it → exit 0.
 
 ## Test plan
@@ -114,14 +114,14 @@ removing it → exit 0.
   the manual probe in Step 3 to confirm exhaustiveness.
 - Optionally extend `tests/pdfEngineSave.test.ts` with one case per remaining
   drawable type (see plan 006) to lock draw output.
-- Verification: `npm run test` → all pass.
+- Verification: `bun run test` → all pass.
 
 ## Done criteria
 
-- [ ] `npm run typecheck` exits 0
-- [ ] `npm run lint` exits 0
-- [ ] `npm run test` exits 0
-- [ ] `npm run build` exits 0
+- [ ] `bun run typecheck` exits 0
+- [ ] `bun run lint` exits 0
+- [ ] `bun run test` exits 0
+- [ ] `bun run build` exits 0
 - [ ] Both `savePdf` and `OperationOverlay` use `switch` with a `never` default
 - [ ] Adding a union member causes a typecheck failure at both sites (verified in Step 3)
 - [ ] `plans/README.md` status row updated
