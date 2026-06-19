@@ -11,7 +11,6 @@ import {
   Save,
   Trash2,
   Undo2,
-  X,
 } from "lucide-react";
 import { useState } from "react";
 import { TOOL_GROUPS } from "../editor/toolRegistry";
@@ -19,6 +18,7 @@ import type { EditHistoryEntry } from "../state/editModel";
 import type { EditorTool, ExportFormat } from "../types/editor";
 import { AkkiPdfLogo } from "./AkkiPdfLogo";
 import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
 type ToolRibbonProps = {
   activeTool: EditorTool;
@@ -188,63 +188,53 @@ export function ToolRibbon(props: ToolRibbonProps) {
         <FileDown aria-hidden="true" className="tool-ribbon__end-icon" />
       </div>
 
-      {historyOpen ? (
-        <div className="history-dialog__backdrop" role="presentation" onClick={() => setHistoryOpen(false)}>
-          <section
-            className="history-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="history-dialog-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="history-dialog__head">
-              <div>
-                <h2 id="history-dialog-title">Undo changes</h2>
-                <p>Restore the document to a saved edit checkpoint.</p>
-              </div>
-              <button className="icon-button" title="Close history" onClick={() => setHistoryOpen(false)}>
-                <X aria-hidden="true" />
-              </button>
-            </div>
-            <div className="history-dialog__list">
-              {orderedHistory.length ? orderedHistory.map((entry) => (
-                <label className="history-dialog__row" key={entry.id}>
-                  <input
-                    type="radio"
-                    name="history-entry"
-                    checked={activeHistoryId === entry.id}
-                    onChange={() => setSelectedHistoryId(entry.id)}
-                  />
-                  <span className="history-dialog__meta">
-                    <strong>{entry.label}</strong>
-                    <small>{entry.operations.length} edits before this change</small>
-                  </span>
-                  <time dateTime={new Date(entry.timestamp).toISOString()}>
-                    {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                  </time>
-                </label>
-              )) : (
-                <p className="history-dialog__empty">No edit history yet.</p>
-              )}
-            </div>
-            <div className="history-dialog__actions">
-              <Button variant="quiet" size="sm" onClick={() => setHistoryOpen(false)}>Cancel</Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={!activeHistoryId}
-                onClick={() => {
-                  if (!activeHistoryId) return;
-                  props.onRestoreHistory(activeHistoryId);
-                  setHistoryOpen(false);
-                }}
-              >
-                Revert selected
-              </Button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
+          <DialogHeader className="border-border border-b px-4 py-3 text-left">
+            <DialogTitle className="text-base">Undo changes</DialogTitle>
+            <DialogDescription>Restore the document to a saved edit checkpoint.</DialogDescription>
+          </DialogHeader>
+          <div className="history-dialog__list max-h-[min(26rem,60vh)]">
+            {orderedHistory.length ? orderedHistory.map((entry) => (
+              <label className="history-dialog__row" key={entry.id}>
+                <input
+                  type="radio"
+                  name="history-entry"
+                  checked={activeHistoryId === entry.id}
+                  onChange={() => setSelectedHistoryId(entry.id)}
+                />
+                <span className="history-dialog__meta">
+                  <strong>{entry.label}</strong>
+                  <small>{entry.operations.length} edits before this change</small>
+                </span>
+                <time
+                  className="text-muted-foreground font-mono text-xs whitespace-nowrap"
+                  dateTime={new Date(entry.timestamp).toISOString()}
+                >
+                  {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                </time>
+              </label>
+            )) : (
+              <p className="history-dialog__empty">No edit history yet.</p>
+            )}
+          </div>
+          <DialogFooter className="border-border flex-row justify-end border-t px-4 py-3">
+            <Button variant="quiet" size="sm" onClick={() => setHistoryOpen(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!activeHistoryId}
+              onClick={() => {
+                if (!activeHistoryId) return;
+                props.onRestoreHistory(activeHistoryId);
+                setHistoryOpen(false);
+              }}
+            >
+              Revert selected
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

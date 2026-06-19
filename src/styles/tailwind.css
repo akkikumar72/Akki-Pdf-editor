@@ -1,0 +1,49 @@
+/*
+ * Tailwind v4 entry for shadcn/ui — utilities + theme only.
+ *
+ * Preflight (Tailwind's global base reset) is intentionally NOT imported so the
+ * existing custom design system (tokens.css + app.css) is left completely
+ * untouched. shadcn components only need the theme tokens + utility classes,
+ * both of which are pulled in below.
+ */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/*
+ * Bridge the project's existing semantic tokens (declared in tokens.css and
+ * already mapped to the green/paper palette) into Tailwind's color theme, so
+ * shadcn utilities such as `bg-background`, `text-muted-foreground`,
+ * `bg-primary`, and `border-border` resolve to the same values.
+ *
+ * `@theme inline` makes the generated utilities reference the source vars
+ * directly and does NOT re-emit these names into :root — that's what keeps
+ * tokens.css values like `--color-accent` / `--color-muted` intact.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--color-error);
+  --color-destructive-foreground: var(--color-paper);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
