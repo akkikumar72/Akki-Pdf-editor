@@ -5,4 +5,4 @@ test-results
 node_modules
 pdfSameples
 *.tsbuildinfo
-package-lock.json
+bun.lock

@@ -28,11 +28,11 @@ Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and ex
 
 ## Run Locally
 
-This project uses **npm** (Node 20+). Do not mix package managers.
+This project uses **bun** (Node 20+). Do not mix package managers.
 
 ```bash
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173).
@@ -40,16 +40,16 @@ Open [http://localhost:5173](http://localhost:5173).
 ## Test And Build
 
 ```bash
-npm run typecheck
-npm run lint
-npm run test
-npm run build
-npm run e2e
+bun run typecheck
+bun run lint
+bun run test
+bun run build
+bun run e2e
 ```
 
 ## Deploy
 
-Deployed as a static SPA on Vercel. `vercel.json` sets the build command (`npm run build`),
+Deployed as a static SPA on Vercel. `vercel.json` sets the build command (`bun run build`),
 output directory (`dist`), security headers (including a Content-Security-Policy tuned for
 the PDF.js worker/WASM), and long-lived caching for the copied `/pdfjs/*` assets. The Node
 version is pinned via `.nvmrc` / the `engines` field.

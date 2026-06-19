@@ -5,6 +5,7 @@ import type {
   DocumentFonts,
   EditOperation,
   EditorTool,
+  InkOperation,
   LoadedPdf,
   PdfPoint,
   PdfRect,
@@ -14,7 +15,7 @@ import type {
 } from "../types/editor";
 import { createOperationsForTool } from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
-import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
+import { duplicateOperation as cloneOperation, translatePoints } from "../editor/selectionModel";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
 import { collectAlignmentLines, snapViewportRect, type GuideLine } from "../utils/alignmentGuides";
 import { validateImageFile } from "../utils/fileValidation";
@@ -633,7 +634,17 @@ export function PdfCanvas({
             viewportRect = snapped.rect;
             setActiveGuides(snapped.guides);
             const rect = clampRect(viewportRectToPdf(viewportRect, pageHeight, scale), pageWidth, pageHeight);
-            onOperationUpdate(drag.id, { rect } as Partial<EditOperation>);
+            const patch: Partial<EditOperation> = { rect };
+            if (dragged.type === "ink") {
+              // Ink renders/exports from absolute `points`, so a moved stroke must
+              // translate every point by the same delta the rect moved (shared helper).
+              (patch as Partial<InkOperation>).points = translatePoints(
+                dragged.points,
+                rect.x - dragged.rect.x,
+                rect.y - dragged.rect.y,
+              );
+            }
+            onOperationUpdate(drag.id, patch);
           }}
           onPointerUp={() => {
             setDrag(null);

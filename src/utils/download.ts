@@ -7,7 +7,9 @@ export function downloadBlob(blob: Blob, filename: string) {
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  // Defer revocation: revoking synchronously in the same tick can abort the
+  // download of a large blob in some browsers before they finish reading it.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export function dataUrlToBytes(dataUrl: string) {

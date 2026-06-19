@@ -313,7 +313,9 @@ test("aligns the inline toolbar with text and supports drag move with guides", a
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
-  await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 420, y: 420 } });
+  // Place the text where the (wider) toolbar still fits, so left-alignment holds.
+  // Right-edge clamping has its own dedicated test below.
+  await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 140, y: 420 } });
   const textOverlay = canvas.locator(".operation--text").last();
   await expect(textOverlay).toBeVisible();
   await page.keyboard.press("Escape");
@@ -354,6 +356,48 @@ test("aligns the inline toolbar with text and supports drag move with guides", a
   const endBox = await textOverlay.boundingBox();
   expect(endBox).not.toBeNull();
   expect(startBox!.y - endBox!.y).toBeGreaterThan(20);
+});
+
+test("keeps the inline toolbar inside the page when the overlay is near the right edge", async ({
+  page,
+}, testInfo) => {
+  const pdfPath = testInfo.outputPath("right-edge.pdf");
+  await makeSamplePdf(pdfPath);
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/right-edge\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  const canvas = page.getByRole("region", { name: "PDF editor canvas" });
+  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
+
+  // Drop a text overlay hard against the right edge so the (wider) toolbar would
+  // overflow the page unless it is clamped back inside.
+  const stageBox = await page.locator(".page-stage").boundingBox();
+  expect(stageBox).not.toBeNull();
+  await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: stageBox!.width - 12, y: 360 } });
+  await expect(canvas.locator(".operation--text").last()).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  const inlineToolbar = page.getByRole("toolbar", { name: "Inline edit tools" });
+  await expect(inlineToolbar).toBeVisible();
+
+  const bounds = await page.evaluate(() => {
+    const stage = document.querySelector(".page-stage");
+    const toolbar = document.querySelector(".floating-toolbar");
+    const s = stage?.getBoundingClientRect();
+    const t = toolbar?.getBoundingClientRect();
+    if (!s || !t) return null;
+    return {
+      overflowRight: Math.round(t.right - s.right),
+      overflowLeft: Math.round(s.left - t.left),
+      fitsWidth: t.width <= s.width,
+    };
+  });
+  expect(bounds).not.toBeNull();
+  // Allow a 1px rounding slack on each edge.
+  expect(bounds!.overflowRight).toBeLessThanOrEqual(1);
+  expect(bounds!.overflowLeft).toBeLessThanOrEqual(1);
 });
 
 test("moving a replacement keeps the original PDF text masked at its source", async ({ page }, testInfo) => {

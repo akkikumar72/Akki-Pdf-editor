@@ -1,4 +1,4 @@
-import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, ImageDown, SlidersHorizontal } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, SlidersHorizontal } from "lucide-react";
 import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeUrl } from "../utils/url";
@@ -164,8 +164,10 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                 value={operation.href}
                 onChange={(event) => update({ href: event.currentTarget.value } as Partial<EditOperation>)}
                 onBlur={(event) => {
-                  const safe = sanitizeUrl(event.currentTarget.value);
-                  if (safe) update({ href: safe } as Partial<EditOperation>);
+                  // Never leave an unsafe URL in the edit model. sanitizeUrl returns the
+                  // safe form (http/https/mailto) or null; on null, clear the field rather
+                  // than keeping the raw value the onChange already wrote.
+                  update({ href: sanitizeUrl(event.currentTarget.value) ?? "" } as Partial<EditOperation>);
                 }}
               />
             </label>
@@ -183,7 +185,6 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
           <button onClick={() => onExport("txt")}><FileText aria-hidden="true" /> TXT</button>
           <button onClick={() => onExport("csv")}><FileSpreadsheet aria-hidden="true" /> CSV</button>
           <button onClick={() => onExport("xlsx")}><FileSpreadsheet aria-hidden="true" /> XLSX</button>
-          <button onClick={() => onExport("png")}><ImageDown aria-hidden="true" /> PNG</button>
         </div>
       </section>
 

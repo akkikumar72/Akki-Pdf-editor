@@ -26,7 +26,7 @@ const plannedImports = ["Google Drive", "Dropbox", "Web URL"];
 const trustPoints = [
   ["Private by default", "Your file stays in this browser."],
   ["Edit in context", "Text, signatures, images, and markup."],
-  ["Export cleanly", "PDF, TXT, CSV, XLSX, and PNG."],
+  ["Export cleanly", "PDF, TXT, CSV, and XLSX."],
 ];
 
 const footerProduct = ["PDF editor", "Local sessions", "Blank PDF"];
@@ -294,7 +294,7 @@ export function ToolHub({
 
             <p className="pdf-footer__col pdf-footer__copy">
               <span>© 2026 AkkiPDF</span>
-              <span>PDF · TXT · CSV · XLSX · PNG</span>
+              <span>PDF · TXT · CSV · XLSX</span>
               <span><LumenShieldNetworkIcon aria-hidden="true" /> Local unless you export</span>
             </p>
           </div>

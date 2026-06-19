@@ -335,7 +335,6 @@ export function useEditorController() {
         operations: editState.operations,
         textItems,
         fonts: documentFonts,
-        pageStage: pageStageRef.current,
       });
       setStatus(`${format.toUpperCase()} exported`);
     } catch (error) {
