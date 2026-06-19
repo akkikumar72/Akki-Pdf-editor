@@ -8,20 +8,38 @@ function safeImageSrc(src: string | undefined): string | undefined {
   return src && /^data:image\/(png|jpeg|jpg);base64,/i.test(src) ? src : undefined;
 }
 
+type CaretPoint = { x: number; y: number };
+
 type OperationOverlayProps = {
   operation: EditOperation;
   pageHeight: number;
   scale: number;
   selected: boolean;
   editing?: boolean;
+  editCaretPoint?: CaretPoint;
   dragging?: boolean;
   moveModeActive?: boolean;
   documentFonts?: DocumentFonts;
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onStartTextEdit?: (id: string) => void;
+  onStartTextEdit?: (id: string, caretPoint?: CaretPoint) => void;
   onTextChange?: (id: string, text: string) => void;
   onTextCommit?: () => void;
 };
+
+function caretRangeFromPoint(point: CaretPoint): Range | null {
+  if (typeof document.caretRangeFromPoint === "function") {
+    return document.caretRangeFromPoint(point.x, point.y);
+  }
+  if (typeof document.caretPositionFromPoint === "function") {
+    const position = document.caretPositionFromPoint(point.x, point.y);
+    if (!position) return null;
+    const range = document.createRange();
+    range.setStart(position.offsetNode, position.offset);
+    range.collapse(true);
+    return range;
+  }
+  return null;
+}
 
 export function OperationOverlay({
   operation,
@@ -29,6 +47,7 @@ export function OperationOverlay({
   scale,
   selected,
   editing,
+  editCaretPoint,
   dragging = false,
   moveModeActive = false,
   documentFonts,
@@ -72,15 +91,19 @@ export function OperationOverlay({
     if (!editing || operation.type !== "text" || !textRef.current) return;
     const element = textRef.current;
     element.focus({ preventScroll: true });
-    // Place a collapsed caret at the start ("cursor on the left") instead of
-    // selecting all, so editing reads like typing directly into the document.
+    const selection = window.getSelection();
+    const clickRange = editCaretPoint ? caretRangeFromPoint(editCaretPoint) : null;
+    if (clickRange && element.contains(clickRange.startContainer)) {
+      selection?.removeAllRanges();
+      selection?.addRange(clickRange);
+      return;
+    }
     const range = document.createRange();
     range.selectNodeContents(element);
     range.collapse(true);
-    const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
-  }, [editing, operation.type]);
+  }, [editCaretPoint, editing, operation.type]);
 
   if (operation.type === "text") {
     return (
@@ -109,7 +132,7 @@ export function OperationOverlay({
         onPointerDown={onPointerDown}
         onDoubleClick={(event) => {
           event.stopPropagation();
-          onStartTextEdit?.(operation.id);
+          onStartTextEdit?.(operation.id, { x: event.clientX, y: event.clientY });
         }}
         onInput={(event) => {
           if (!editing) return;

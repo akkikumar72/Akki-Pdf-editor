@@ -1713,9 +1713,9 @@ select:disabled {
   cursor: text;
 }
 
-.text-hit-layer.is-active .text-hit:hover {
-  outline: 1.5px dashed var(--color-accent);
-  outline-offset: 1px;
+.page-stage[data-active-tool="text"] .text-hit-layer.is-active .text-hit:hover {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: 0;
   background: transparent;
 }
 
@@ -1779,10 +1779,13 @@ select:disabled {
   cursor: text;
   caret-color: var(--color-accent);
   user-select: text;
+  border: 2px dashed transparent;
+  box-shadow: none;
 }
 
 .operation--text.is-editing:focus {
   outline: 0;
+  border-color: transparent;
 }
 
 .operation--highlight,

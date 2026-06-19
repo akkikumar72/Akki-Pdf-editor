@@ -414,6 +414,7 @@ export function PdfCanvas({
   const [moveModeOperationId, setMoveModeOperationId] = useState<string | undefined>();
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
+  const [editCaretPoint, setEditCaretPoint] = useState<{ x: number; y: number } | undefined>();
   const [isPageRendered, setIsPageRendered] = useState(false);
   const pageWidth = pageSize?.width ?? 612;
   const pageHeight = pageSize?.height ?? 792;
@@ -566,6 +567,7 @@ export function PdfCanvas({
         <div
           ref={stageRef}
           className="page-stage"
+          data-active-tool={activeTool}
           style={{
             width: pageWidth * scale,
             minHeight: pageHeight * scale,
@@ -593,6 +595,7 @@ export function PdfCanvas({
               return;
             }
             const point = pointFromEvent(event, event.currentTarget);
+            setEditCaretPoint({ x: event.clientX, y: event.clientY });
             void addAt({ left: point.x, top: point.y, width: 160, height: 42 });
           }}
           onPointerMove={(event) => {
@@ -724,6 +727,7 @@ export function PdfCanvas({
                   title={`Replace: ${item.str}`}
                   onClick={(event) => {
                     event.stopPropagation();
+                    setEditCaretPoint({ x: event.clientX, y: event.clientY });
                     void addAt(hitRect, item);
                   }}
                 />
@@ -802,6 +806,7 @@ export function PdfCanvas({
                 key={operation.id}
                 operation={previewOperation(operation)}
                 editing={editingTextId === operation.id}
+                editCaretPoint={editingTextId === operation.id ? editCaretPoint : undefined}
                 documentFonts={documentFonts}
                 pageHeight={pageHeight}
                 scale={scale}
@@ -814,7 +819,10 @@ export function PdfCanvas({
                   // With the Text tool active, clicking a text overlay edits it in place
                   // (Sejda-style) rather than starting a move-drag.
                   if (activeTool === "text" && operation.type === "text") {
-                    if (editingTextId !== operation.id) setEditingTextId(operation.id);
+                    if (editingTextId !== operation.id) {
+                      setEditCaretPoint({ x: event.clientX, y: event.clientY });
+                      setEditingTextId(operation.id);
+                    }
                     return;
                   }
                   // Move-drag is only available in Select tool or when move mode is explicitly on.
@@ -826,12 +834,16 @@ export function PdfCanvas({
                   const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
                   setDrag({ id: operation.id, start: pdfPoint, origin: { x: operation.rect.x, y: operation.rect.y } });
                 }}
-                onStartTextEdit={(id) => {
+                onStartTextEdit={(id, caretPoint) => {
                   onOperationSelect(id);
+                  if (caretPoint) setEditCaretPoint(caretPoint);
                   setEditingTextId(id);
                 }}
                 onTextChange={(id, text) => onOperationUpdate(id, { text } as Partial<EditOperation>)}
-                onTextCommit={() => setEditingTextId(undefined)}
+                onTextCommit={() => {
+                  setEditingTextId(undefined);
+                  setEditCaretPoint(undefined);
+                }}
               />
             ))}
           </div>

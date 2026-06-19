@@ -306,11 +306,14 @@ test("hovering a PDF text run shows a dashed accent outline", async ({ page }, t
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
   await expect(page.getByText(/hover-outline\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
+  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   const hit = canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']");
   await hit.hover();
   const outlineStyle = await hit.evaluate((node) => getComputedStyle(node).outlineStyle);
+  const outlineWidth = await hit.evaluate((node) => getComputedStyle(node).outlineWidth);
   expect(outlineStyle).toBe("dashed");
+  expect(outlineWidth).toBe("2px");
 });
 
 test("aligns the inline toolbar with text and supports drag move with guides", async ({ page }, testInfo) => {
