@@ -61,3 +61,15 @@ browser; edits are modeled as overlay operations and only written into PDF bytes
 
 Implementation plans live in `plans/` with an index at `plans/README.md`. Read it before
 starting larger work and update the status table when a plan lands.
+
+## Cursor Cloud specific instructions
+
+- Fully client-side app, no backend/services to start. The only service is the Vite dev
+ server: `bun run dev` (binds `0.0.0.0`, default port 5173). Standard commands are in
+ `package.json` / README; the update script already runs `bun install`.
+- The editor is at route `/pdf-editor`; `/` is only the landing page. To exercise core
+ functionality, open `http://localhost:5173/pdf-editor` (or click "Blank PDF" on the
+ landing page). Loading `/` alone does not render the workbench.
+- `bun run e2e` (Playwright) needs a Chromium binary, which is not installed by the update
+ script. Install on demand with `bunx playwright install chromium`, or point
+ `PLAYWRIGHT_CHROME_EXECUTABLE_PATH` at an existing Chrome.
