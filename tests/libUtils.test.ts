@@ -7,7 +7,8 @@ describe("cn", () => {
   });
 
   it("filters falsy values and conditional objects", () => {
-    expect(cn("a", false && "b", undefined, null, { c: true, d: false })).toBe("a c");
+    const showB: boolean = false;
+    expect(cn("a", showB && "b", undefined, null, { c: true, d: false })).toBe("a c");
   });
 
   it("merges conflicting tailwind classes via twMerge", () => {

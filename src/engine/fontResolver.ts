@@ -48,6 +48,7 @@ export const FONT_CHOICES: FontChoice[] = [
   { label: "Times New Roman", cssFamily: '"Times New Roman", "Liberation Serif", Times, serif', pdfFont: StandardFonts.TimesRoman, category: "serif", aliases: ["Times", "Times-Roman", "Times Roman", "Liberation Serif"] },
 ];
 
+/* v8 ignore next -- "Inter" is always present in FONT_CHOICES, so the FONT_CHOICES[0] fallback is unreachable */
 const DEFAULT_FONT = FONT_CHOICES.find((font) => font.label === "Inter") ?? FONT_CHOICES[0];
 
 function isGenericFontFamily(name?: string) {
@@ -91,11 +92,14 @@ export function resolveFont(requested?: string) {
   const normalized = requested.toLowerCase();
   const compact = normalizeFontName(requested);
   if (/sansserif/.test(compact) && /gd\d+f\d+/i.test(compact)) {
+    /* v8 ignore next -- "Helvetica" is always present in FONT_CHOICES; the ?? DEFAULT_FONT fallback is unreachable */
     return FONT_CHOICES.find((font) => font.label === "Helvetica") ?? DEFAULT_FONT;
   }
+  /* v8 ignore start -- these named labels always exist in FONT_CHOICES, so each ?? DEFAULT_FONT fallback is unreachable */
   if (compact === "sansserif") return FONT_CHOICES.find((font) => font.label === "Helvetica") ?? DEFAULT_FONT;
   if (compact === "serif") return FONT_CHOICES.find((font) => font.label === "Times New Roman") ?? DEFAULT_FONT;
   if (compact === "monospace") return FONT_CHOICES.find((font) => font.label === "Courier") ?? DEFAULT_FONT;
+  /* v8 ignore stop */
   const exact = FONT_CHOICES.find((font) => normalizeFontName(font.label) === compact);
   if (exact) return exact;
 
@@ -105,11 +109,13 @@ export function resolveFont(requested?: string) {
   );
   if (alias) return alias;
 
+  /* v8 ignore start -- these named labels always exist in FONT_CHOICES, so each ?? DEFAULT_FONT fallback is unreachable */
   if (/(calibri|carlito)/.test(compact)) return FONT_CHOICES.find((font) => font.label === "Carlito") ?? DEFAULT_FONT;
   if (/(cambria|caladea)/.test(compact)) return FONT_CHOICES.find((font) => font.label === "Caladea") ?? DEFAULT_FONT;
   if (/(times|timesroman|garamond|georgia|liberationserif)/.test(compact)) return FONT_CHOICES.find((font) => font.label === "Times New Roman") ?? DEFAULT_FONT;
   if (/(courier|mono|menlo|consolas|liberationmono)/.test(compact)) return FONT_CHOICES.find((font) => font.label === "Courier") ?? DEFAULT_FONT;
   if (/(helvetica|arial|liberationsans|ubermove|ubermovetext)/.test(compact)) return FONT_CHOICES.find((font) => font.label === "Arial") ?? DEFAULT_FONT;
+  /* v8 ignore stop */
   return (
     FONT_CHOICES.find((font) => compact.includes(normalizeFontName(font.label))) ??
     FONT_CHOICES.find((font) => font.aliases?.some((name) => compact.includes(normalizeFontName(name)))) ??

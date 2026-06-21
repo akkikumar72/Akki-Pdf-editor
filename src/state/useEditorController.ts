@@ -146,6 +146,7 @@ export function useEditorController() {
       },
     });
     await refreshRecentSessions();
+    /* v8 ignore next 3 -- saveCurrentSession is only invoked internally with silent=true (autosave + returnHome), so the visible-status branch is unreachable from the public API */
     if (!silent) {
       setStatus(`${document.name} saved locally · ${new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
     }
@@ -256,6 +257,7 @@ export function useEditorController() {
     statusMessage = "Document updated",
     nextOperations = editState.operations,
   ) => {
+    /* v8 ignore next -- all callers (insert/delete/rotate page) already early-return when document is null, so this guard never observes a null document */
     if (!document) return;
     const next: LoadedPdf = {
       ...document,

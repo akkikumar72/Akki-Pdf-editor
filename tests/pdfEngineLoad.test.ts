@@ -19,7 +19,7 @@ vi.mock("pdfjs-dist", () => ({
   get GlobalWorkerOptions() {
     return state.workerOptions;
   },
-  getDocument: (...args: unknown[]) => state.getDocument(...args),
+  getDocument: (...args: unknown[]) => (state.getDocument as (...a: unknown[]) => unknown)(...args),
 }));
 
 import { PdfEngine } from "../src/engine/pdfEngine";

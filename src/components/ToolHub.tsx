@@ -57,6 +57,7 @@ export function ToolHub({
 
   useEffect(() => {
     const nav = navRef.current;
+    /* v8 ignore next -- navRef is attached to an unconditionally-rendered element, so the null guard is unreachable */
     if (!nav) return;
 
     let ticking = false;

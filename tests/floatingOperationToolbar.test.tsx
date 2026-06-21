@@ -51,10 +51,10 @@ vi.mock("react-select", () => {
         <div data-testid="option-label">{first ? props.getOptionLabel?.(first) : null}</div>
         <div data-testid="option-value">{first ? props.getOptionValue?.(first) : null}</div>
         <div data-testid="filter-pass">
-          {String(props.filterOption?.({ data: first }, "inter"))}
+          {first ? String(props.filterOption?.({ data: first }, "inter")) : ""}
         </div>
         <div data-testid="filter-empty">
-          {String(props.filterOption?.({ data: first }, ""))}
+          {first ? String(props.filterOption?.({ data: first }, "")) : ""}
         </div>
         {/* Render the custom Option component focused + unfocused */}
         {first ? (

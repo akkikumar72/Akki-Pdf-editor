@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createOperationsForTool } from "../src/editor/operationFactory";
-import type { TextItem } from "../src/types/editor";
+import type { EditOperation, TextItem } from "../src/types/editor";
 import { padReplacementCoverRect } from "../src/utils/textMetrics";
 
 const textItem: TextItem = {
@@ -134,9 +134,9 @@ describe("operation factory", () => {
     pageHeight: 792,
     pageIndex: 2,
     scale: 1,
-    operations: [],
+    operations: [] as EditOperation[],
     prompt: () => null,
-  } as const;
+  };
 
   it("uses a reliable embedded font name and keeps detected weight without sampling", () => {
     const [operation] = createOperationsForTool({

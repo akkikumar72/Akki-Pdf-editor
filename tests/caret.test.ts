@@ -16,9 +16,9 @@ describe("module-level window guard", () => {
   });
 });
 
-type CaretDoc = Document & {
-  caretRangeFromPoint?: unknown;
-  caretPositionFromPoint?: unknown;
+type CaretDoc = {
+  caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
 };
 
 describe("getLastPointerDownPoint", () => {
@@ -34,7 +34,7 @@ describe("getLastPointerDownPoint", () => {
 });
 
 describe("caretRangeFromClientPoint", () => {
-  const doc = document as CaretDoc;
+  const doc = document as unknown as CaretDoc;
   const hadRange = "caretRangeFromPoint" in doc;
   const hadPosition = "caretPositionFromPoint" in doc;
   const originalRange = doc.caretRangeFromPoint;

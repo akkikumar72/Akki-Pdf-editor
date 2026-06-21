@@ -23,7 +23,7 @@ describe("main", () => {
     root.id = "root";
     document.body.appendChild(root);
 
-    await import("../src/main.tsx");
+    await import("../src/main");
 
     expect(createRoot).toHaveBeenCalledWith(root);
     expect(render).toHaveBeenCalledTimes(1);
