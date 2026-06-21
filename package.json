@@ -19,6 +19,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage --coverage.include='src/**'",
     "e2e": "playwright test"
   },
   "dependencies": {
@@ -46,6 +47,7 @@
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "4.1.8",
     "eslint": "9.17.0",
     "eslint-plugin-react-hooks": "5.1.0",
     "eslint-plugin-react-refresh": "0.4.16",
