@@ -11,7 +11,7 @@
 
 const FAMILY_PREFIX = "akkiembed-";
 
-// key -> registration status: a css family string once attempted, "" if it failed.
+// key -> css family once load succeeded, "" once load failed.
 const registered = new Map<string, string>();
 const loadPromises = new Map<string, Promise<string | undefined>>();
 
@@ -29,22 +29,30 @@ async function loadEmbeddedFont(key: string, bytes: Uint8Array): Promise<string 
   const existing = registered.get(key);
   if (existing !== undefined) return existing || undefined;
 
+  const pending = loadPromises.get(key);
+  if (pending) return pending;
+
   const cssFamily = cssFamilyForFontKey(key);
-  try {
-    const face = new FontFace(cssFamily, bytes as BufferSource);
-    registered.set(key, cssFamily);
-    const loaded = await face.load();
-    document.fonts.add(loaded);
-    return cssFamily;
-  } catch {
-    registered.set(key, "");
-    return undefined;
-  }
+  const promise = (async () => {
+    try {
+      const face = new FontFace(cssFamily, bytes as BufferSource);
+      const loaded = await face.load();
+      document.fonts.add(loaded);
+      registered.set(key, cssFamily);
+      return cssFamily;
+    } catch {
+      registered.set(key, "");
+      return undefined;
+    }
+  })();
+  loadPromises.set(key, promise);
+  return promise;
 }
 
 /**
  * Kick off (once) loading the embedded font for a key. Safe to call repeatedly and
- * during effects. Returns the css family name, or undefined when it cannot be used.
+ * during effects. Returns the css family name optimistically, or undefined when it
+ * cannot be used. Does not wait for FontFace.load() to finish.
  */
 export function registerEmbeddedFont(key: string | undefined, bytes: Uint8Array | undefined): string | undefined {
   if (!key || !bytes || bytes.byteLength === 0) return undefined;
@@ -52,10 +60,7 @@ export function registerEmbeddedFont(key: string | undefined, bytes: Uint8Array 
   const existing = registered.get(key);
   if (existing !== undefined) return existing || undefined;
 
-  if (!loadPromises.has(key)) {
-    loadPromises.set(key, loadEmbeddedFont(key, bytes));
-  }
-  void loadPromises.get(key);
+  void loadEmbeddedFont(key, bytes);
   return cssFamilyForFontKey(key);
 }
 
@@ -65,12 +70,5 @@ export async function ensureEmbeddedFontLoaded(
   bytes: Uint8Array | undefined,
 ): Promise<string | undefined> {
   if (!key || !bytes || bytes.byteLength === 0) return undefined;
-
-  const existing = registered.get(key);
-  if (existing !== undefined) return existing || undefined;
-
-  if (!loadPromises.has(key)) {
-    loadPromises.set(key, loadEmbeddedFont(key, bytes));
-  }
-  return loadPromises.get(key);
+  return loadEmbeddedFont(key, bytes);
 }
