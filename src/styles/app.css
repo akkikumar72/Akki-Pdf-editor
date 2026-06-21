@@ -1276,6 +1276,13 @@ select:disabled {
   box-shadow: var(--shadow-page);
 }
 
+/* Sejda parity: the Text tool shows an I-beam over the whole page, not just on
+   existing runs, so empty-area clicks read as "type here" too. */
+.page-stage.is-text-tool,
+.page-stage.is-text-tool .react-pdf__Page__canvas {
+  cursor: text;
+}
+
 .page-stage .react-pdf__Document,
 .page-stage .react-pdf__Page {
   position: absolute;
@@ -1702,7 +1709,10 @@ select:disabled {
   position: absolute;
   z-index: 4;
   padding: 0;
-  border: 1px solid transparent;
+  border: 0;
+  /* Sejda parity: a 2px dashed accent box that hugs the run on hover. Use
+     `outline` (not `border`) so toggling it never reflows or shifts the glyphs. */
+  outline: 2px dashed transparent;
   border-radius: calc(var(--radius-xs) * 0.75);
   background: transparent;
   pointer-events: none;
@@ -1714,8 +1724,7 @@ select:disabled {
 }
 
 .text-hit-layer.is-active .text-hit:hover {
-  border-color: color-mix(in oklch, var(--color-accent) 50%, transparent);
-  background: color-mix(in oklch, var(--color-accent-soft) 24%, transparent);
+  outline-color: var(--color-accent);
 }
 
 .text-hit:focus-visible {
@@ -1766,9 +1775,9 @@ select:disabled {
 }
 
 .operation--text {
-  align-items: center;
+  align-items: flex-start;
   padding: 0;
-  line-height: 1.15;
+  line-height: 1;
   white-space: pre;
   overflow: visible;
 }

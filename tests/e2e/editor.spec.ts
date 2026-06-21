@@ -130,6 +130,25 @@ test("select mode can click existing PDF text to create a replacement overlay", 
   await expect(canvas.locator(".operation--text").filter({ hasText: "Invoice subtotal" })).toBeVisible();
 });
 
+test("replacement hides overlapping PDF.js text-layer spans", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("text-layer-hide.pdf");
+  await makeSamplePdf(pdfPath);
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/text-layer-hide\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  const canvas = page.getByRole("region", { name: "PDF editor canvas" });
+  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']").click();
+  await expect(canvas.locator(".operation--text").filter({ hasText: "Invoice total" })).toBeVisible();
+
+  await expect
+    .poll(async () =>
+      canvas.locator(".react-pdf__Page__textContent span[data-akki-suppressed='true']").count(),
+    )
+    .toBeGreaterThan(0);
+});
+
 test("local save restores the PDF session after reload and can return home", async ({ page }, testInfo) => {
   const pdfPath = testInfo.outputPath("local-save.pdf");
   await makeSamplePdf(pdfPath);

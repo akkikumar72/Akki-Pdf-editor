@@ -21,6 +21,7 @@ import { collectAlignmentLines, snapViewportRect, type GuideLine } from "../util
 import { validateImageFile } from "../utils/fileValidation";
 import { createId } from "../utils/ids";
 import { sanitizeUrl } from "../utils/url";
+import { viewportRectsOverlap } from "../utils/textMetrics";
 import { FloatingOperationToolbar } from "./FloatingOperationToolbar";
 import { OperationOverlay } from "./OperationOverlay";
 import { ResizeHandles, type ResizeHandle } from "./ResizeHandles";
@@ -437,6 +438,64 @@ export function PdfCanvas({
   }, [selectedId]);
 
   useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || !isPageRendered) return;
+
+    const coverViewportRects = replacedSourceRects.map((coverRect) =>
+      pdfRectToViewport(coverRect, pageHeight, scale),
+    );
+
+    const suppressReplacedTextLayer = () => {
+      const textLayer = stage.querySelector(".react-pdf__Page__textContent");
+      if (!textLayer || coverViewportRects.length === 0) {
+        textLayer?.querySelectorAll("span[data-akki-suppressed]").forEach((span) => {
+          span.removeAttribute("data-akki-suppressed");
+          (span as HTMLElement).style.visibility = "";
+        });
+        return;
+      }
+
+      const stageBounds = stage.getBoundingClientRect();
+      textLayer.querySelectorAll("span").forEach((span) => {
+        const spanBounds = span.getBoundingClientRect();
+        const spanRect = {
+          left: spanBounds.left - stageBounds.left,
+          top: spanBounds.top - stageBounds.top,
+          width: spanBounds.width,
+          height: spanBounds.height,
+        };
+        const hidden = coverViewportRects.some((coverRect) => viewportRectsOverlap(spanRect, coverRect));
+        const isSuppressed = span.getAttribute("data-akki-suppressed") === "true";
+        // Only write when the state actually changes — otherwise our own
+        // `style` mutations re-trigger the observer and add needless layout work.
+        if (hidden && !isSuppressed) {
+          span.setAttribute("data-akki-suppressed", "true");
+          (span as HTMLElement).style.visibility = "hidden";
+        } else if (!hidden && isSuppressed) {
+          span.removeAttribute("data-akki-suppressed");
+          (span as HTMLElement).style.visibility = "";
+        }
+      });
+    };
+
+    suppressReplacedTextLayer();
+    // Nothing to keep suppressed: skip the observer entirely (the call above
+    // already cleared any stale suppression) so idle pages do no extra work.
+    if (coverViewportRects.length === 0) return;
+
+    const observer = new MutationObserver(suppressReplacedTextLayer);
+    observer.observe(stage, { childList: true, subtree: true, attributes: true, attributeFilter: ["style"] });
+
+    return () => {
+      observer.disconnect();
+      stage.querySelectorAll("span[data-akki-suppressed]").forEach((span) => {
+        span.removeAttribute("data-akki-suppressed");
+        (span as HTMLElement).style.visibility = "";
+      });
+    };
+  }, [isPageRendered, replacedSourceRects, pageHeight, scale, stageRef]);
+
+  useEffect(() => {
     if (!selectedId) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Delete" && event.key !== "Backspace") return;
@@ -546,7 +605,7 @@ export function PdfCanvas({
       <div className="document-scroll">
         <div
           ref={stageRef}
-          className="page-stage"
+          className={`page-stage ${activeTool === "text" ? "is-text-tool" : ""}`}
           style={{
             width: pageWidth * scale,
             minHeight: pageHeight * scale,

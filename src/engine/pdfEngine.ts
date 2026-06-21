@@ -4,6 +4,7 @@ import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { DocumentFontInfo, DocumentFonts, EditOperation, LoadedPdf, TextItem } from "../types/editor";
 import { dataUrlToBytes } from "../utils/download";
 import { sanitizeUrl } from "../utils/url";
+import { textBaselineDrawY } from "../utils/textMetrics";
 import { cleanPdfFontName, inferFontWeight, inferItalic, resolvePdfFont } from "./fontResolver";
 
 type PdfFontMeta = { name?: string; bold?: boolean; italic?: boolean; data?: Uint8Array; mimetype?: string };
@@ -392,13 +393,13 @@ export class PdfEngine {
               : rect.x;
         page.drawText(operation.text, {
           x,
-          y: rect.y + Math.max(2, rect.height - operation.fontSize) / 2,
+          y: textBaselineDrawY(rect, operation.fontSize),
           size: operation.fontSize,
           font,
           color: hexToRgb(operation.color),
           opacity,
           maxWidth: rect.width,
-          lineHeight: operation.fontSize * 1.22,
+          lineHeight: operation.fontSize,
         });
       }
 

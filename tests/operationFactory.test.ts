@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createOperationsForTool } from "../src/editor/operationFactory";
 import type { TextItem } from "../src/types/editor";
+import { padReplacementCoverRect } from "../src/utils/textMetrics";
 
 const textItem: TextItem = {
   str: "Invoice total",
@@ -35,7 +36,9 @@ describe("operation factory", () => {
     expect(operation.color).toBe("#f8fafc");
     expect(operation.whiteout).toBe(true);
     expect(operation.whiteoutColor).toBe("#d7ecff");
-    expect(operation.sourceCoverRect).toEqual({ x: 72, y: 700, width: 110, height: 20 });
+    expect(operation.sourceCoverRect).toEqual(
+      padReplacementCoverRect({ x: 72, y: 700, width: 110, height: 20 }, 20),
+    );
   });
 
   it("does not set a source cover rect for plain new text", () => {

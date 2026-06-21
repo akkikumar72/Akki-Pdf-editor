@@ -1,8 +1,10 @@
 import type { DocumentFonts, EditOperation } from "../types/editor";
 import { resolveFont } from "../engine/fontResolver";
-import { cssFamilyForFontKey, registerEmbeddedFont } from "../engine/fontRegistry";
+import { cssFamilyForFontKey, ensureEmbeddedFontLoaded } from "../engine/fontRegistry";
 import { pdfRectToViewport } from "../utils/coordinates";
-import { useEffect, useRef } from "react";
+import { textBaselineTopPaddingPx } from "../utils/textMetrics";
+import { caretRangeFromClientPoint, getLastPointerDownPoint } from "../utils/caret";
+import { useEffect, useRef, useState } from "react";
 
 function safeImageSrc(src: string | undefined): string | undefined {
   return src && /^data:image\/(png|jpeg|jpg);base64,/i.test(src) ? src : undefined;
@@ -47,10 +49,27 @@ export function OperationOverlay({
   const rect = pdfRectToViewport(operation.rect, pageHeight, scale);
   const embeddedFontKey = operation.type === "text" ? operation.embeddedFontKey : undefined;
   const embeddedFontBytes = embeddedFontKey ? documentFonts?.[embeddedFontKey]?.bytes : undefined;
-  const embeddedFamily = embeddedFontKey && embeddedFontBytes ? cssFamilyForFontKey(embeddedFontKey) : undefined;
+  const [embeddedFamily, setEmbeddedFamily] = useState<string | undefined>(
+    embeddedFontKey && embeddedFontBytes ? cssFamilyForFontKey(embeddedFontKey) : undefined,
+  );
+  const [embeddedReady, setEmbeddedReady] = useState(!embeddedFontKey || !embeddedFontBytes);
 
   useEffect(() => {
-    if (embeddedFontKey && embeddedFontBytes) registerEmbeddedFont(embeddedFontKey, embeddedFontBytes);
+    if (!embeddedFontKey || !embeddedFontBytes) {
+      setEmbeddedFamily(undefined);
+      setEmbeddedReady(true);
+      return;
+    }
+    let cancelled = false;
+    setEmbeddedReady(false);
+    void ensureEmbeddedFontLoaded(embeddedFontKey, embeddedFontBytes).then((family) => {
+      if (cancelled) return;
+      setEmbeddedFamily(family);
+      setEmbeddedReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [embeddedFontKey, embeddedFontBytes]);
   const style = {
     left: rect.left,
@@ -72,17 +91,29 @@ export function OperationOverlay({
     if (!editing || operation.type !== "text" || !textRef.current) return;
     const element = textRef.current;
     element.focus({ preventScroll: true });
-    // Place a collapsed caret at the start ("cursor on the left") instead of
-    // selecting all, so editing reads like typing directly into the document.
+    const selection = window.getSelection();
+    if (!selection) return;
+    // Sejda parity: drop the caret where the user clicked. Fall back to the
+    // start of the run when the click point can't be resolved inside this run.
+    const point = getLastPointerDownPoint();
+    if (point) {
+      const clicked = caretRangeFromClientPoint(point.x, point.y);
+      if (clicked && element.contains(clicked.startContainer)) {
+        selection.removeAllRanges();
+        selection.addRange(clicked);
+        return;
+      }
+    }
     const range = document.createRange();
     range.selectNodeContents(element);
     range.collapse(true);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    selection.removeAllRanges();
+    selection.addRange(range);
   }, [editing, operation.type]);
 
   if (operation.type === "text") {
+    const baselinePadding = textBaselineTopPaddingPx(rect.height, operation.fontSize, scale);
+    const showText = embeddedReady;
     return (
       <div
         ref={textRef}
@@ -105,6 +136,8 @@ export function OperationOverlay({
           color: operation.color,
           textAlign: operation.align,
           background: operation.whiteout ? operation.whiteoutColor ?? "#fff" : "transparent",
+          paddingTop: baselinePadding,
+          opacity: showText ? (operation.opacity ?? 1) : 0,
         }}
         onPointerDown={onPointerDown}
         onDoubleClick={(event) => {
