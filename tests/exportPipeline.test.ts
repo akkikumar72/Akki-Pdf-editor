@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { strFromU8, unzipSync } from "fflate";
-import { ExportPipeline } from "../src/engine/exportPipeline";
-import type { TextItem } from "../src/types/editor";
+import { ExportPipeline, exportPipeline } from "../src/engine/exportPipeline";
+import { PdfEngine } from "../src/engine/pdfEngine";
+import * as download from "../src/utils/download";
+import type { ExportFormat, TextItem } from "../src/types/editor";
 
 const items: TextItem[] = [
   { str: "Name", pageIndex: 0, rect: { x: 10, y: 700, width: 40, height: 12 } },
@@ -77,5 +79,70 @@ describe("export pipeline", () => {
     );
     const sheet = strFromU8(unzipSync(bytes)["xl/worksheets/sheet1.xml"]);
     expect(sheet).toContain("&apos;=HYPERLINK(1)");
+  });
+
+  it("falls back to a placeholder row when no table-like text is detected", () => {
+    const sheet = strFromU8(unzipSync(new ExportPipeline().toXlsxBytes([], []))["xl/worksheets/sheet1.xml"]);
+    expect(sheet).toContain("No table-like text detected");
+  });
+
+  it("clusters multi-page text and sorts within rows (toText)", () => {
+    const multi: TextItem[] = [
+      { str: "B", pageIndex: 0, rect: { x: 50, y: 700, width: 10, height: 12 } },
+      { str: "A", pageIndex: 0, rect: { x: 10, y: 700, width: 10, height: 12 } },
+      { str: "Page2", pageIndex: 1, rect: { x: 10, y: 700, width: 30, height: 12 } },
+    ];
+    expect(new ExportPipeline().toText(multi)).toBe("A B\nPage2");
+  });
+
+  it("exports a default singleton instance", () => {
+    expect(exportPipeline).toBeInstanceOf(ExportPipeline);
+  });
+});
+
+describe("export pipeline – export() dispatch", () => {
+  const fakeEngine = {
+    savePdf: vi.fn(async () => new Uint8Array([1, 2, 3])),
+  } as unknown as PdfEngine;
+  let downloadSpy: ReturnType<typeof vi.spyOn>;
+
+  function makePipeline() {
+    return new ExportPipeline(fakeEngine);
+  }
+
+  const context = {
+    filename: "My Report.pdf",
+    bytes: new Uint8Array([0]),
+    operations: [],
+    textItems: items,
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  beforeEach(() => {
+    downloadSpy = vi.spyOn(download, "downloadBlob").mockImplementation(() => undefined);
+  });
+
+  it("routes to savePdf and downloads a pdf", async () => {
+    await makePipeline().export("pdf", context);
+    expect(fakeEngine.savePdf).toHaveBeenCalledWith(context.bytes, context.operations, undefined);
+    expect(downloadSpy).toHaveBeenCalledWith(expect.any(Blob), "My-Report-edited.pdf");
+  });
+
+  it("downloads txt, csv and xlsx with safe base names", async () => {
+    await makePipeline().export("txt", context);
+    expect(downloadSpy).toHaveBeenLastCalledWith(expect.any(Blob), "My-Report.txt");
+    await makePipeline().export("csv", context);
+    expect(downloadSpy).toHaveBeenLastCalledWith(expect.any(Blob), "My-Report.csv");
+    await makePipeline().export("xlsx", context);
+    expect(downloadSpy).toHaveBeenLastCalledWith(expect.any(Blob), "My-Report.xlsx");
+  });
+
+  it("throws on an unsupported export format", async () => {
+    await expect(makePipeline().export("docx" as ExportFormat, context)).rejects.toThrow(
+      /Unsupported export format/,
+    );
   });
 });

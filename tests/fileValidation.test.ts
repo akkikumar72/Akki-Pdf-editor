@@ -44,6 +44,11 @@ describe("validateImageFile", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("rejects an empty image", async () => {
+    const result = await validateImageFile(fileFromBytes([], "empty.png", "image/png"));
+    expect(result).toEqual({ ok: false, reason: expect.stringContaining("empty") });
+  });
+
   it("rejects an oversized image", async () => {
     const oversized = new File(["x"], "big.png", { type: "image/png" });
     Object.defineProperty(oversized, "size", { value: MAX_IMAGE_BYTES + 1 });

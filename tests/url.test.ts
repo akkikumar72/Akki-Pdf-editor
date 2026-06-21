@@ -26,6 +26,11 @@ describe("sanitizeUrl", () => {
     expect(sanitizeUrl("java\u0000script:alert(1)")).toBeNull();
   });
 
+  it("returns null when the candidate cannot be parsed as a URL", () => {
+    // Matches the scheme regex (so it is not prefixed with https://) but is not a valid URL.
+    expect(sanitizeUrl("http://")).toBeNull();
+  });
+
   it("isSafeUrl mirrors sanitizeUrl", () => {
     expect(isSafeUrl("https://example.com")).toBe(true);
     expect(isSafeUrl("javascript:alert(1)")).toBe(false);
