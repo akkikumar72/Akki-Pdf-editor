@@ -598,7 +598,7 @@ export function PdfCanvas({
       <div className="document-scroll">
         <div
           ref={stageRef}
-          className="page-stage"
+          className={`page-stage ${activeTool === "text" ? "is-text-tool" : ""}`}
           style={{
             width: pageWidth * scale,
             minHeight: pageHeight * scale,

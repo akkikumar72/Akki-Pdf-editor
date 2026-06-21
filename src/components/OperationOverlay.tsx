@@ -3,6 +3,7 @@ import { resolveFont } from "../engine/fontResolver";
 import { cssFamilyForFontKey, ensureEmbeddedFontLoaded } from "../engine/fontRegistry";
 import { pdfRectToViewport } from "../utils/coordinates";
 import { textBaselineTopPaddingPx } from "../utils/textMetrics";
+import { caretRangeFromClientPoint, getLastPointerDownPoint } from "../utils/caret";
 import { useEffect, useRef, useState } from "react";
 
 function safeImageSrc(src: string | undefined): string | undefined {
@@ -90,14 +91,24 @@ export function OperationOverlay({
     if (!editing || operation.type !== "text" || !textRef.current) return;
     const element = textRef.current;
     element.focus({ preventScroll: true });
-    // Place a collapsed caret at the start ("cursor on the left") instead of
-    // selecting all, so editing reads like typing directly into the document.
+    const selection = window.getSelection();
+    if (!selection) return;
+    // Sejda parity: drop the caret where the user clicked. Fall back to the
+    // start of the run when the click point can't be resolved inside this run.
+    const point = getLastPointerDownPoint();
+    if (point) {
+      const clicked = caretRangeFromClientPoint(point.x, point.y);
+      if (clicked && element.contains(clicked.startContainer)) {
+        selection.removeAllRanges();
+        selection.addRange(clicked);
+        return;
+      }
+    }
     const range = document.createRange();
     range.selectNodeContents(element);
     range.collapse(true);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    selection.removeAllRanges();
+    selection.addRange(range);
   }, [editing, operation.type]);
 
   if (operation.type === "text") {
