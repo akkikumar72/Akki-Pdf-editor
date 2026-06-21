@@ -23,11 +23,21 @@ export function textBaselineDrawY(rect: PdfRect, fontSize: number): number {
   return rect.y + fontSize * 0.22;
 }
 
-/** CSS top padding (px) to align overlay glyphs on the same baseline as export. */
-export function textBaselineTopPaddingPx(fontSize: number, scale: number): number {
-  const boxHeightPx = fontSize * scale;
+/**
+ * CSS top padding (px) to align overlay glyphs on the same baseline as export.
+ *
+ * The overlay box is the *padded* replacement rect (see `padReplacementCoverRect`),
+ * so it is taller than the glyph em-box. This pushes the text down so its baseline
+ * lands `fontSize * 0.22` above the box bottom — matching `textBaselineDrawY`, which
+ * positions the exported glyphs. Clamps to 0 when the box is not taller than the em-box.
+ *
+ * `boxHeightPx` must be the actual rendered box height in pixels (viewport rect
+ * height), not the font size — deriving it from `fontSize` made this a no-op.
+ */
+export function textBaselineTopPaddingPx(boxHeightPx: number, fontSize: number, scale: number): number {
   const baselineFromBottomPx = fontSize * 0.22 * scale;
-  return Math.max(0, boxHeightPx - baselineFromBottomPx - fontSize * scale * 0.88);
+  const ascentPx = fontSize * 0.88 * scale;
+  return Math.max(0, boxHeightPx - baselineFromBottomPx - ascentPx);
 }
 
 export function viewportRectsOverlap(

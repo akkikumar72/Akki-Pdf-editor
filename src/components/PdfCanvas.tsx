@@ -465,10 +465,13 @@ export function PdfCanvas({
           height: spanBounds.height,
         };
         const hidden = coverViewportRects.some((coverRect) => viewportRectsOverlap(spanRect, coverRect));
-        if (hidden) {
+        const isSuppressed = span.getAttribute("data-akki-suppressed") === "true";
+        // Only write when the state actually changes — otherwise our own
+        // `style` mutations re-trigger the observer and add needless layout work.
+        if (hidden && !isSuppressed) {
           span.setAttribute("data-akki-suppressed", "true");
           (span as HTMLElement).style.visibility = "hidden";
-        } else if (span.getAttribute("data-akki-suppressed") === "true") {
+        } else if (!hidden && isSuppressed) {
           span.removeAttribute("data-akki-suppressed");
           (span as HTMLElement).style.visibility = "";
         }
@@ -476,6 +479,10 @@ export function PdfCanvas({
     };
 
     suppressReplacedTextLayer();
+    // Nothing to keep suppressed: skip the observer entirely (the call above
+    // already cleared any stale suppression) so idle pages do no extra work.
+    if (coverViewportRects.length === 0) return;
+
     const observer = new MutationObserver(suppressReplacedTextLayer);
     observer.observe(stage, { childList: true, subtree: true, attributes: true, attributeFilter: ["style"] });
 

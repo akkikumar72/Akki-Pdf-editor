@@ -43,6 +43,10 @@ async function loadEmbeddedFont(key: string, bytes: Uint8Array): Promise<string 
     } catch {
       registered.set(key, "");
       return undefined;
+    } finally {
+      // Drop the in-flight entry once settled; the result is cached in `registered`,
+      // so the map only holds genuinely pending loads instead of growing forever.
+      loadPromises.delete(key);
     }
   })();
   loadPromises.set(key, promise);

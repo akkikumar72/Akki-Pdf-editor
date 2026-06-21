@@ -112,7 +112,7 @@ export function OperationOverlay({
   }, [editing, operation.type]);
 
   if (operation.type === "text") {
-    const baselinePadding = textBaselineTopPaddingPx(operation.fontSize, scale);
+    const baselinePadding = textBaselineTopPaddingPx(rect.height, operation.fontSize, scale);
     const showText = embeddedReady;
     return (
       <div
