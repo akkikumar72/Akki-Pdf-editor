@@ -1766,9 +1766,9 @@ select:disabled {
 }
 
 .operation--text {
-  align-items: center;
+  align-items: flex-start;
   padding: 0;
-  line-height: 1.15;
+  line-height: 1;
   white-space: pre;
   overflow: visible;
 }

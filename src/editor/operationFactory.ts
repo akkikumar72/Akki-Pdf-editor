@@ -1,6 +1,7 @@
 import { buildDetectedCssFontFamily, resolveFont } from "../engine/fontResolver";
 import type { EditOperation, EditorTool, TextItem, ViewportRect } from "../types/editor";
 import { viewportRectToPdf } from "../utils/coordinates";
+import { padReplacementCoverRect } from "../utils/textMetrics";
 import { createId } from "../utils/ids";
 import { sanitizeUrl } from "../utils/url";
 import { toolLabel } from "./toolRegistry";
@@ -85,13 +86,18 @@ export function createOperationsForTool({
     const replacementWidth = isReplacement
       ? Math.max(rect.width, estimateSingleLineTextWidth(text, fontSize, fontWeight))
       : Math.max(rect.width, 130);
+    const coverRect = isReplacement ? padReplacementCoverRect(rect, fontSize) : undefined;
     return [
       {
         id: createId("text"),
         type: "text",
         pageIndex,
         rect: isReplacement
-          ? { ...rect, width: Math.max(replacementWidth, 16), height: Math.max(rect.height, fontSize) }
+          ? {
+              ...(coverRect ?? rect),
+              width: Math.max(coverRect?.width ?? rect.width, replacementWidth, 16),
+              height: Math.max(coverRect?.height ?? rect.height, fontSize),
+            }
           : { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, 28) },
         text,
         fontFamily: styleTextItem ? fontChoice.label : resolveFont().label,
@@ -109,8 +115,8 @@ export function createOperationsForTool({
         align: "left",
         whiteout: isReplacement,
         whiteoutColor: isReplacement ? (sampledBackgroundColor ?? DEFAULT_COLORS.whiteout) : undefined,
-        sourceCoverRect: isReplacement
-          ? { ...rect, width: Math.max(rect.width, 16), height: Math.max(rect.height, fontSize) }
+        sourceCoverRect: coverRect
+          ? { ...coverRect, width: Math.max(coverRect.width, 16), height: Math.max(coverRect.height, fontSize) }
           : undefined,
         opacity: 1,
         createdAt: now,
