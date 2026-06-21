@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("react-pdf", () => ({
-  Document: ({ children }: any) => <div>{children}</div>,
-  Page: (_props: any) => <div data-testid="pdf-page" />,
+  Document: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  Page: (_props: Record<string, unknown>) => <div data-testid="pdf-page" />,
   pdfjs: { GlobalWorkerOptions: {} },
 }));
 

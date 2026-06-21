@@ -1,7 +1,8 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  DocumentFonts,
   EditOperation,
   InkOperation,
   LoadedPdf,
@@ -16,13 +17,19 @@ import type {
 // document/page success callbacks so onDocumentLoad + setIsPageRendered fire.
 // ---------------------------------------------------------------------------
 vi.mock("react-pdf", () => {
-  const Document = ({ children, onLoadSuccess }: any) => {
+  const Document = ({
+    children,
+    onLoadSuccess,
+  }: {
+    children?: ReactNode;
+    onLoadSuccess?: (pdf: { numPages: number }) => void;
+  }) => {
     useEffect(() => {
       onLoadSuccess?.({ numPages: 3 });
     }, [onLoadSuccess]);
     return <div data-testid="rpdf-document">{children}</div>;
   };
-  const Page = ({ onRenderSuccess }: any) => {
+  const Page = ({ onRenderSuccess }: { onRenderSuccess?: () => void }) => {
     useEffect(() => {
       // Defer so it lands after the parent's reset effect (which sets
       // isPageRendered=false on mount), mirroring real async render success.
@@ -176,24 +183,27 @@ beforeEach(() => {
   imageDataColor = [200, 200, 200];
   inkFraction = null;
   mixedAlpha = false;
-  Element.prototype.getBoundingClientRect = vi.fn(() => ({ ...BOUNDS })) as any;
+  Element.prototype.getBoundingClientRect = vi.fn(
+    () => ({ ...BOUNDS }),
+  ) as typeof Element.prototype.getBoundingClientRect;
   HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
     getImageData: (_x: number, _y: number, w: number, h: number) => makeImageData(Math.max(1, w), Math.max(1, h)),
     drawImage: vi.fn(),
     fillRect: vi.fn(),
-  })) as any;
-  (HTMLElement.prototype as any).setPointerCapture = vi.fn();
-  (HTMLElement.prototype as any).releasePointerCapture = vi.fn();
-  if (!(globalThis as any).ResizeObserver) {
-    (globalThis as any).ResizeObserver = class {
+  })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+  HTMLElement.prototype.setPointerCapture = vi.fn();
+  HTMLElement.prototype.releasePointerCapture = vi.fn();
+  const globalWithRO = globalThis as { ResizeObserver?: typeof ResizeObserver };
+  if (!globalWithRO.ResizeObserver) {
+    globalWithRO.ResizeObserver = class {
       observe() {}
       unobserve() {}
       disconnect() {}
-    };
+    } as unknown as typeof ResizeObserver;
   }
   // jsdom lacks MutationObserver attribute filtering quirks? it has MutationObserver.
   if (!window.requestAnimationFrame) {
-    (window as any).requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0);
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0) as unknown as number;
   }
 });
 
@@ -274,9 +284,9 @@ describe("PdfCanvas - creating operations by clicking", () => {
   it("creates a text operation, selects it, and enters edit mode", async () => {
     const onOperationAdd = vi.fn();
     const onOperationSelect = vi.fn();
-    const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => {
+    const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
       cb(0);
-      return 1 as any;
+      return 1;
     });
     const { stage } = renderCanvas({ activeTool: "text", onOperationAdd, onOperationSelect });
     await act(async () => {
@@ -357,7 +367,7 @@ describe("PdfCanvas - image tool", () => {
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "x.png", { type: "image/png" });
     const original = FileReader.prototype.readAsDataURL;
     FileReader.prototype.readAsDataURL = function (this: FileReader) {
-      this.onerror?.(new ProgressEvent("error") as any);
+      this.onerror?.(new ProgressEvent("error") as ProgressEvent<FileReader>);
     };
     await act(async () => {
       fireEvent.change(input, { target: { files: [png] } });
@@ -391,7 +401,7 @@ describe("PdfCanvas - text hit layer", () => {
   it("clicking a hit target creates a replacement text operation", async () => {
     const onOperationAdd = vi.fn();
     const onOperationSelect = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     const { container } = renderCanvas({ activeTool: "text", textItems, onOperationAdd, onOperationSelect });
     await waitFor(() => expect(container.querySelector(".text-hit")).toBeTruthy());
     await act(async () => {
@@ -760,7 +770,7 @@ describe("PdfCanvas - effects", () => {
   it("registers embedded fonts when documentFonts provided", async () => {
     const { registerEmbeddedFont } = await import("../src/engine/fontRegistry");
     renderCanvas({
-      documentFonts: { a: { key: "font-a", bytes: new Uint8Array([1]) } } as any,
+      documentFonts: { a: { key: "font-a", bytes: new Uint8Array([1]) } } satisfies DocumentFonts,
     });
     expect(registerEmbeddedFont).toHaveBeenCalledWith("font-a", expect.anything());
   });
@@ -786,11 +796,11 @@ describe("PdfCanvas - effects", () => {
     const span = container.querySelector(".react-pdf__Page__textContent span") as HTMLElement;
     // overlapping bounds -> effect suppresses it
     let bounds = { left: 10, top: 100, right: 60, bottom: 150, width: 50, height: 50, x: 10, y: 100, toJSON() {} };
-    span.getBoundingClientRect = vi.fn(() => bounds) as any;
+    span.getBoundingClientRect = vi.fn(() => bounds) as typeof span.getBoundingClientRect;
     await waitFor(() => expect(span.getAttribute("data-akki-suppressed")).toBe("true"));
     // move the span out of the cover region, then trigger the style-attribute
     // MutationObserver so suppressReplacedTextLayer re-runs and un-suppresses it.
-    bounds = { left: 10, top: 700, right: 60, bottom: 740, width: 50, height: 40, x: 10, y: 700, toJSON() {} } as any;
+    bounds = { left: 10, top: 700, right: 60, bottom: 740, width: 50, height: 40, x: 10, y: 700, toJSON() {} };
     await act(async () => {
       (container.querySelector(".react-pdf__Page__canvas") as HTMLElement).style.opacity = "0.99";
       await new Promise((r) => setTimeout(r, 0));
@@ -869,7 +879,7 @@ describe("PdfCanvas - text style inheritance + grouping", () => {
 
   it("creates a styled text op inheriting from a nearby run (text tool, empty-area click)", async () => {
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     imageDataAlpha = 255;
     const { stage } = renderCanvas({ activeTool: "text", textItems, onOperationAdd });
     await act(async () => {
@@ -883,7 +893,7 @@ describe("PdfCanvas - text style inheritance + grouping", () => {
 
   it("samples weights when the background sampling yields opaque ink coverage", async () => {
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     // strong dark ink against light background -> exercises 700/600/500/400 branches
     imageDataColor = [240, 240, 240];
     const { stage } = renderCanvas({ activeTool: "text", textItems, onOperationAdd });
@@ -895,9 +905,11 @@ describe("PdfCanvas - text style inheritance + grouping", () => {
   });
 
   it("creates text when the canvas 2D context is unavailable (sampling skipped)", async () => {
-    HTMLCanvasElement.prototype.getContext = vi.fn(() => null) as any;
+    HTMLCanvasElement.prototype.getContext = vi.fn(
+      () => null,
+    ) as typeof HTMLCanvasElement.prototype.getContext;
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     const { stage } = renderCanvas({ activeTool: "text", textItems, onOperationAdd });
     await act(async () => {
       fireEvent.click(stage, { clientX: 60, clientY: 80 });
@@ -912,12 +924,12 @@ describe("PdfCanvas - text style inheritance + grouping", () => {
       drawImage: vi.fn(), fillRect: vi.fn(),
     };
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     const { stage, container } = renderCanvas({ activeTool: "text", textItems, onOperationAdd });
     // Override the rendered canvas instance to report zero intrinsic size so
     // sampleRect width/height <= 0 -> getCanvasSample returns undefined.
     const canvas = container.querySelector(".react-pdf__Page__canvas") as HTMLCanvasElement;
-    canvas.getContext = vi.fn(() => ctx) as any;
+    canvas.getContext = vi.fn(() => ctx) as unknown as typeof canvas.getContext;
     Object.defineProperty(canvas, "width", { configurable: true, get: () => 0 });
     Object.defineProperty(canvas, "height", { configurable: true, get: () => 0 });
     await act(async () => {
@@ -929,7 +941,7 @@ describe("PdfCanvas - text style inheritance + grouping", () => {
 
   it("handles a transparent sample (background sampling yields no color)", async () => {
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     imageDataAlpha = 100; // all pixels below the 250 alpha threshold -> no background
     const { stage } = renderCanvas({ activeTool: "text", textItems, onOperationAdd });
     await act(async () => {
@@ -941,7 +953,7 @@ describe("PdfCanvas - text style inheritance + grouping", () => {
 
   it("click far from any run still creates text (findNearbyTextRunForStyle returns undefined)", async () => {
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     const { stage } = renderCanvas({ activeTool: "text", textItems, onOperationAdd });
     await act(async () => {
       fireEvent.click(stage, { clientX: 600, clientY: 780 });
@@ -989,7 +1001,7 @@ describe("PdfCanvas - text run grouping coverage", () => {
 
   it("picks the heavier style item when merging a run", async () => {
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     const { stage } = renderCanvas({ activeTool: "text", textItems: heavierSecond, onOperationAdd });
     await act(async () => {
       fireEvent.click(stage, { clientX: 55, clientY: 80 });
@@ -1000,7 +1012,7 @@ describe("PdfCanvas - text run grouping coverage", () => {
 
   it("inherits from a run when clicking clearly to its left", async () => {
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     // single isolated run far from the left margin
     const single: TextItem[] = [
       { str: "word", pageIndex: 0, rect: { x: 200, y: 700, width: 60, height: 14 }, fontSize: 12, fontName: "Arial" },
@@ -1016,7 +1028,7 @@ describe("PdfCanvas - text run grouping coverage", () => {
 
   it("ignores a run that is within the line band but far in x", async () => {
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     // single short run; click on the same line band but hundreds of px to the right
     const single: TextItem[] = [
       { str: "edge", pageIndex: 0, rect: { x: 20, y: 700, width: 30, height: 14 }, fontSize: 12, fontName: "Arial" },
@@ -1036,7 +1048,7 @@ describe("PdfCanvas - text run grouping coverage", () => {
     ["above all runs", 300, 760],
   ])("creates inheriting text when clicking %s", async (_label, x, y) => {
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     const { stage } = renderCanvas({ activeTool: "text", textItems: items, onOperationAdd });
     await act(async () => {
       fireEvent.click(stage, { clientX: x, clientY: y });
@@ -1057,7 +1069,7 @@ describe("PdfCanvas - sampled font weight thresholds", () => {
     inkFraction = 0.004; // very little ink -> colour dominant count < 3
     mixedAlpha = true; // every 4th pixel alpha 200 -> alpha-skip branches run
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     const { stage } = renderCanvas({ activeTool: "text", textItems: bigRun, onOperationAdd });
     await act(async () => {
       fireEvent.click(stage, { clientX: 180, clientY: 130 });
@@ -1074,7 +1086,7 @@ describe("PdfCanvas - sampled font weight thresholds", () => {
   ])("samples weight at ink fraction %s", async (fraction) => {
     inkFraction = fraction as number;
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: any) => { cb(0); return 1 as any; });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
     // click center of the big run: top=(792-600-120)*1=72, mid ~ 72+60=132
     const { stage } = renderCanvas({ activeTool: "text", textItems: bigRun, onOperationAdd });
     await act(async () => {

@@ -2,6 +2,18 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import type { EditorController } from "../src/state/useEditorController";
+import type { SessionSummary } from "../src/utils/storage";
+
+type ToolHubStubProps = {
+  status?: string;
+  isBusy: boolean;
+  recentSessions: SessionSummary[];
+  onBlank: () => Promise<void>;
+  onOpen: (file: File) => Promise<void>;
+  onResume: (id: string) => Promise<void>;
+  onClearSessions: () => Promise<void>;
+  onDeleteSession: (id: string) => Promise<void>;
+};
 
 // ---- navigate spy ----
 const navigateSpy = vi.fn();
@@ -12,7 +24,7 @@ vi.mock("react-router-dom", async (orig) => ({
 
 // ---- ToolHub stub exposes buttons that invoke each callback prop ----
 vi.mock("../src/components/ToolHub", () => ({
-  ToolHub: (props: any) => (
+  ToolHub: (props: ToolHubStubProps) => (
     <div data-testid="toolhub">
       <span data-testid="status">{props.status}</span>
       <span data-testid="busy">{String(props.isBusy)}</span>
@@ -67,7 +79,7 @@ describe("LandingRoute", () => {
     const controller = makeController({
       isBusy: true,
       status: "Hello",
-      recentSessions: [{ id: "a" }, { id: "b" }] as any,
+      recentSessions: [{ id: "a" }, { id: "b" }] as Pick<SessionSummary, "id">[] as SessionSummary[],
     });
     renderLanding(controller);
     expect(controller.refreshRecentSessions).toHaveBeenCalledTimes(1);

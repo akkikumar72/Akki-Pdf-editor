@@ -1,8 +1,73 @@
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
+import type { EditHistoryEntry, EditState } from "../src/state/editModel";
 import type { EditorController } from "../src/state/useEditorController";
-import type { LoadedPdf } from "../src/types/editor";
+import type {
+  EditOperation,
+  EditorTool,
+  ExportFormat,
+  LoadedPdf,
+  TextItem,
+} from "../src/types/editor";
+
+type AppShellStubProps = {
+  header: ReactNode;
+  rail: ReactNode;
+  inspector: ReactNode;
+  status: ReactNode;
+  children: ReactNode;
+};
+
+type ToolRibbonStubProps = {
+  canUndo: boolean;
+  canRedo: boolean;
+  disabled: boolean;
+  activeTool: EditorTool;
+  scale: number;
+  onHome: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onRemove: () => void;
+  onDeletePage: () => void;
+  onInsertPage: () => void;
+  onRotate: () => void;
+  onRotatePage: () => void;
+  onRestoreHistory: (id: string) => void;
+  onToolChange: (tool: EditorTool) => void;
+  onExport: (format: ExportFormat) => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+};
+
+type PageRailStubProps = {
+  activePage: number;
+  pageCount: number;
+  onSelect: (index: number) => void;
+};
+
+type InspectorStubProps = {
+  operationCount: number;
+  pageTextItems: TextItem[];
+  onUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  onExport: (format: ExportFormat) => void;
+};
+
+type StatusBarStubProps = {
+  documentName: string;
+  isBusy: boolean;
+};
+
+type PdfCanvasStubProps = {
+  activeTool: EditorTool;
+  pageIndex: number;
+  onNotice: (message: string) => void;
+  onOperationAdd: (operation: Partial<EditOperation>) => void;
+  onOperationRemove: (id: string) => void;
+  onOperationSelect: (id: string) => void;
+  onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
+};
 
 const navigateSpy = vi.fn();
 vi.mock("react-router-dom", async (orig) => ({
@@ -12,7 +77,7 @@ vi.mock("react-router-dom", async (orig) => ({
 
 // ---- stub heavy children; each exposes its props through buttons/spans ----
 vi.mock("../src/components/AppShell", () => ({
-  AppShell: ({ header, rail, inspector, status, children }: any) => (
+  AppShell: ({ header, rail, inspector, status, children }: AppShellStubProps) => (
     <div data-testid="app-shell">
       <div data-testid="header">{header}</div>
       <div data-testid="rail">{rail}</div>
@@ -24,7 +89,7 @@ vi.mock("../src/components/AppShell", () => ({
 }));
 
 vi.mock("../src/components/ToolRibbon", () => ({
-  ToolRibbon: (props: any) => (
+  ToolRibbon: (props: ToolRibbonStubProps) => (
     <div data-testid="tool-ribbon">
       <span data-testid="canUndo">{String(props.canUndo)}</span>
       <span data-testid="canRedo">{String(props.canRedo)}</span>
@@ -49,7 +114,7 @@ vi.mock("../src/components/ToolRibbon", () => ({
 }));
 
 vi.mock("../src/components/PageRail", () => ({
-  PageRail: (props: any) => (
+  PageRail: (props: PageRailStubProps) => (
     <div data-testid="page-rail">
       <span data-testid="active-page">{props.activePage}</span>
       <span data-testid="page-count">{props.pageCount}</span>
@@ -59,7 +124,7 @@ vi.mock("../src/components/PageRail", () => ({
 }));
 
 vi.mock("../src/components/Inspector", () => ({
-  Inspector: (props: any) => (
+  Inspector: (props: InspectorStubProps) => (
     <div data-testid="inspector-cmp">
       <span data-testid="op-count">{props.operationCount}</span>
       <span data-testid="page-text-count">{props.pageTextItems.length}</span>
@@ -70,7 +135,7 @@ vi.mock("../src/components/Inspector", () => ({
 }));
 
 vi.mock("../src/components/StatusBar", () => ({
-  StatusBar: (props: any) => (
+  StatusBar: (props: StatusBarStubProps) => (
     <div data-testid="status-bar">
       <span data-testid="doc-name">{props.documentName}</span>
       <span data-testid="status-busy">{String(props.isBusy)}</span>
@@ -79,7 +144,7 @@ vi.mock("../src/components/StatusBar", () => ({
 }));
 
 vi.mock("../src/components/PdfCanvas", () => ({
-  PdfCanvas: (props: any) => (
+  PdfCanvas: (props: PdfCanvasStubProps) => (
     <div data-testid="pdf-canvas">
       <span data-testid="canvas-tool">{props.activeTool}</span>
       <span data-testid="canvas-page">{props.pageIndex}</span>
@@ -210,7 +275,12 @@ describe("EditorRoute - with document", () => {
 
   it("computes canUndo/canRedo from history length", () => {
     renderRoute(makeController({
-      editState: { past: [{ id: "p" }], future: [{ id: "f" }], operations: [], selectedId: undefined } as any,
+      editState: {
+        past: [{ id: "p" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
+        future: [{ id: "f" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
+        operations: [],
+        selectedId: undefined,
+      } satisfies EditState,
     }));
     expect(screen.getByTestId("canUndo").textContent).toBe("true");
     expect(screen.getByTestId("canRedo").textContent).toBe("true");
@@ -250,17 +320,17 @@ describe("EditorRoute - with document", () => {
     renderRoute(controller);
 
     fireEvent.click(screen.getByText("rotate"));
-    const rotateUpdater = (controller.setRotation as any).mock.calls[0][0];
+    const rotateUpdater = (controller.setRotation as unknown as Mock).mock.calls[0][0] as (n: number) => number;
     expect(rotateUpdater(300)).toBe(30); // (300 + 90) % 360
     expect(rotateUpdater(0)).toBe(90);
 
     fireEvent.click(screen.getByText("zoom-in"));
-    const zoomInUpdater = (controller.setScale as any).mock.calls[0][0];
+    const zoomInUpdater = (controller.setScale as unknown as Mock).mock.calls[0][0] as (n: number) => number;
     expect(zoomInUpdater(1)).toBeCloseTo(1.1);
     expect(zoomInUpdater(2.4)).toBe(2.4); // clamped to max
 
     fireEvent.click(screen.getByText("zoom-out"));
-    const zoomOutUpdater = (controller.setScale as any).mock.calls[1][0];
+    const zoomOutUpdater = (controller.setScale as unknown as Mock).mock.calls[1][0] as (n: number) => number;
     expect(zoomOutUpdater(1)).toBeCloseTo(0.9);
     expect(zoomOutUpdater(0.45)).toBe(0.45); // clamped to min
   });
@@ -295,7 +365,7 @@ describe("EditorRoute - with document", () => {
       textItems: [
         { str: "a", pageIndex: 0, rect: { x: 0, y: 0, width: 1, height: 1 } },
         { str: "b", pageIndex: 1, rect: { x: 0, y: 0, width: 1, height: 1 } },
-      ] as any,
+      ] satisfies TextItem[],
     });
     renderRoute(controller);
     expect(screen.getByTestId("page-text-count").textContent).toBe("1");

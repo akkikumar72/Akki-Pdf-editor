@@ -1,16 +1,17 @@
 import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("react-pdf", () => ({
-  Document: ({ children }: any) => <div>{children}</div>,
-  Page: (_props: any) => <div data-testid="pdf-page" />,
+  Document: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  Page: (_props: Record<string, unknown>) => <div data-testid="pdf-page" />,
   pdfjs: { GlobalWorkerOptions: {} },
 }));
 
 vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "worker.js" }));
 
 vi.mock("../src/state/EditorProvider", () => ({
-  EditorProvider: ({ children }: any) => <div>{children}</div>,
+  EditorProvider: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
 }));
 
 vi.mock("../src/routes/LandingRoute", () => ({
@@ -28,6 +29,6 @@ describe("App", () => {
   it("sets the pdf worker source and mounts the landing route", () => {
     render(<App />);
     expect(screen.getByTestId("landing")).toBeInTheDocument();
-    expect((pdfjs.GlobalWorkerOptions as any).workerSrc).toBe("worker.js");
+    expect((pdfjs.GlobalWorkerOptions as { workerSrc: string }).workerSrc).toBe("worker.js");
   });
 });

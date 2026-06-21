@@ -9,11 +9,40 @@ import type { EditOperation, TextOperation, ViewportRect } from "../src/types/ed
 // custom Option component, onChange/onBlur/onMenuOpen/onMenuClose/onInputChange).
 // This keeps the test deterministic while still driving the real component code.
 // ---------------------------------------------------------------------------
-type SelectProps = Record<string, any>;
+// Structural shape of the option objects the component feeds react-select.
+type StubFontOption = { label: string; value: string };
+
+// Style slot config: every slot is an optional function the stub invokes to
+// exercise its branches; we don't care about argument/return shapes here.
+type StubStyleSlot = (...args: unknown[]) => unknown;
+
+type StubOptionProps = {
+  data: StubFontOption;
+  isFocused: boolean;
+  innerProps: Record<string, unknown>;
+  getStyles: () => Record<string, unknown>;
+  children?: React.ReactNode;
+};
+
+type SelectProps = {
+  styles?: Partial<Record<string, StubStyleSlot>>;
+  value?: StubFontOption | null;
+  options?: StubFontOption[];
+  components?: { Option?: (props: StubOptionProps) => React.ReactNode };
+  formatOptionLabel?: (option: StubFontOption | null | undefined, meta: { context: string }) => React.ReactNode;
+  getOptionLabel?: (option: StubFontOption) => string;
+  getOptionValue?: (option: StubFontOption) => string;
+  filterOption?: (candidate: { data: StubFontOption }, input: string) => boolean;
+  onChange?: (value: StubFontOption | null | undefined) => void;
+  onBlur?: () => void;
+  onMenuOpen?: () => void;
+  onMenuClose?: () => void;
+  onInputChange?: (value: string, meta: { action: string }) => void;
+};
 
 vi.mock("react-select", () => {
   const realComponents = {
-    Option: (props: SelectProps) => (
+    Option: (props: StubOptionProps) => (
       <div data-testid="rs-real-option" className={props.isFocused ? "focused" : ""}>
         {props.children}
       </div>
