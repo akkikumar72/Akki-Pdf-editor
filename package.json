@@ -10,6 +10,7 @@
     "@eslint/plugin-kit": ">=0.3.4"
   },
   "scripts": {
+    "postinstall": "git config core.hooksPath .githooks || true",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
