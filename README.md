@@ -13,6 +13,8 @@ Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and ex
 - Add overlay edits: text, whiteout, links, forms, images, signatures, annotations, shapes, and table regions.
 - Click existing PDF text in Select mode to create a replacement overlay with closest-match font styling.
 - Inline Sejda-style toolbar for selected objects, including searchable font family picker with keyboard support.
+- Edit document properties (Title, Author, Subject, Keywords, Creator, Producer) and write them into the exported PDF.
+- Flatten form fields on export to produce a static, read-only (non-fillable) PDF.
 - Export edited PDF, TXT, CSV, XLSX, and PNG locally.
 
 ## Tech Stack

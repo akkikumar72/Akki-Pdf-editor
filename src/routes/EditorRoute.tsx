@@ -84,8 +84,12 @@ export function EditorRoute() {
           operation={editor.selectedOperation}
           operationCount={editState.operations.length}
           pageTextItems={editor.textItems.filter((item) => item.pageIndex === editor.pageIndex)}
+          metadata={editor.metadata}
+          flatten={editor.flatten}
           onExport={editor.runExport}
           onUpdate={editor.updateOperation}
+          onMetadataUpdate={editor.updateMetadata}
+          onFlattenChange={editor.setFlatten}
         />
       )}
       status={(

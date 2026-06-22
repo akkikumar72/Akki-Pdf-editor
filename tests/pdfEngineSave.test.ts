@@ -92,4 +92,63 @@ describe("PdfEngine.savePdf", () => {
     ];
     await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
   });
+
+  it("writes document metadata that round-trips when read back", async () => {
+    const original = await blankPdfBytes();
+    const metadata = {
+      title: "Quarterly Report",
+      author: "Akki",
+      subject: "Finance",
+      keywords: "report, finance, q3",
+      producer: "Akki PDF Editor",
+      creator: "Akki",
+    };
+    const out = await pdfEngine.savePdf(original, [], undefined, { metadata });
+    const readBack = await pdfEngine.getMetadata(out);
+    expect(readBack.title).toBe(metadata.title);
+    expect(readBack.author).toBe(metadata.author);
+    expect(readBack.subject).toBe(metadata.subject);
+    expect(readBack.keywords).toBe(metadata.keywords);
+    expect(readBack.producer).toBe(metadata.producer);
+    expect(readBack.creator).toBe(metadata.creator);
+  });
+
+  it("getMetadata returns empty strings for a document without info fields", async () => {
+    const original = await blankPdfBytes();
+    const metadata = await pdfEngine.getMetadata(original);
+    expect(metadata.title).toBe("");
+    expect(metadata.author).toBe("");
+  });
+
+  it("flattens form fields so the saved PDF has no fillable fields", async () => {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([612, 792]);
+    const form = pdf.getForm();
+    const textField = form.createTextField("contact.name");
+    textField.setText("Akki");
+    textField.addToPage(page, { x: 72, y: 700, width: 200, height: 24 });
+    const checkbox = form.createCheckBox("contact.subscribed");
+    checkbox.addToPage(page, { x: 72, y: 660, width: 16, height: 16 });
+    const withForm = new Uint8Array(await pdf.save());
+
+    // Sanity check: the source document is fillable before flatten.
+    const beforeDoc = await PDFDocument.load(withForm);
+    expect(beforeDoc.getForm().getFields().length).toBe(2);
+
+    const out = await pdfEngine.savePdf(withForm, [], undefined, { flatten: true });
+    const flattened = await PDFDocument.load(out);
+    expect(flattened.getForm().getFields().length).toBe(0);
+  });
+
+  it("leaves form fields fillable when flatten is not requested", async () => {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([612, 792]);
+    const field = pdf.getForm().createTextField("plain.field");
+    field.addToPage(page, { x: 72, y: 700, width: 200, height: 24 });
+    const withForm = new Uint8Array(await pdf.save());
+
+    const out = await pdfEngine.savePdf(withForm, []);
+    const reloaded = await PDFDocument.load(out);
+    expect(reloaded.getForm().getFields().length).toBe(1);
+  });
 });

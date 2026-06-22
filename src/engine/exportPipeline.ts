@@ -1,5 +1,5 @@
 import { strToU8, zipSync } from "fflate";
-import type { DocumentFonts, EditOperation, ExportFormat, TextItem } from "../types/editor";
+import type { DocumentFonts, EditOperation, ExportFormat, PdfMetadata, TextItem } from "../types/editor";
 import { downloadBlob, safeBaseName } from "../utils/download";
 import { PdfEngine, pdfEngine as defaultPdfEngine } from "./pdfEngine";
 
@@ -9,6 +9,10 @@ export type ExportContext = {
   operations: EditOperation[];
   textItems: TextItem[];
   fonts?: DocumentFonts;
+  /** Document properties to write into a PDF export. */
+  metadata?: PdfMetadata;
+  /** Flatten form fields so the exported PDF is static (non-fillable). */
+  flatten?: boolean;
 };
 
 export class ExportPipeline {
@@ -18,7 +22,10 @@ export class ExportPipeline {
     const base = safeBaseName(context.filename);
     switch (format) {
       case "pdf": {
-        const bytes = await this.engine.savePdf(context.bytes, context.operations, context.fonts);
+        const bytes = await this.engine.savePdf(context.bytes, context.operations, context.fonts, {
+          metadata: context.metadata,
+          flatten: context.flatten,
+        });
         downloadBlob(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), `${base}-edited.pdf`);
         return;
       }

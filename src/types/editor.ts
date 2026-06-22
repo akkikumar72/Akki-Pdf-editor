@@ -212,6 +212,24 @@ export type EditorDocument = LoadedPdf & {
 
 export type ExportFormat = "pdf" | "txt" | "csv" | "xlsx";
 
+/** Editable document information dictionary fields (XMP/Info). */
+export type PdfMetadata = {
+  title?: string;
+  author?: string;
+  subject?: string;
+  keywords?: string;
+  producer?: string;
+  creator?: string;
+};
+
+/** Options that change how a PDF is written on save/export. */
+export type PdfSaveOptions = {
+  /** Document properties to write into the saved PDF. */
+  metadata?: PdfMetadata;
+  /** Flatten form fields so the document becomes static (non-fillable). */
+  flatten?: boolean;
+};
+
 export type ViewportRect = {
   left: number;
   top: number;

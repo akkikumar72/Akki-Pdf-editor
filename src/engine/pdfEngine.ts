@@ -1,7 +1,15 @@
 import { PDFDocument, PDFName, PDFString, degrees, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import type { DocumentFontInfo, DocumentFonts, EditOperation, LoadedPdf, TextItem } from "../types/editor";
+import type {
+  DocumentFontInfo,
+  DocumentFonts,
+  EditOperation,
+  LoadedPdf,
+  PdfMetadata,
+  PdfSaveOptions,
+  TextItem,
+} from "../types/editor";
 import { dataUrlToBytes } from "../utils/download";
 import { sanitizeUrl } from "../utils/url";
 import { textBaselineDrawY } from "../utils/textMetrics";
@@ -295,7 +303,43 @@ export class PdfEngine {
     return pdf.getPages().map((page) => page.getSize());
   }
 
-  async savePdf(originalBytes: Uint8Array, operations: EditOperation[], fonts?: DocumentFonts) {
+  /**
+   * Read the document information dictionary (Title, Author, …) so the UI can
+   * prefill a "Document properties" editor. Missing fields come back as "".
+   */
+  async getMetadata(bytes: Uint8Array): Promise<PdfMetadata> {
+    const pdf = await PDFDocument.load(bytes, { updateMetadata: false });
+    return {
+      title: pdf.getTitle() ?? "",
+      author: pdf.getAuthor() ?? "",
+      subject: pdf.getSubject() ?? "",
+      keywords: pdf.getKeywords() ?? "",
+      producer: pdf.getProducer() ?? "",
+      creator: pdf.getCreator() ?? "",
+    };
+  }
+
+  /** Apply editable metadata fields onto a loaded pdf-lib document. */
+  private applyMetadata(pdf: PDFDocument, metadata: PdfMetadata) {
+    if (metadata.title !== undefined) pdf.setTitle(metadata.title);
+    if (metadata.author !== undefined) pdf.setAuthor(metadata.author);
+    if (metadata.subject !== undefined) pdf.setSubject(metadata.subject);
+    // pdf-lib joins an array of keywords with a space when writing, so passing
+    // the raw input as a single element preserves the user's exact text
+    // (including commas) on read-back.
+    if (metadata.keywords !== undefined) {
+      pdf.setKeywords(metadata.keywords ? [metadata.keywords] : []);
+    }
+    if (metadata.producer !== undefined) pdf.setProducer(metadata.producer);
+    if (metadata.creator !== undefined) pdf.setCreator(metadata.creator);
+  }
+
+  async savePdf(
+    originalBytes: Uint8Array,
+    operations: EditOperation[],
+    fonts?: DocumentFonts,
+    options?: PdfSaveOptions,
+  ) {
     const pdf = await PDFDocument.load(originalBytes);
     pdf.registerFontkit(fontkit);
     const pages = pdf.getPages();
@@ -683,6 +727,17 @@ export class PdfEngine {
           opacity: 0.45,
         });
       }
+    }
+
+    if (options?.metadata) {
+      this.applyMetadata(pdf, options.metadata);
+    }
+
+    // Flatten last so overlay operations are drawn first; flatten() bakes form
+    // field appearances into page content and removes the interactive widgets,
+    // making the document static (non-fillable).
+    if (options?.flatten) {
+      pdf.getForm().flatten();
     }
 
     return pdf.save({ useObjectStreams: false });

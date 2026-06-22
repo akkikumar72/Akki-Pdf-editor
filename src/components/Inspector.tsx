@@ -1,5 +1,5 @@
-import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, SlidersHorizontal } from "lucide-react";
-import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
+import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, Info, SlidersHorizontal } from "lucide-react";
+import type { EditOperation, ExportFormat, PdfMetadata, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeUrl } from "../utils/url";
 
@@ -7,11 +7,34 @@ type InspectorProps = {
   operation?: EditOperation;
   operationCount: number;
   pageTextItems: TextItem[];
+  metadata: PdfMetadata;
+  flatten: boolean;
   onExport: (format: ExportFormat) => void;
   onUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  onMetadataUpdate: (patch: Partial<PdfMetadata>) => void;
+  onFlattenChange: (flatten: boolean) => void;
 };
 
-export function Inspector({ operation, operationCount, pageTextItems, onExport, onUpdate }: InspectorProps) {
+const METADATA_FIELDS: Array<{ key: keyof PdfMetadata; label: string }> = [
+  { key: "title", label: "Title" },
+  { key: "author", label: "Author" },
+  { key: "subject", label: "Subject" },
+  { key: "keywords", label: "Keywords" },
+  { key: "creator", label: "Creator" },
+  { key: "producer", label: "Producer" },
+];
+
+export function Inspector({
+  operation,
+  operationCount,
+  pageTextItems,
+  metadata,
+  flatten,
+  onExport,
+  onUpdate,
+  onMetadataUpdate,
+  onFlattenChange,
+}: InspectorProps) {
   const update = (patch: Partial<EditOperation>) => {
     if (operation) onUpdate(operation.id, patch);
   };
@@ -177,9 +200,38 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
 
       <section className="inspector-section">
         <div className="panel-heading panel-heading--small">
+          <span>Document properties</span>
+          <Info aria-hidden="true" />
+        </div>
+        <div className="field-stack">
+          {METADATA_FIELDS.map((field) => (
+            <label key={field.key}>
+              {field.label}
+              <input
+                type="text"
+                value={metadata[field.key] ?? ""}
+                placeholder={field.key === "keywords" ? "comma, separated" : undefined}
+                onChange={(event) => onMetadataUpdate({ [field.key]: event.currentTarget.value })}
+              />
+            </label>
+          ))}
+          <p className="helper-text">Saved into the PDF when you export.</p>
+        </div>
+      </section>
+
+      <section className="inspector-section">
+        <div className="panel-heading panel-heading--small">
           <span>Export</span>
           <strong>{operationCount} edits</strong>
         </div>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={flatten}
+            onChange={(event) => onFlattenChange(event.currentTarget.checked)}
+          />
+          Flatten form fields (make read-only)
+        </label>
         <div className="export-grid">
           <button onClick={() => onExport("pdf")}><FileText aria-hidden="true" /> PDF</button>
           <button onClick={() => onExport("txt")}><FileText aria-hidden="true" /> TXT</button>

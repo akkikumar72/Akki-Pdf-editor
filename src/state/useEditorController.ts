@@ -4,7 +4,24 @@ import { exportPipeline } from "../engine/exportPipeline";
 import { pdfEngine } from "../engine/pdfEngine";
 import { editReducer, getSelectedOperation, initialEditState } from "./editModel";
 import type { EditState } from "./editModel";
-import type { DocumentFonts, EditOperation, EditorTool, ExportFormat, LoadedPdf, TextItem } from "../types/editor";
+import type {
+  DocumentFonts,
+  EditOperation,
+  EditorTool,
+  ExportFormat,
+  LoadedPdf,
+  PdfMetadata,
+  TextItem,
+} from "../types/editor";
+
+const EMPTY_METADATA: PdfMetadata = {
+  title: "",
+  author: "",
+  subject: "",
+  keywords: "",
+  producer: "",
+  creator: "",
+};
 import { validatePdfFile } from "../utils/fileValidation";
 import { clearSessions, deleteSession, getLatestSession, getSession, listSessions, saveSession } from "../utils/storage";
 import type { SavedSession, SessionSummary } from "../utils/storage";
@@ -20,6 +37,8 @@ export function useEditorController() {
   const [rotation, setRotation] = useState(0);
   const [status, setStatus] = useState("Drop a PDF to start. Files stay in this browser.");
   const [isBusy, setIsBusy] = useState(false);
+  const [metadata, setMetadata] = useState<PdfMetadata>(EMPTY_METADATA);
+  const [flatten, setFlatten] = useState(false);
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
   const [editState, dispatch] = useReducer(editReducer, initialEditState);
   const pageStageRef = useRef<HTMLDivElement>(null);
@@ -34,14 +53,17 @@ export function useEditorController() {
     loaded: LoadedPdf,
     savedEditState?: Partial<Pick<EditState, "operations" | "past" | "future">>,
   ) => {
-    const [content, sizes] = await Promise.all([
+    const [content, sizes, documentMetadata] = await Promise.all([
       pdfEngine.extractTextAndFonts(loaded.bytes),
       pdfEngine.getPageSizes(loaded.bytes),
+      pdfEngine.getMetadata(loaded.bytes),
     ]);
     setDocument(loaded);
     setTextItems(content.items);
     setDocumentFonts(content.fonts);
     setPageSizes(sizes);
+    setMetadata(documentMetadata);
+    setFlatten(false);
     dispatch({
       type: "reset",
       operations: savedEditState?.operations,
@@ -335,6 +357,8 @@ export function useEditorController() {
         operations: editState.operations,
         textItems,
         fonts: documentFonts,
+        metadata,
+        flatten,
       });
       setStatus(`${format.toUpperCase()} exported`);
     } catch (error) {
@@ -342,7 +366,11 @@ export function useEditorController() {
     } finally {
       setIsBusy(false);
     }
-  }, [document, documentFonts, editState.operations, textItems]);
+  }, [document, documentFonts, editState.operations, flatten, metadata, textItems]);
+
+  const updateMetadata = useCallback((patch: Partial<PdfMetadata>) => {
+    setMetadata((current) => ({ ...current, ...patch }));
+  }, []);
 
   return {
     document,
@@ -383,6 +411,10 @@ export function useEditorController() {
     rotateCurrentPage,
     restoreHistoryEntry,
     runExport,
+    metadata,
+    updateMetadata,
+    flatten,
+    setFlatten,
   };
 }
 
