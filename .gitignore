@@ -9,6 +9,7 @@ pdf/*.pdf
 artifacts
 docs/assets/audit-*.png
 .hallmark/
+.claude/worktrees/
 *.tsbuildinfo
 .DS_Store
 *.local
