@@ -194,23 +194,28 @@ export function createOperationsForTool({
     activeTool === "shape-line" ||
     activeTool === "shape-arrow"
   ) {
+    const kind =
+      activeTool === "shape-ellipse"
+        ? "ellipse"
+        : activeTool === "shape-line"
+          ? "line"
+          : activeTool === "shape-arrow"
+            ? "arrow"
+            : "rectangle";
+    const isLinear = kind === "line" || kind === "arrow";
+    // Respect the drawn area-selection. Linear shapes may be drawn nearly
+    // flat, so they get a much smaller minimum than boxed shapes.
+    const minSize = isLinear ? 8 : 12;
     return [
       {
         id: createId("shape"),
         type: "shape",
-        kind:
-          activeTool === "shape-ellipse"
-            ? "ellipse"
-            : activeTool === "shape-line"
-              ? "line"
-              : activeTool === "shape-arrow"
-                ? "arrow"
-                : "rectangle",
+        kind,
         pageIndex,
-        rect: { ...rect, width: Math.max(rect.width, 140), height: Math.max(rect.height, 70) },
-        stroke: "#111827",
+        rect: { ...rect, width: Math.max(rect.width, minSize), height: Math.max(rect.height, minSize) },
+        stroke: "#ef4444",
         fill: "transparent",
-        strokeWidth: 1.5,
+        strokeWidth: 2,
         opacity: 1,
         createdAt: now,
       },

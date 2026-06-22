@@ -494,6 +494,29 @@ describe("OperationOverlay - non-text branches", () => {
     expect(el.style.background).toBe("transparent");
   });
 
+  it("renders a line shape as an SVG line without an arrowhead", () => {
+    const op: ShapeOperation = {
+      id: "shape-line", type: "shape", kind: "line", pageIndex: 0, rect: RECT, createdAt: 1,
+      stroke: "#123456", fill: "transparent", strokeWidth: 2,
+    };
+    const { container } = renderOverlay(op);
+    const wrapper = container.querySelector(".operation--shape-line") as HTMLDivElement;
+    expect(wrapper.querySelector("line")).toBeTruthy();
+    expect(wrapper.querySelector("marker")).toBeNull();
+  });
+
+  it("renders an arrow shape with an arrowhead marker", () => {
+    const op: ShapeOperation = {
+      id: "shape-arrow", type: "shape", kind: "arrow", pageIndex: 0, rect: RECT, createdAt: 1,
+      stroke: "#abcdef", fill: "transparent", strokeWidth: 3,
+    };
+    const { container } = renderOverlay(op);
+    const wrapper = container.querySelector(".operation--shape-arrow") as HTMLDivElement;
+    expect(wrapper.querySelector("marker")).toBeTruthy();
+    const line = wrapper.querySelector("line");
+    expect(line?.getAttribute("marker-end")).toContain("arrowhead-shape-arrow");
+  });
+
   it("renders ink with mapped polyline points", () => {
     const op: InkOperation = {
       id: "ink", type: "ink", pageIndex: 0,

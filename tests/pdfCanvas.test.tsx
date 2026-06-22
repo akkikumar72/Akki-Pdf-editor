@@ -273,12 +273,34 @@ describe("PdfCanvas - empty-area click/pointer behaviour", () => {
 });
 
 describe("PdfCanvas - creating operations by clicking", () => {
-  it("creates a whiteout operation on click", async () => {
+  it("creates a whiteout operation by drawing an area", async () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({ activeTool: "whiteout", onOperationAdd, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 30, clientY: 40, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 140, clientY: 110 });
+    fireEvent.pointerUp(stage, { clientX: 140, clientY: 110 });
+    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
+    expect(onOperationAdd.mock.calls[0][0].type).toBe("whiteout");
+  });
+
+  it("treats a region-tool press without a drag as a default-size placement", async () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({ activeTool: "whiteout", onOperationAdd, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 30, clientY: 40, pointerId: 1 });
+    fireEvent.pointerUp(stage, { clientX: 31, clientY: 41 });
+    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
+    expect(onOperationAdd.mock.calls[0][0].type).toBe("whiteout");
+  });
+
+  it("does not create a region operation from a bare click", () => {
     const onOperationAdd = vi.fn();
     const { stage } = renderCanvas({ activeTool: "whiteout", onOperationAdd });
     fireEvent.click(stage, { clientX: 30, clientY: 40 });
-    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
-    expect(onOperationAdd.mock.calls[0][0].type).toBe("whiteout");
+    expect(onOperationAdd).not.toHaveBeenCalled();
   });
 
   it("creates a text operation, selects it, and enters edit mode", async () => {
@@ -547,6 +569,88 @@ describe("PdfCanvas - link prompts", () => {
     fireEvent.click(getByLabelText("Add link"));
     expect(onNotice).toHaveBeenCalled();
     expect(onOperationUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("PdfCanvas - drag-to-draw region tools", () => {
+  it("draws a shape, selects it, and shows the in-page hint banner", async () => {
+    const onOperationAdd = vi.fn();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "shape", onOperationAdd, onOperationSelect, stageRef,
+    });
+    stageRef.current = stage;
+    // Armed hint before drawing.
+    expect(container.querySelector(".canvas-hint")?.textContent).toContain(
+      "Add a shape by making an area selection on the page",
+    );
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 180, clientY: 160 });
+    // Marquee + drawing hint visible mid-draw.
+    expect(container.querySelector(".draw-marquee")).toBeTruthy();
+    expect(container.querySelector(".canvas-hint")?.textContent).toContain("Click and drag to draw the shape");
+    fireEvent.pointerUp(stage, { clientX: 180, clientY: 160 });
+    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
+    const created = onOperationAdd.mock.calls[0][0];
+    expect(created.type).toBe("shape");
+    expect(onOperationSelect).toHaveBeenLastCalledWith(created.id);
+    expect(container.querySelector(".draw-marquee")).toBeNull();
+  });
+
+  it("cancels an in-progress draw on Escape without creating an operation", () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({ activeTool: "shape", onOperationAdd, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 180, clientY: 160 });
+    expect(container.querySelector(".draw-marquee")).toBeTruthy();
+    // A non-Escape key leaves the draw in progress.
+    fireEvent.keyDown(window, { key: "a" });
+    expect(container.querySelector(".draw-marquee")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(container.querySelector(".draw-marquee")).toBeNull();
+    fireEvent.pointerUp(stage, { clientX: 180, clientY: 160 });
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("clears the draw on pointer cancel and lost capture without creating", () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({ activeTool: "shape-ellipse", onOperationAdd, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
+    fireEvent.pointerCancel(stage);
+    expect(container.querySelector(".draw-marquee")).toBeNull();
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
+    fireEvent.lostPointerCapture(stage);
+    expect(container.querySelector(".draw-marquee")).toBeNull();
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("ignores a pointer down that did not originate on the stage or canvas", () => {
+    const onOperationSelect = vi.fn();
+    const onOperationAdd = vi.fn();
+    const { container } = renderCanvas({ activeTool: "shape", onOperationSelect, onOperationAdd });
+    const doc = container.querySelector('[data-testid="rpdf-document"]') as HTMLElement;
+    fireEvent.pointerDown(doc, { clientX: 5, clientY: 5, pointerId: 1 });
+    expect(container.querySelector(".draw-marquee")).toBeNull();
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("does not create when a region draw resolves to no operation (cancelled prompt)", async () => {
+    const onOperationAdd = vi.fn();
+    const onOperationSelect = vi.fn();
+    vi.spyOn(window, "prompt").mockReturnValue(null);
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({ activeTool: "link", onOperationAdd, onOperationSelect, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 180, clientY: 120 });
+    fireEvent.pointerUp(stage, { clientX: 180, clientY: 120 });
+    await Promise.resolve();
+    expect(onOperationAdd).not.toHaveBeenCalled();
   });
 });
 
