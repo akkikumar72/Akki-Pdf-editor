@@ -2109,6 +2109,27 @@ select:disabled {
   white-space: nowrap;
 }
 
+.find-replace__nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-xs);
+}
+
+.find-replace__nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+  min-height: 2.4rem;
+  background: var(--color-paper);
+}
+
+.find-replace__nav button:disabled,
+.find-replace .export-grid button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .text-sample {
   display: flex;
   flex-wrap: wrap;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { Inspector } from "../components/Inspector";
@@ -7,12 +7,34 @@ import { PdfCanvas } from "../components/PdfCanvas";
 import { StatusBar } from "../components/StatusBar";
 import { ToolRibbon } from "../components/ToolRibbon";
 import { useEditor } from "../state/editorContext";
+import { pdfRectToViewport } from "../utils/coordinates";
+import type { PdfRect } from "../types/editor";
 
 export function EditorRoute() {
   const editor = useEditor();
   const navigate = useNavigate();
   const [restoreChecked, setRestoreChecked] = useState(false);
   const { document, isBusy, restoreLatestSession } = editor;
+  const { setPageIndex, pageStageRef, pageSizes, scale } = editor;
+
+  const locateMatch = useCallback(
+    (matchPage: number, rect: PdfRect) => {
+      setPageIndex(matchPage);
+      // The stage re-renders for the new page on the next frame; wait for it before
+      // computing the on-screen position of the matched rect and scrolling to it.
+      window.requestAnimationFrame(() => {
+        const stage = pageStageRef.current;
+        const pageHeight = pageSizes[matchPage]?.height;
+        if (!stage || pageHeight === undefined) return;
+        const viewportRect = pdfRectToViewport(rect, pageHeight, scale);
+        const scroller = stage.closest(".document-scroll");
+        if (!(scroller instanceof HTMLElement)) return;
+        const targetTop = stage.offsetTop + viewportRect.top - scroller.clientHeight / 2 + viewportRect.height / 2;
+        scroller.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+      });
+    },
+    [pageSizes, pageStageRef, scale, setPageIndex],
+  );
 
   useEffect(() => {
     if (document) return;
@@ -52,6 +74,14 @@ export function EditorRoute() {
           disabled={isBusy}
           historyEntries={editState.past}
           onExport={editor.runExport}
+          onFindReplace={() => {
+            const panel = window.document.getElementById("find-replace-panel");
+            panel?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            window.requestAnimationFrame(() => {
+              const input = window.document.getElementById("find-replace-query");
+              if (input instanceof HTMLInputElement) input.focus();
+            });
+          }}
           onHome={() => {
             navigate("/");
             void editor.returnHome();
@@ -84,8 +114,13 @@ export function EditorRoute() {
           operation={editor.selectedOperation}
           operationCount={editState.operations.length}
           pageTextItems={editor.textItems.filter((item) => item.pageIndex === editor.pageIndex)}
+          allTextItems={editor.textItems}
+          pageHeights={editor.pageSizes.map((size) => size.height)}
           onExport={editor.runExport}
           onUpdate={editor.updateOperation}
+          onAddOperation={editor.addOperation}
+          onLocateMatch={locateMatch}
+          onNotice={editor.setStatus}
         />
       )}
       status={(

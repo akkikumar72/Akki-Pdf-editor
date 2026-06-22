@@ -1,17 +1,34 @@
 import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, SlidersHorizontal } from "lucide-react";
-import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
+import type { EditOperation, ExportFormat, PdfRect, TextAlign, TextItem, TextOperation } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeUrl } from "../utils/url";
+import { FindReplacePanel } from "./FindReplacePanel";
 
 type InspectorProps = {
   operation?: EditOperation;
   operationCount: number;
   pageTextItems: TextItem[];
+  allTextItems: TextItem[];
+  pageHeights: number[];
   onExport: (format: ExportFormat) => void;
   onUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  onAddOperation: (operation: TextOperation) => void;
+  onLocateMatch?: (pageIndex: number, rect: PdfRect) => void;
+  onNotice?: (message: string) => void;
 };
 
-export function Inspector({ operation, operationCount, pageTextItems, onExport, onUpdate }: InspectorProps) {
+export function Inspector({
+  operation,
+  operationCount,
+  pageTextItems,
+  allTextItems,
+  pageHeights,
+  onExport,
+  onUpdate,
+  onAddOperation,
+  onLocateMatch,
+  onNotice,
+}: InspectorProps) {
   const update = (patch: Partial<EditOperation>) => {
     if (operation) onUpdate(operation.id, patch);
   };
@@ -174,6 +191,14 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
           ) : null}
         </div>
       )}
+
+      <FindReplacePanel
+        textItems={allTextItems}
+        pageHeights={pageHeights}
+        onAddOperation={onAddOperation}
+        onLocateMatch={onLocateMatch}
+        onNotice={onNotice}
+      />
 
       <section className="inspector-section">
         <div className="panel-heading panel-heading--small">

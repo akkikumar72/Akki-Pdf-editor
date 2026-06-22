@@ -12,6 +12,7 @@ Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and ex
 - Render pages with PDF.js and keep page thumbnails, zoom, rotation, and page controls in one workbench.
 - Add overlay edits: text, whiteout, links, forms, images, signatures, annotations, shapes, and table regions.
 - Click existing PDF text in Select mode to create a replacement overlay with closest-match font styling.
+- Find & Replace across all pages: case-insensitive (toggleable) search with a live match count, next/prev navigation that scrolls to each match, and Replace / Replace all that build the same whiteout-masked replacement overlays.
 - Inline Sejda-style toolbar for selected objects, including searchable font family picker with keyboard support.
 - Export edited PDF, TXT, CSV, XLSX, and PNG locally.
 
