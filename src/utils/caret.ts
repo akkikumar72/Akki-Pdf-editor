@@ -1,5 +1,5 @@
 // Tracks the most recent pointer-down location so a text overlay that starts
-// editing can drop its caret where the user clicked (Sejda parity), rather than
+// editing can drop its caret where the user clicked (reference parity), rather than
 // always collapsing to the start of the run. The initiating click is always the
 // last pointer-down before editing begins, so a single global listener covers
 // every entry point (text-hit click, overlay click, double-click).

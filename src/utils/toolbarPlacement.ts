@@ -5,7 +5,7 @@ export const TOOLBAR_FALLBACK_HEIGHT_PX = 34;
 export const TOOLBAR_EDGE_MARGIN_PX = 8;
 
 export function clampToolbarLeft(left: number, toolbarWidth: number, stageWidth: number, _textRect: ViewportRect) {
-  // Prefer aligning the toolbar's left edge with the selected overlay (Sejda-style)
+  // Prefer aligning the toolbar's left edge with the selected overlay (reference-style)
   // and never re-center it just because it is wider than the text. But the toolbar
   // must stay inside the page: when it would spill past the right (or left) edge,
   // slide it inward so its full width remains within the page bounds.

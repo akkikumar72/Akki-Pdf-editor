@@ -16,7 +16,7 @@
 
 ## Why this matters
 
-The editor now has a Sejda-style inline object toolbar for selected content, but creation flows for links, stamps, signatures, annotation notes, form names, and PDF passwords still use `window.prompt`. Browser prompts interrupt the workbench, cannot be styled, and are not testable as part of the inline editor UX. Replacing them with local popovers keeps input behavior consistent with the rest of the editor.
+The editor now has a reference-style inline object toolbar for selected content, but creation flows for links, stamps, signatures, annotation notes, form names, and PDF passwords still use `window.prompt`. Browser prompts interrupt the workbench, cannot be styled, and are not testable as part of the inline editor UX. Replacing them with local popovers keeps input behavior consistent with the rest of the editor.
 
 ## Current state
 

@@ -1,6 +1,6 @@
 # Akki PDF Editor
 
-Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and export flow. Files stay in the browser; edits are modeled as overlays until export so the original PDF bytes are preserved during the editing session.
+Local-first PDF editor workbench with an import, edit, apply, and export flow. Files stay in the browser; edits are modeled as overlays until export so the original PDF bytes are preserved during the editing session.
 
 ![Akki PDF Editor workbench](docs/assets/akki-pdf-editor-workbench.png)
 <img width="2559" height="1291" alt="Screenshot 2026-06-16 at 13 01 00" src="https://github.com/user-attachments/assets/d557350a-e653-4d63-b2aa-cad848033571" />
@@ -12,7 +12,7 @@ Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and ex
 - Render pages with PDF.js and keep page thumbnails, zoom, rotation, and page controls in one workbench.
 - Add overlay edits: text, whiteout, links, forms, images, signatures, annotations, shapes, and table regions.
 - Click existing PDF text in Select mode to create a replacement overlay with closest-match font styling.
-- Inline Sejda-style toolbar for selected objects, including searchable font family picker with keyboard support.
+- Inline floating toolbar for selected objects, including searchable font family picker with keyboard support.
 - Export edited PDF, TXT, CSV, XLSX, and PNG locally.
 
 ## Tech Stack

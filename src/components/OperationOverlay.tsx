@@ -93,7 +93,7 @@ export function OperationOverlay({
     element.focus({ preventScroll: true });
     const selection = window.getSelection();
     if (!selection) return;
-    // Sejda parity: drop the caret where the user clicked. Fall back to the
+    // Reference parity: drop the caret where the user clicked. Fall back to the
     // start of the run when the click point can't be resolved inside this run.
     const point = getLastPointerDownPoint();
     if (point) {
@@ -135,7 +135,7 @@ export function OperationOverlay({
           letterSpacing: operation.letterSpacing ? operation.letterSpacing * scale : undefined,
           color: operation.color,
           textAlign: operation.align,
-          // Sejda parity: the editable run carries no fill of its own — the
+          // Reference parity: the editable run carries no fill of its own — the
           // dedicated `.operation--source-cover` masks the original glyphs. This
           // keeps a moved/edited run as pure text (no white box clipping the line
           // above or trailing behind when dragged). The guarded fallback only

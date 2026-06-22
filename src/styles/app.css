@@ -1276,7 +1276,7 @@ select:disabled {
   box-shadow: var(--shadow-page);
 }
 
-/* Sejda parity: the Text tool shows an I-beam over the whole page, not just on
+/* Reference parity: the Text tool shows an I-beam over the whole page, not just on
    existing runs, so empty-area clicks read as "type here" too. */
 .page-stage.is-text-tool,
 .page-stage.is-text-tool .react-pdf__Page__canvas {
@@ -1710,7 +1710,7 @@ select:disabled {
   z-index: 4;
   padding: 0;
   border: 0;
-  /* Sejda parity: a 2px dashed accent box that hugs the run on hover. Use
+  /* Reference parity: a 2px dashed accent box that hugs the run on hover. Use
      `outline` (not `border`) so toggling it never reflows or shifts the glyphs. */
   outline: 2px dashed transparent;
   border-radius: calc(var(--radius-xs) * 0.75);
@@ -1876,7 +1876,7 @@ select:disabled {
   pointer-events: none;
 }
 
-/* In-page activation banner (Sejda parity). Anchored to the bottom-centre of the
+/* In-page activation banner (reference parity). Anchored to the bottom-centre of the
    canvas column so the top toolbar dropdowns never cover it; auto-dismissed by
    the component after a few seconds. */
 .canvas-hint {

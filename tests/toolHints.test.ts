@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getToolHint } from "../src/editor/toolHints";
 
 describe("toolHints", () => {
-  it("returns the Sejda shape copy for every shape tool", () => {
+  it("returns the reference shape copy for every shape tool", () => {
     for (const tool of ["shape", "shape-ellipse", "shape-line", "shape-arrow"] as const) {
       const hint = getToolHint(tool);
       expect(hint?.armed).toBe("Add a shape by making an area selection on the page");
