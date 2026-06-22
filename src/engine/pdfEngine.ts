@@ -1,7 +1,28 @@
-import { PDFDocument, PDFName, PDFString, degrees, rgb } from "pdf-lib";
+import {
+  PDFCheckBox,
+  PDFDocument,
+  PDFDropdown,
+  PDFName,
+  PDFOptionList,
+  PDFRadioGroup,
+  PDFString,
+  PDFTextField,
+  degrees,
+  rgb,
+} from "pdf-lib";
+import type { PDFField } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import type { DocumentFontInfo, DocumentFonts, EditOperation, LoadedPdf, TextItem } from "../types/editor";
+import type {
+  AcroFieldType,
+  DocumentFontInfo,
+  DocumentFonts,
+  EditOperation,
+  FormFieldDescriptor,
+  FormFieldValues,
+  LoadedPdf,
+  TextItem,
+} from "../types/editor";
 import { dataUrlToBytes } from "../utils/download";
 import { sanitizeUrl } from "../utils/url";
 import { textBaselineDrawY } from "../utils/textMetrics";
@@ -152,6 +173,108 @@ function drawCheckMark(
   });
 }
 
+function acroFieldType(field: PDFField): AcroFieldType | undefined {
+  if (field instanceof PDFTextField) return "text";
+  if (field instanceof PDFCheckBox) return "checkbox";
+  if (field instanceof PDFRadioGroup) return "radio";
+  if (field instanceof PDFDropdown) return "dropdown";
+  if (field instanceof PDFOptionList) return "optionlist";
+  // Signature/button fields are not user-fillable here, so they are skipped.
+  return undefined;
+}
+
+/**
+ * Map a PDFField's widgets to descriptors carrying the widget rectangle (already in
+ * PDF/page coordinates with origin bottom-left) and the owning page index. A field can
+ * have multiple widgets (e.g. a radio group, or the same field shown on several pages);
+ * each becomes a descriptor so the UI can position a control over every widget.
+ */
+function describeField(
+  field: PDFField,
+  type: AcroFieldType,
+  pageRefs: Map<string, number>,
+): FormFieldDescriptor[] {
+  const name = field.getName();
+  const readOnly = field.isReadOnly();
+  let value = "";
+  let selected: string[] = [];
+  let options: string[] | undefined;
+  let checked: boolean | undefined;
+  let multiline: boolean | undefined;
+
+  if (field instanceof PDFTextField) {
+    value = field.getText() ?? "";
+    multiline = field.isMultiline();
+  } else if (field instanceof PDFCheckBox) {
+    checked = field.isChecked();
+    value = checked ? "on" : "";
+  } else if (field instanceof PDFRadioGroup) {
+    options = field.getOptions();
+    const sel = field.getSelected();
+    selected = sel ? [sel] : [];
+    value = sel ?? "";
+  } else if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
+    options = field.getOptions();
+    selected = field.getSelected();
+    value = selected.join(", ");
+  }
+
+  const widgets = field.acroField.getWidgets();
+  return widgets.map((widget) => {
+    const rect = widget.getRectangle();
+    const pageRef = widget.P();
+    const pageIndex = pageRef ? (pageRefs.get(pageRef.toString()) ?? 0) : 0;
+    return {
+      name,
+      type,
+      pageIndex,
+      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      value,
+      selected,
+      options,
+      checked,
+      readOnly,
+      multiline,
+    };
+  });
+}
+
+/**
+ * Apply user-entered values back into the document's AcroForm. Only fields the user
+ * actually touched (present in `values`) are written, so untouched fields keep whatever
+ * value the original PDF carried. Read-only and unknown fields are skipped.
+ */
+function applyFormFieldValues(form: ReturnType<PDFDocument["getForm"]>, values: FormFieldValues) {
+  for (const field of form.getFields()) {
+    const name = field.getName();
+    if (!(name in values)) continue;
+    if (field.isReadOnly()) continue;
+    const value = values[name];
+    try {
+      if (field instanceof PDFTextField) {
+        field.setText(typeof value === "string" ? value : value ? String(value) : undefined);
+      } else if (field instanceof PDFCheckBox) {
+        if (value) field.check();
+        else field.uncheck();
+      } else if (field instanceof PDFRadioGroup) {
+        if (typeof value === "string" && value) field.select(value);
+        else field.clear();
+      } else if (field instanceof PDFDropdown) {
+        if (typeof value === "string" && value) field.select(value);
+        else if (Array.isArray(value) && value.length) field.select(value);
+        else field.clear();
+      } else if (field instanceof PDFOptionList) {
+        const list = Array.isArray(value) ? value : value ? [String(value)] : [];
+        if (list.length) field.select(list);
+        else field.clear();
+      }
+    } catch {
+      // A value that the field rejects (e.g. an option no longer present) is skipped
+      // rather than aborting the whole export.
+    }
+  }
+}
+
 export class PdfEngine {
   private async getPdfJs() {
     const pdfjs = await import("pdfjs-dist");
@@ -295,9 +418,38 @@ export class PdfEngine {
     return pdf.getPages().map((page) => page.getSize());
   }
 
-  async savePdf(originalBytes: Uint8Array, operations: EditOperation[], fonts?: DocumentFonts) {
+  /**
+   * Enumerate the AcroForm fields that ALREADY EXIST in the loaded PDF, mapping each
+   * field's widget(s) to page coordinates so the UI can position fillable controls and
+   * list them in the inspector. Returns an empty array for documents without a form.
+   */
+  async getFormFields(bytes: Uint8Array): Promise<FormFieldDescriptor[]> {
+    const pdf = await PDFDocument.load(bytes);
+    const pageRefs = new Map<string, number>();
+    pdf.getPages().forEach((page, index) => {
+      pageRefs.set(page.ref.toString(), index);
+    });
+    const form = pdf.getForm();
+    const descriptors: FormFieldDescriptor[] = [];
+    for (const field of form.getFields()) {
+      const type = acroFieldType(field);
+      if (!type) continue;
+      descriptors.push(...describeField(field, type, pageRefs));
+    }
+    return descriptors;
+  }
+
+  async savePdf(
+    originalBytes: Uint8Array,
+    operations: EditOperation[],
+    fonts?: DocumentFonts,
+    formFieldValues?: FormFieldValues,
+  ) {
     const pdf = await PDFDocument.load(originalBytes);
     pdf.registerFontkit(fontkit);
+    if (formFieldValues && Object.keys(formFieldValues).length > 0) {
+      applyFormFieldValues(pdf.getForm(), formFieldValues);
+    }
     const pages = pdf.getPages();
     const embeddedFonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>>>();
     const reusedFonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>> | null>();

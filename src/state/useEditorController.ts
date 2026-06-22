@@ -4,15 +4,36 @@ import { exportPipeline } from "../engine/exportPipeline";
 import { pdfEngine } from "../engine/pdfEngine";
 import { editReducer, getSelectedOperation, initialEditState } from "./editModel";
 import type { EditState } from "./editModel";
-import type { DocumentFonts, EditOperation, EditorTool, ExportFormat, LoadedPdf, TextItem } from "../types/editor";
+import type {
+  DocumentFonts,
+  EditOperation,
+  EditorTool,
+  ExportFormat,
+  FormFieldDescriptor,
+  FormFieldValues,
+  LoadedPdf,
+  TextItem,
+} from "../types/editor";
 import { validatePdfFile } from "../utils/fileValidation";
 import { clearSessions, deleteSession, getLatestSession, getSession, listSessions, saveSession } from "../utils/storage";
 import type { SavedSession, SessionSummary } from "../utils/storage";
+
+function seedFormFieldValues(fields: FormFieldDescriptor[]): FormFieldValues {
+  const values: FormFieldValues = {};
+  for (const field of fields) {
+    if (field.type === "checkbox") values[field.name] = Boolean(field.checked);
+    else if (field.type === "optionlist") values[field.name] = field.selected;
+    else values[field.name] = field.value;
+  }
+  return values;
+}
 
 export function useEditorController() {
   const [document, setDocument] = useState<LoadedPdf | null>(null);
   const [textItems, setTextItems] = useState<TextItem[]>([]);
   const [documentFonts, setDocumentFonts] = useState<DocumentFonts>({});
+  const [formFields, setFormFields] = useState<FormFieldDescriptor[]>([]);
+  const [formFieldValues, setFormFieldValues] = useState<FormFieldValues>({});
   const [pageSizes, setPageSizes] = useState<Array<{ width: number; height: number }>>([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [scale, setScale] = useState(1.18);
@@ -34,13 +55,18 @@ export function useEditorController() {
     loaded: LoadedPdf,
     savedEditState?: Partial<Pick<EditState, "operations" | "past" | "future">>,
   ) => {
-    const [content, sizes] = await Promise.all([
+    const [content, sizes, fields] = await Promise.all([
       pdfEngine.extractTextAndFonts(loaded.bytes),
       pdfEngine.getPageSizes(loaded.bytes),
+      pdfEngine.getFormFields(loaded.bytes),
     ]);
     setDocument(loaded);
     setTextItems(content.items);
     setDocumentFonts(content.fonts);
+    setFormFields(fields);
+    // Seed the editable values from the field's current values so re-export preserves
+    // anything already filled in the source PDF, and the inspector shows the live value.
+    setFormFieldValues(seedFormFieldValues(fields));
     setPageSizes(sizes);
     dispatch({
       type: "reset",
@@ -221,6 +247,8 @@ export function useEditorController() {
     setDocument(null);
     setTextItems([]);
     setDocumentFonts({});
+    setFormFields([]);
+    setFormFieldValues({});
     setPageSizes([]);
     setPageIndex(0);
     setRotation(0);
@@ -248,6 +276,10 @@ export function useEditorController() {
   const removeOperation = useCallback((id: string) => {
     dispatch({ type: "remove", id });
     setStatus("Selection removed");
+  }, []);
+
+  const setFormFieldValue = useCallback((name: string, value: FormFieldValues[string]) => {
+    setFormFieldValues((current) => ({ ...current, [name]: value }));
   }, []);
 
   const updateDocumentBytes = useCallback(async (
@@ -335,6 +367,7 @@ export function useEditorController() {
         operations: editState.operations,
         textItems,
         fonts: documentFonts,
+        formFieldValues,
       });
       setStatus(`${format.toUpperCase()} exported`);
     } catch (error) {
@@ -342,12 +375,14 @@ export function useEditorController() {
     } finally {
       setIsBusy(false);
     }
-  }, [document, documentFonts, editState.operations, textItems]);
+  }, [document, documentFonts, editState.operations, formFieldValues, textItems]);
 
   return {
     document,
     textItems,
     documentFonts,
+    formFields,
+    formFieldValues,
     pageSizes,
     pageIndex,
     scale,
@@ -378,6 +413,7 @@ export function useEditorController() {
     updateOperation,
     removeSelected,
     removeOperation,
+    setFormFieldValue,
     insertPageAfter,
     deleteCurrentPage,
     rotateCurrentPage,

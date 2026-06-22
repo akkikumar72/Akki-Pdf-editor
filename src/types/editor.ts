@@ -160,6 +160,39 @@ export type EditOperation =
   | FormFieldOperation
   | TableRegionOperation;
 
+/**
+ * The kind of an AcroForm field that ALREADY EXISTS in a loaded PDF. Distinct from
+ * `FormFieldKind` (which describes NEW overlay fields the user draws on the canvas).
+ */
+export type AcroFieldType = "text" | "checkbox" | "radio" | "dropdown" | "optionlist";
+
+/**
+ * One existing AcroForm field enumerated from a loaded PDF, with its widget position
+ * mapped into the page coordinate model. Held in memory so the user can fill it; the
+ * entered value is applied back into the PDF on export.
+ */
+export type FormFieldDescriptor = {
+  name: string;
+  type: AcroFieldType;
+  pageIndex: number;
+  rect: PdfRect;
+  // Current value(s) read from the field. Text -> the string; dropdown/optionlist/radio
+  // -> the selected option(s) joined for display.
+  value: string;
+  selected: string[];
+  options?: string[];
+  checked?: boolean;
+  readOnly?: boolean;
+  multiline?: boolean;
+};
+
+/**
+ * User-entered values for existing AcroForm fields, keyed by field name. Applied back
+ * into the document's AcroForm on export. Strings for text/dropdown/radio; booleans for
+ * checkboxes; string arrays for (multi-select) option lists.
+ */
+export type FormFieldValues = Record<string, string | string[] | boolean>;
+
 export type TextItem = {
   str: string;
   pageIndex: number;

@@ -1,5 +1,12 @@
-import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, SlidersHorizontal } from "lucide-react";
-import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
+import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, FormInput, SlidersHorizontal } from "lucide-react";
+import type {
+  EditOperation,
+  ExportFormat,
+  FormFieldDescriptor,
+  FormFieldValues,
+  TextAlign,
+  TextItem,
+} from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeUrl } from "../utils/url";
 
@@ -7,11 +14,23 @@ type InspectorProps = {
   operation?: EditOperation;
   operationCount: number;
   pageTextItems: TextItem[];
+  formFields: FormFieldDescriptor[];
+  formFieldValues: FormFieldValues;
   onExport: (format: ExportFormat) => void;
   onUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  onFormFieldChange: (name: string, value: FormFieldValues[string]) => void;
 };
 
-export function Inspector({ operation, operationCount, pageTextItems, onExport, onUpdate }: InspectorProps) {
+export function Inspector({
+  operation,
+  operationCount,
+  pageTextItems,
+  formFields,
+  formFieldValues,
+  onExport,
+  onUpdate,
+  onFormFieldChange,
+}: InspectorProps) {
   const update = (patch: Partial<EditOperation>) => {
     if (operation) onUpdate(operation.id, patch);
   };
@@ -188,6 +207,25 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
         </div>
       </section>
 
+      {formFields.length > 0 ? (
+        <section className="inspector-section">
+          <div className="panel-heading panel-heading--small">
+            <span>Form fields</span>
+            <strong>{formFields.length}</strong>
+          </div>
+          <div className="field-stack">
+            {formFields.map((field, index) => (
+              <FormFieldControl
+                key={`${field.name}-${field.pageIndex}-${index}`}
+                field={field}
+                value={formFieldValues[field.name]}
+                onChange={onFormFieldChange}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="inspector-section">
         <div className="panel-heading panel-heading--small">
           <span>Page text</span>
@@ -200,5 +238,100 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
         </div>
       </section>
     </div>
+  );
+}
+
+type FormFieldControlProps = {
+  field: FormFieldDescriptor;
+  value: FormFieldValues[string] | undefined;
+  onChange: (name: string, value: FormFieldValues[string]) => void;
+};
+
+/**
+ * Editable control for one EXISTING AcroForm field detected in the loaded PDF. The
+ * entered value is held in editor state and written back into the form on PDF export.
+ */
+function FormFieldControl({ field, value, onChange }: FormFieldControlProps) {
+  const label = (
+    <span className="form-field-label">
+      <FormInput aria-hidden="true" />
+      {field.name}
+      {field.readOnly ? <em> (read-only)</em> : null}
+    </span>
+  );
+
+  if (field.type === "checkbox") {
+    return (
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          disabled={field.readOnly}
+          checked={Boolean(value)}
+          onChange={(event) => onChange(field.name, event.currentTarget.checked)}
+        />
+        {field.name}
+      </label>
+    );
+  }
+
+  if ((field.type === "dropdown" || field.type === "radio") && field.options?.length) {
+    return (
+      <label>
+        {label}
+        <select
+          disabled={field.readOnly}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(field.name, event.currentTarget.value)}
+        >
+          <option value="">— none —</option>
+          {field.options.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  if (field.type === "optionlist" && field.options?.length) {
+    const selected = Array.isArray(value) ? value : [];
+    return (
+      <label>
+        {label}
+        <select
+          multiple
+          disabled={field.readOnly}
+          value={selected}
+          onChange={(event) =>
+            onChange(
+              field.name,
+              Array.from(event.currentTarget.selectedOptions, (option) => option.value),
+            )}
+        >
+          {field.options.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  return (
+    <label>
+      {label}
+      {field.multiline ? (
+        <textarea
+          disabled={field.readOnly}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(field.name, event.currentTarget.value)}
+        />
+      ) : (
+        <input
+          type="text"
+          disabled={field.readOnly}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(field.name, event.currentTarget.value)}
+        />
+      )}
+    </label>
   );
 }

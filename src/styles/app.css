@@ -2047,6 +2047,26 @@ select:disabled {
   resize: vertical;
 }
 
+.form-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  overflow-wrap: anywhere;
+}
+
+.form-field-label svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex-shrink: 0;
+}
+
+.form-field-label em {
+  font-weight: 600;
+  font-style: normal;
+  color: var(--color-muted);
+  opacity: 0.7;
+}
+
 .field-stack input:hover:not(:disabled),
 .field-stack select:hover:not(:disabled),
 .field-stack textarea:hover:not(:disabled) {

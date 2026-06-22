@@ -12,6 +12,7 @@ Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and ex
 - Render pages with PDF.js and keep page thumbnails, zoom, rotation, and page controls in one workbench.
 - Add overlay edits: text, whiteout, links, forms, images, signatures, annotations, shapes, and table regions.
 - Click existing PDF text in Select mode to create a replacement overlay with closest-match font styling.
+- Detect and fill existing AcroForm fields (text, checkbox, radio, dropdown, option list) from the Inspector; entered values are written back into the AcroForm on PDF export.
 - Inline Sejda-style toolbar for selected objects, including searchable font family picker with keyboard support.
 - Export edited PDF, TXT, CSV, XLSX, and PNG locally.
 

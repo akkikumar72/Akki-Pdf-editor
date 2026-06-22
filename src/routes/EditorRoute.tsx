@@ -84,8 +84,11 @@ export function EditorRoute() {
           operation={editor.selectedOperation}
           operationCount={editState.operations.length}
           pageTextItems={editor.textItems.filter((item) => item.pageIndex === editor.pageIndex)}
+          formFields={editor.formFields}
+          formFieldValues={editor.formFieldValues}
           onExport={editor.runExport}
           onUpdate={editor.updateOperation}
+          onFormFieldChange={editor.setFormFieldValue}
         />
       )}
       status={(
