@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { shiftOperationsForDeletedPage, shiftOperationsForInsertedPage } from "../editor/pageOperations";
+import {
+  shiftOperationsForDeletedPage,
+  shiftOperationsForDuplicatedPage,
+  shiftOperationsForInsertedPage,
+  shiftOperationsForMovedPage,
+} from "../editor/pageOperations";
 import { exportPipeline } from "../engine/exportPipeline";
 import { pdfEngine } from "../engine/pdfEngine";
+import { downloadBlob, safeBaseName } from "../utils/download";
 import { editReducer, getSelectedOperation, initialEditState } from "./editModel";
 import type { EditState } from "./editModel";
 import type { DocumentFonts, EditOperation, EditorTool, ExportFormat, LoadedPdf, TextItem } from "../types/editor";
@@ -270,42 +276,6 @@ export function useEditorController() {
     setStatus(statusMessage);
   }, [document, editState.operations, loadPdfState, pageIndex]);
 
-  const insertPageAfter = useCallback(async () => {
-    if (!document) return;
-    setIsBusy(true);
-    try {
-      const bytes = await pdfEngine.insertBlankPage(document.bytes, pageIndex);
-      await updateDocumentBytes(
-        bytes,
-        pageIndex + 1,
-        "Blank page inserted",
-        shiftOperationsForInsertedPage(editState.operations, pageIndex + 1),
-      );
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not insert page.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, editState.operations, pageIndex, updateDocumentBytes]);
-
-  const deleteCurrentPage = useCallback(async () => {
-    if (!document) return;
-    setIsBusy(true);
-    try {
-      const bytes = await pdfEngine.deletePage(document.bytes, pageIndex);
-      await updateDocumentBytes(
-        bytes,
-        Math.max(0, pageIndex - 1),
-        "Page deleted",
-        shiftOperationsForDeletedPage(editState.operations, pageIndex),
-      );
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not delete page.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, editState.operations, pageIndex, updateDocumentBytes]);
-
   const rotateCurrentPage = useCallback(async () => {
     if (!document) return;
     setIsBusy(true);
@@ -318,6 +288,135 @@ export function useEditorController() {
       setIsBusy(false);
     }
   }, [document, pageIndex, updateDocumentBytes]);
+
+  const insertPageAt = useCallback(async (index: number) => {
+    if (!document) return;
+    setIsBusy(true);
+    try {
+      const bytes = await pdfEngine.insertBlankPage(document.bytes, index);
+      await updateDocumentBytes(
+        bytes,
+        index + 1,
+        "Blank page inserted",
+        shiftOperationsForInsertedPage(editState.operations, index + 1),
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not insert page.");
+    } finally {
+      setIsBusy(false);
+    }
+  }, [document, editState.operations, updateDocumentBytes]);
+
+  const deletePageAt = useCallback(async (index: number) => {
+    if (!document) return;
+    setIsBusy(true);
+    try {
+      const bytes = await pdfEngine.deletePage(document.bytes, index);
+      await updateDocumentBytes(
+        bytes,
+        Math.max(0, index - 1),
+        "Page deleted",
+        shiftOperationsForDeletedPage(editState.operations, index),
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not delete page.");
+    } finally {
+      setIsBusy(false);
+    }
+  }, [document, editState.operations, updateDocumentBytes]);
+
+  const duplicatePageAt = useCallback(async (index: number) => {
+    if (!document) return;
+    setIsBusy(true);
+    try {
+      const bytes = await pdfEngine.duplicatePage(document.bytes, index);
+      await updateDocumentBytes(
+        bytes,
+        index + 1,
+        "Page duplicated",
+        shiftOperationsForDuplicatedPage(editState.operations, index),
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not duplicate page.");
+    } finally {
+      setIsBusy(false);
+    }
+  }, [document, editState.operations, updateDocumentBytes]);
+
+  const movePage = useCallback(async (from: number, to: number) => {
+    if (!document) return;
+    const pageCount = document.pageCount;
+    const target = Math.max(0, Math.min(to, pageCount - 1));
+    if (from === target) return;
+    setIsBusy(true);
+    try {
+      const bytes = await pdfEngine.movePage(document.bytes, from, target);
+      await updateDocumentBytes(
+        bytes,
+        target,
+        "Page moved",
+        shiftOperationsForMovedPage(editState.operations, from, target),
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not move page.");
+    } finally {
+      setIsBusy(false);
+    }
+  }, [document, editState.operations, updateDocumentBytes]);
+
+  const movePageUp = useCallback((index: number) => movePage(index, index - 1), [movePage]);
+  const movePageDown = useCallback((index: number) => movePage(index, index + 1), [movePage]);
+
+  const extractPages = useCallback(async (indices: number[]) => {
+    if (!document) return;
+    setIsBusy(true);
+    setStatus("Extracting pages...");
+    try {
+      const sorted = [...new Set(indices)].sort((a, b) => a - b);
+      const bytes = await pdfEngine.extractPages(document.bytes, sorted);
+      const filename = `${safeBaseName(document.name)}-pages.pdf`;
+      downloadBlob(new Blob([bytes.slice().buffer], { type: "application/pdf" }), filename);
+      setStatus(`Extracted ${sorted.length} page${sorted.length === 1 ? "" : "s"} to ${filename}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not extract pages.");
+    } finally {
+      setIsBusy(false);
+    }
+  }, [document]);
+
+  const mergePdfFile = useCallback(async (file: File, atIndex?: number) => {
+    if (!document) return;
+    const validation = await validatePdfFile(file);
+    if (!validation.ok) {
+      setStatus(validation.reason);
+      return;
+    }
+    setIsBusy(true);
+    setStatus(`Merging ${file.name}...`);
+    try {
+      const incoming = new Uint8Array(await file.arrayBuffer());
+      const insertAt = atIndex ?? document.pageCount;
+      const bytes = await pdfEngine.mergePdf(document.bytes, incoming, insertAt);
+      const incomingCount = (await pdfEngine.getPageSizes(incoming)).length;
+      await updateDocumentBytes(
+        bytes,
+        insertAt,
+        `Merged ${incomingCount} page${incomingCount === 1 ? "" : "s"} from ${file.name}`,
+        editState.operations.map((operation) =>
+          operation.pageIndex >= insertAt
+            ? { ...operation, pageIndex: operation.pageIndex + incomingCount }
+            : operation,
+        ),
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not merge PDF.");
+    } finally {
+      setIsBusy(false);
+    }
+  }, [document, editState.operations, updateDocumentBytes]);
+
+  const insertPageAfter = useCallback(() => insertPageAt(pageIndex), [insertPageAt, pageIndex]);
+  const deleteCurrentPage = useCallback(() => deletePageAt(pageIndex), [deletePageAt, pageIndex]);
 
   const restoreHistoryEntry = useCallback((id: string) => {
     dispatch({ type: "restore-history", id });
@@ -380,6 +479,14 @@ export function useEditorController() {
     removeOperation,
     insertPageAfter,
     deleteCurrentPage,
+    insertPageAt,
+    deletePageAt,
+    duplicatePageAt,
+    movePage,
+    movePageUp,
+    movePageDown,
+    extractPages,
+    mergePdfFile,
     rotateCurrentPage,
     restoreHistoryEntry,
     runExport,

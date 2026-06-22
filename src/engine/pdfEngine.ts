@@ -207,6 +207,50 @@ export class PdfEngine {
     return new Uint8Array(await pdf.save({ useObjectStreams: false }));
   }
 
+  async duplicatePage(originalBytes: Uint8Array, index: number) {
+    const pdf = await PDFDocument.load(originalBytes);
+    const pageCount = pdf.getPageCount();
+    if (index < 0 || index >= pageCount) throw new Error("Cannot duplicate a page that does not exist.");
+    const [copied] = await pdf.copyPages(pdf, [index]);
+    pdf.insertPage(index + 1, copied);
+    return new Uint8Array(await pdf.save({ useObjectStreams: false }));
+  }
+
+  async movePage(originalBytes: Uint8Array, from: number, to: number) {
+    const pdf = await PDFDocument.load(originalBytes);
+    const pageCount = pdf.getPageCount();
+    if (from < 0 || from >= pageCount) throw new Error("Cannot move a page that does not exist.");
+    const target = Math.max(0, Math.min(to, pageCount - 1));
+    if (target === from) return new Uint8Array(await pdf.save({ useObjectStreams: false }));
+    const page = pdf.getPage(from);
+    pdf.removePage(from);
+    pdf.insertPage(target, page);
+    return new Uint8Array(await pdf.save({ useObjectStreams: false }));
+  }
+
+  async extractPages(originalBytes: Uint8Array, indices: number[]) {
+    const source = await PDFDocument.load(originalBytes);
+    const pageCount = source.getPageCount();
+    const valid = indices.filter((index) => index >= 0 && index < pageCount);
+    if (valid.length === 0) throw new Error("No valid pages to extract.");
+    const out = await PDFDocument.create();
+    const copied = await out.copyPages(source, valid);
+    for (const page of copied) out.addPage(page);
+    return new Uint8Array(await out.save({ useObjectStreams: false }));
+  }
+
+  async mergePdf(originalBytes: Uint8Array, incomingBytes: Uint8Array, atIndex?: number) {
+    const base = await PDFDocument.load(originalBytes);
+    const incoming = await PDFDocument.load(incomingBytes);
+    const copied = await base.copyPages(incoming, incoming.getPageIndices());
+    const baseCount = base.getPageCount();
+    const insertAt = atIndex === undefined ? baseCount : Math.max(0, Math.min(atIndex, baseCount));
+    copied.forEach((page, offset) => {
+      base.insertPage(insertAt + offset, page);
+    });
+    return new Uint8Array(await base.save({ useObjectStreams: false }));
+  }
+
   async rotatePage(originalBytes: Uint8Array, index: number, amount = 90) {
     const pdf = await PDFDocument.load(originalBytes);
     const page = pdf.getPage(index);

@@ -76,7 +76,16 @@ export function EditorRoute() {
           activePage={editor.pageIndex}
           pageCount={document.pageCount}
           pdfBytes={document.bytes}
+          disabled={isBusy}
           onSelect={editor.setPageIndex}
+          onInsertPage={editor.insertPageAt}
+          onDeletePage={editor.deletePageAt}
+          onDuplicatePage={editor.duplicatePageAt}
+          onMovePageUp={editor.movePageUp}
+          onMovePageDown={editor.movePageDown}
+          onMovePage={editor.movePage}
+          onExtractPage={(index) => editor.extractPages([index])}
+          onMergePdf={editor.mergePdfFile}
         />
       )}
       inspector={(

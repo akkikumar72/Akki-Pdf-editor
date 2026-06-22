@@ -10,6 +10,7 @@ Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and ex
 
 - Import PDFs from disk or create a blank document.
 - Render pages with PDF.js and keep page thumbnails, zoom, rotation, and page controls in one workbench.
+- Manage pages from the thumbnail rail: insert blank, delete, duplicate, reorder (buttons or drag), rotate, extract a page to a new PDF, and merge another PDF in — overlay edits are remapped to follow their pages.
 - Add overlay edits: text, whiteout, links, forms, images, signatures, annotations, shapes, and table regions.
 - Click existing PDF text in Select mode to create a replacement overlay with closest-match font styling.
 - Inline Sejda-style toolbar for selected objects, including searchable font family picker with keyboard support.
