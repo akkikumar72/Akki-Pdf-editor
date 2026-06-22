@@ -1,0 +1,17 @@
+#!/bin/sh
+# Strip AI co-authorship trailers so every commit carries only the author's name.
+# Runs on every `git commit`; removes Co-Authored-By: and Claude-Session: lines
+# no matter who or what tool appended them. Portable (POSIX sh + grep + awk).
+msg="$1"
+tmp="$msg.strip.$$"
+
+# Drop the trailer lines (case-insensitive on the key).
+grep -viE '^[[:space:]]*(Co-authored-by|Claude-Session)[[:space:]]*:' "$msg" > "$tmp"
+
+# Collapse any blank lines left dangling at the end.
+awk '{a[NR]=$0}
+     END{last=NR; while(last>0 && a[last] ~ /^[[:space:]]*$/) last--;
+         for(i=1;i<=last;i++) print a[i]}' "$tmp" > "$msg"
+
+rm -f "$tmp"
+exit 0
