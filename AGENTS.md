@@ -19,6 +19,12 @@ browser; edits are modeled as overlay operations and only written into PDF bytes
   - `bun run test` — Vitest unit suite
   - `bun run build` — `tsc -b && vite build`
   - `bun run e2e` — Playwright (needs a Chromium install)
+- Real-browser smoke test (not a merge gate): `bun run smoke` boots the dev server and
+  drives a headless Chromium via [agent-browser](https://agent-browser.dev) to upload a
+  PDF and assert the editor renders it. It auto-generates `pdf/sample-invoice.pdf`
+  (`bun run make-sample-pdf`) and writes screenshots to `artifacts/smoke/`. Point it at a
+  specific Chromium with `AGENT_BROWSER_EXECUTABLE_PATH`, or pass another file:
+  `scripts/smoke-test.sh path/to.pdf`.
 
 ## Architecture / layer map
 

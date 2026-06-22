@@ -4,6 +4,8 @@ coverage
 playwright-report
 test-results
 pdfSameples
+pdf/*.pdf
+artifacts
 docs/assets/audit-*.png
 .hallmark/
 *.tsbuildinfo
