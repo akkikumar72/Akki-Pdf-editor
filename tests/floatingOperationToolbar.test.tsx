@@ -443,6 +443,57 @@ describe("FloatingOperationToolbar", () => {
     });
   });
 
+  describe("shape operation", () => {
+    function shape(overrides: Partial<Extract<EditOperation, { type: "shape" }>> = {}): EditOperation {
+      return {
+        id: "s1", type: "shape", kind: "rectangle", pageIndex: 0,
+        rect: { x: 0, y: 0, width: 80, height: 40 }, createdAt: 1,
+        stroke: "#ef4444", fill: "transparent", strokeWidth: 2, ...overrides,
+      };
+    }
+
+    it("renders stroke/fill/width controls (no text controls)", () => {
+      renderToolbar(shape());
+      expect(screen.queryByLabelText("Bold")).toBeNull();
+      expect(screen.getByLabelText("Border color")).toBeInTheDocument();
+      expect(screen.getByLabelText("Fill color")).toBeInTheDocument();
+      expect(screen.getByLabelText("No fill")).toBeInTheDocument();
+      expect(screen.getByLabelText("Border width")).toBeInTheDocument();
+    });
+
+    it("updates the stroke color", () => {
+      const { onUpdate } = renderToolbar(shape());
+      fireEvent.change(screen.getByLabelText("Border color"), { target: { value: "#00ff00" } });
+      expect(onUpdate).toHaveBeenCalledWith("s1", { stroke: "#00ff00" });
+    });
+
+    it("updates the fill color", () => {
+      const { onUpdate } = renderToolbar(shape());
+      fireEvent.change(screen.getByLabelText("Fill color"), { target: { value: "#0000ff" } });
+      expect(onUpdate).toHaveBeenCalledWith("s1", { fill: "#0000ff" });
+    });
+
+    it("shows a transparent fill as white and marks No fill pressed", () => {
+      renderToolbar(shape({ fill: "transparent" }));
+      expect((screen.getByLabelText("Fill color") as HTMLInputElement).value).toBe("#ffffff");
+      expect(screen.getByLabelText("No fill")).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("reflects a concrete fill and lets No fill clear it", () => {
+      const { onUpdate } = renderToolbar(shape({ fill: "#ffcc00" }));
+      expect((screen.getByLabelText("Fill color") as HTMLInputElement).value).toBe("#ffcc00");
+      expect(screen.getByLabelText("No fill")).toHaveAttribute("aria-pressed", "false");
+      fireEvent.click(screen.getByLabelText("No fill"));
+      expect(onUpdate).toHaveBeenCalledWith("s1", { fill: "transparent" });
+    });
+
+    it("updates the border width", () => {
+      const { onUpdate } = renderToolbar(shape());
+      fireEvent.change(screen.getByLabelText("Border width"), { target: { value: "6" } });
+      expect(onUpdate).toHaveBeenCalledWith("s1", { strokeWidth: 6 });
+    });
+  });
+
   it("stops propagation on click and pointerdown", () => {
     renderToolbar(baseText());
     const toolbar = screen.getByRole("toolbar");

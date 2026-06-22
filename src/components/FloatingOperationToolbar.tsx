@@ -1,4 +1,4 @@
-import { Bold, ChevronDown, Copy, Italic, Link2, Move, Palette, Trash2, Type } from "lucide-react";
+import { Bold, ChevronDown, Copy, Italic, Link2, Move, PaintBucket, Palette, Square, Trash2, Type } from "lucide-react";
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Select, { components, type GroupBase, type OptionProps, type SingleValue, type StylesConfig } from "react-select";
 import { FONT_CHOICES } from "../engine/fontResolver";
@@ -173,6 +173,7 @@ export function FloatingOperationToolbar({
   const [openMenu, setOpenMenu] = useState<OpenMenu>();
   const [fontInputValue, setFontInputValue] = useState("");
   const isText = operation.type === "text";
+  const isShape = operation.type === "shape";
   const stageWidth = pageWidth * scale;
 
   useLayoutEffect(() => {
@@ -374,6 +375,51 @@ export function FloatingOperationToolbar({
               value={operation.color}
               onChange={(event) => updateTextStyle(operation, { color: event.currentTarget.value }, onUpdate)}
             />
+          </label>
+        </>
+      ) : null}
+
+      {isShape ? (
+        <>
+          <label className="floating-toolbar__color" title="Border color">
+            <Palette aria-hidden="true" />
+            <input
+              aria-label="Border color"
+              type="color"
+              value={operation.stroke}
+              onChange={(event) => onUpdate(operation.id, { stroke: event.currentTarget.value } as Partial<EditOperation>)}
+            />
+          </label>
+          <label className="floating-toolbar__color" title="Fill color">
+            <PaintBucket aria-hidden="true" />
+            <input
+              aria-label="Fill color"
+              type="color"
+              value={operation.fill && operation.fill !== "transparent" ? operation.fill : "#ffffff"}
+              onChange={(event) => onUpdate(operation.id, { fill: event.currentTarget.value } as Partial<EditOperation>)}
+            />
+          </label>
+          <button
+            type="button"
+            className="floating-toolbar__button"
+            aria-label="No fill"
+            aria-pressed={!operation.fill || operation.fill === "transparent"}
+            title="No fill (transparent)"
+            onClick={() => onUpdate(operation.id, { fill: "transparent" } as Partial<EditOperation>)}
+          >
+            <Square aria-hidden="true" />
+          </button>
+          <label className="floating-toolbar__width" title="Border width">
+            <span className="visually-hidden">Border width</span>
+            <select
+              aria-label="Border width"
+              value={operation.strokeWidth}
+              onChange={(event) => onUpdate(operation.id, { strokeWidth: Number(event.currentTarget.value) } as Partial<EditOperation>)}
+            >
+              {[1, 2, 3, 4, 6, 8].map((width) => (
+                <option key={width} value={width}>{width}px</option>
+              ))}
+            </select>
           </label>
         </>
       ) : null}

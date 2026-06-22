@@ -14,8 +14,10 @@ import type {
   ViewportRect,
 } from "../types/editor";
 import { createOperationsForTool } from "../editor/operationFactory";
+import { isRegionTool } from "../editor/toolRegistry";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation, translatePoints } from "../editor/selectionModel";
+import { CanvasHintBanner } from "./CanvasHintBanner";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
 import { collectAlignmentLines, snapViewportRect, type GuideLine } from "../utils/alignmentGuides";
 import { validateImageFile } from "../utils/fileValidation";
@@ -60,6 +62,24 @@ type ResizeState = {
 };
 
 const MIN_RESIZE_PX = 8;
+// Below this drag distance (px) a region-tool press is treated as a plain click
+// and falls back to a comfortable default size rather than the tiny drawn area.
+const DRAW_CLICK_THRESHOLD_PX = 6;
+const DRAW_CLICK_FALLBACK = { width: 160, height: 80 };
+
+type DrawState = {
+  start: { x: number; y: number };
+  current: { x: number; y: number };
+};
+
+function marqueeRect(draw: DrawState) {
+  return {
+    left: Math.min(draw.start.x, draw.current.x),
+    top: Math.min(draw.start.y, draw.current.y),
+    width: Math.abs(draw.current.x - draw.start.x),
+    height: Math.abs(draw.current.y - draw.start.y),
+  };
+}
 
 function isResizableOperation(operation: EditOperation) {
   if (operation.type === "text") return false;
@@ -410,6 +430,7 @@ export function PdfCanvas({
   const pendingImagePoint = useRef<PdfPoint | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [resize, setResize] = useState<ResizeState | null>(null);
+  const [draw, setDraw] = useState<DrawState | null>(null);
   const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
   const [moveModeOperationId, setMoveModeOperationId] = useState<string | undefined>();
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
@@ -520,6 +541,17 @@ export function PdfCanvas({
   }, [selectedId, editingTextId, onOperationRemove]);
 
   useEffect(() => {
+    if (!draw) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setDraw(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [draw]);
+
+  useEffect(() => {
     if (!documentFonts) return;
     for (const info of Object.values(documentFonts)) registerEmbeddedFont(info.key, info.bytes);
   }, [documentFonts]);
@@ -565,6 +597,10 @@ export function PdfCanvas({
     if (createdText) {
       onOperationSelect(createdText.id);
       window.requestAnimationFrame(() => setEditingTextId(createdText.id));
+    } else if (nextOperations[0]) {
+      // Select the freshly drawn op (shape, whiteout, …) so its inline toolbar
+      // and resize handles appear immediately — Sejda parity for shapes.
+      onOperationSelect(nextOperations[0].id);
     }
   };
 
@@ -625,9 +661,20 @@ export function PdfCanvas({
             // never gets cleared by a follow-up click (keeps its toolbar persistent).
             const target = event.target as HTMLElement;
             const isEmptyArea = target === event.currentTarget || target.classList.contains("react-pdf__Page__canvas");
-            if (isEmptyArea && activeTool === "select") {
+            if (!isEmptyArea) return;
+            if (activeTool === "select") {
               onOperationSelect(undefined);
+              return;
             }
+            // Region tools (shapes, whiteout, links, forms, …) draw via an area
+            // selection: press → drag → release. Start the marquee here.
+            if (!isRegionTool(activeTool)) return;
+            /* v8 ignore next -- pointerdown fires only inside the mounted stage, so stageRef.current is always populated */
+            if (!stageRef.current) return;
+            onOperationSelect(undefined);
+            stageRef.current.setPointerCapture(event.pointerId);
+            const point = pointFromEvent(event, event.currentTarget);
+            setDraw({ start: point, current: point });
           }}
           onClick={(event) => {
             if (event.target !== event.currentTarget && !(event.target as HTMLElement).classList.contains("react-pdf__Page__canvas")) {
@@ -642,10 +689,19 @@ export function PdfCanvas({
               imageInputRef.current?.click();
               return;
             }
+            // Region tools create on pointer-up via the drag-to-draw marquee.
+            if (isRegionTool(activeTool)) return;
             const point = pointFromEvent(event, event.currentTarget);
             void addAt({ left: point.x, top: point.y, width: 160, height: 42 });
           }}
           onPointerMove={(event) => {
+            if (draw) {
+              /* v8 ignore next -- pointermove during a draw always has the mounted stage ref */
+              if (!stageRef.current) return;
+              const point = pointFromEvent(event, stageRef.current);
+              setDraw({ start: draw.start, current: point });
+              return;
+            }
             if (resize && stageRef.current) {
               const point = pointFromEvent(event, stageRef.current);
               const dx = point.x - resize.startPointer.x;
@@ -718,18 +774,29 @@ export function PdfCanvas({
             onOperationUpdate(drag.id, patch);
           }}
           onPointerUp={() => {
+            if (draw) {
+              const rect = marqueeRect(draw);
+              const dragged = rect.width >= DRAW_CLICK_THRESHOLD_PX || rect.height >= DRAW_CLICK_THRESHOLD_PX;
+              const viewportRect = dragged
+                ? rect
+                : { left: draw.start.x, top: draw.start.y, ...DRAW_CLICK_FALLBACK };
+              setDraw(null);
+              void addAt(viewportRect);
+            }
             setDrag(null);
             setResize(null);
             setActiveGuides([]);
             setMoveModeOperationId(undefined);
           }}
           onPointerCancel={() => {
+            setDraw(null);
             setDrag(null);
             setResize(null);
             setActiveGuides([]);
             setMoveModeOperationId(undefined);
           }}
           onLostPointerCapture={() => {
+            setDraw(null);
             setDrag(null);
             setResize(null);
             setActiveGuides([]);
@@ -788,6 +855,12 @@ export function PdfCanvas({
               />
             ))}
           </div>
+
+          {draw ? <div className="draw-marquee" aria-hidden="true" style={marqueeRect(draw)} /> : null}
+
+          {activeTool !== "select" && !editingTextId && !drag && !resize ? (
+            <CanvasHintBanner tool={activeTool} drawing={Boolean(draw)} />
+          ) : null}
 
           <div className="operation-layer">
             {operations.map((operation) => {
