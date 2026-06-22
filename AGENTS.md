@@ -27,15 +27,15 @@ browser; edits are modeled as overlay operations and only written into PDF bytes
 
 ## Commit attribution
 
-- Commits carry only the repo owner's authorship — no AI co-authorship trailers. A tracked
-  `commit-msg` hook in `.githooks/` strips any `Co-Authored-By:` / `Claude-Session:` lines
-  from every commit message, whoever (or whatever) wrote them.
+- Commits carry only the repo owner's authorship. A tracked `commit-msg` hook in
+  `.githooks/` strips any trailing co-author / assistant-session trailer lines from every
+  commit message, whoever (or whatever) wrote them.
 - `bun install` runs a `postinstall` that points `core.hooksPath` at `.githooks/`, so the
   hook self-activates on a fresh clone. To enable it by hand: `git config core.hooksPath .githooks`.
 - Set your own `git config user.name` / `user.email` so commits land under your identity.
-- `.mailmap` coalesces all of the owner's emails (GitHub personal, Grafana work, agent
-  defaults) onto one canonical author, so `git log --use-mailmap` / `git shortlog` show a
-  single contributor regardless of which email a commit used.
+- `.mailmap` coalesces the owner's emails (GitHub personal, Grafana work) onto one canonical
+  author, so `git log --use-mailmap` / `git shortlog` show a single contributor regardless of
+  which email a commit used.
 
 ## Architecture / layer map
 
