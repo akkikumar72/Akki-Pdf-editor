@@ -97,6 +97,21 @@ residual original ink — not CSS `text-decoration`.
 
 **Acceptance:** Click `0,00` → no visible original ink; no underline artifacts.
 
+### P0b — Stop whiteout bleeding onto neighbors (landed 2026-06-22)
+
+The cover/overlay white box used the full PDF.js line box (~1em) and the editable run
+painted its own opaque fill, so a tightly-leaded line above had its descenders clipped
+and a moved run dragged a white box with it.
+
+- [x] Trim the whiteout cover top to the glyph ascent (`replacementCoverTopTrim` in
+  [`textMetrics.ts`](../src/utils/textMetrics.ts)) — mask hugs the run, line above intact.
+- [x] Make the editable/replacement run transparent; only `.operation--source-cover`
+  masks the original ([`OperationOverlay.tsx`](../src/components/OperationOverlay.tsx)).
+  Moved/edited text is now pure glyphs (Sejda `.text-editable` parity, §I.2).
+
+**Acceptance:** Editing `534,93` under a tight line leaves the line above's descenders
+intact; dragging the run shows only text with no trailing white box; original stays masked.
+
 ### P1 — Metric and font fidelity
 
 - [x] Baseline-aligned overlay CSS (`app.css`) matching `savePdf` y-position

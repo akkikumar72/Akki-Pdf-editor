@@ -2,21 +2,29 @@ import { describe, expect, it } from "vitest";
 import {
   padReplacementCoverRect,
   replacementCoverPadding,
+  replacementCoverTopTrim,
   textBaselineDrawY,
   textBaselineTopPaddingPx,
   viewportRectsOverlap,
 } from "../src/utils/textMetrics";
 
 describe("textMetrics", () => {
-  it("pads cover rects downward in viewport space", () => {
+  it("pads the cover bottom down and trims the top to hug the glyph ascent", () => {
     const rect = { x: 72, y: 700, width: 30, height: 14 };
     const padded = padReplacementCoverRect(rect, 14);
     const pad = replacementCoverPadding(14);
+    const topTrim = replacementCoverTopTrim(14);
 
-    expect(padded.y).toBeLessThan(rect.y);
-    expect(padded.height).toBeGreaterThan(rect.height);
+    // Bottom edge still drops below the run (covers PDF.js span bleed).
     expect(padded.y).toBe(rect.y - pad * 1.2);
-    expect(padded.height).toBe(rect.height + pad * 0.8);
+    // The top edge is trimmed down so the mask no longer overlaps the line above.
+    expect(padded.y + padded.height).toBeLessThan(rect.y + rect.height);
+    expect(padded.height).toBe(rect.height - topTrim + pad * 1.2);
+  });
+
+  it("never collapses the cover below half the font size", () => {
+    const rect = { x: 0, y: 0, width: 10, height: 1 };
+    expect(padReplacementCoverRect(rect, 20).height).toBe(20 * 0.5);
   });
 
   it("computes baseline draw y from the bottom of the PDF rect", () => {

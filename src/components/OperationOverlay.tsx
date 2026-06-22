@@ -135,7 +135,15 @@ export function OperationOverlay({
           letterSpacing: operation.letterSpacing ? operation.letterSpacing * scale : undefined,
           color: operation.color,
           textAlign: operation.align,
-          background: operation.whiteout ? operation.whiteoutColor ?? "#fff" : "transparent",
+          // Sejda parity: the editable run carries no fill of its own — the
+          // dedicated `.operation--source-cover` masks the original glyphs. This
+          // keeps a moved/edited run as pure text (no white box clipping the line
+          // above or trailing behind when dragged). The guarded fallback only
+          // paints when a whiteout run somehow lacks its source cover.
+          background:
+            operation.whiteout && !operation.sourceCoverRect
+              ? operation.whiteoutColor ?? "#fff"
+              : "transparent",
           paddingTop: baselinePadding,
           opacity: showText ? (operation.opacity ?? 1) : 0,
         }}
