@@ -598,6 +598,25 @@ describe("PdfCanvas - drag-to-draw region tools", () => {
     expect(container.querySelector(".draw-marquee")).toBeNull();
   });
 
+  it("auto-dismisses the in-page hint after a few seconds", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = renderCanvas({ activeTool: "shape" });
+      expect(container.querySelector(".canvas-hint")).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(container.querySelector(".canvas-hint")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hides the in-page hint when the Select tool is active", () => {
+    const { container } = renderCanvas({ activeTool: "select" });
+    expect(container.querySelector(".canvas-hint")).toBeNull();
+  });
+
   it("cancels an in-progress draw on Escape without creating an operation", () => {
     const onOperationAdd = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
