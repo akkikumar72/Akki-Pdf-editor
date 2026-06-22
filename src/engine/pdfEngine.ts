@@ -290,6 +290,34 @@ export class PdfEngine {
     return { items, fonts };
   }
 
+  /**
+   * Render a single page to an offscreen canvas at the given scale. Used by the OCR
+   * path to hand a rasterized page to tesseract.js. Returns the canvas plus the PDF
+   * page dimensions (at scale 1) so callers can map recognized boxes back to PDF space.
+   */
+  async renderPageToCanvas(
+    bytes: Uint8Array,
+    pageIndex: number,
+    scale = 2,
+  ): Promise<{ canvas: HTMLCanvasElement; pageWidth: number; pageHeight: number }> {
+    const pdfjs = await this.getPdfJs();
+    const pdf = await pdfjs.getDocument({ data: bytes.slice(), ...PDF_JS_OPTIONS }).promise;
+    try {
+      const page = await pdf.getPage(pageIndex + 1);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Could not acquire a 2D canvas context for OCR.");
+      await page.render({ canvasContext: context, viewport }).promise;
+      return { canvas, pageWidth: baseViewport.width, pageHeight: baseViewport.height };
+    } finally {
+      void pdf.destroy().catch(() => undefined);
+    }
+  }
+
   async getPageSizes(bytes: Uint8Array) {
     const pdf = await PDFDocument.load(bytes);
     return pdf.getPages().map((page) => page.getSize());

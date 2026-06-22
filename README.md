@@ -13,14 +13,16 @@ Local-first PDF editor workbench inspired by Sejda's import, edit, apply, and ex
 - Add overlay edits: text, whiteout, links, forms, images, signatures, annotations, shapes, and table regions.
 - Click existing PDF text in Select mode to create a replacement overlay with closest-match font styling.
 - Inline Sejda-style toolbar for selected objects, including searchable font family picker with keyboard support.
-- Export edited PDF, TXT, CSV, XLSX, and PNG locally.
+- Export edited PDF, TXT, CSV, XLSX, DOCX (Word), and PNG locally.
+- OCR a page on demand (client-side, lazy-loaded `tesseract.js`) to recover text from scanned/image pages and merge it into the page-text index. The recognizer is dynamically imported so it never bloats the main bundle; if the dependency or its runtime model download is blocked it degrades gracefully with a status message.
 
 ## Tech Stack
 
 - React + Vite + TypeScript
 - PDF rendering: `react-pdf` / PDF.js
 - PDF writing: `pdf-lib` + `@pdf-lib/fontkit`
-- Spreadsheet export: minimal OOXML writer built with `fflate` (no SheetJS dependency)
+- Spreadsheet/Word export: minimal OOXML writers built with `fflate` (no SheetJS / `docx` dependency)
+- OCR: `tesseract.js`, dynamically imported on demand (kept out of the main bundle)
 - UI icons: `lucide-react`
 - Font picker: `react-select`
 - Tests: Vitest + Playwright

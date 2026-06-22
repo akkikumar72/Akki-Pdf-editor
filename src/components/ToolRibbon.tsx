@@ -183,6 +183,7 @@ export function ToolRibbon(props: ToolRibbonProps) {
             <option value="txt">Text</option>
             <option value="csv">CSV</option>
             <option value="xlsx">Excel</option>
+            <option value="docx">Word</option>
           </select>
         </div>
         <FileDown aria-hidden="true" className="tool-ribbon__end-icon" />

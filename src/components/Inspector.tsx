@@ -1,4 +1,4 @@
-import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, SlidersHorizontal } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, ScanText, SlidersHorizontal } from "lucide-react";
 import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeUrl } from "../utils/url";
@@ -8,10 +8,12 @@ type InspectorProps = {
   operationCount: number;
   pageTextItems: TextItem[];
   onExport: (format: ExportFormat) => void;
+  onOcrPage?: () => void;
+  ocrBusy?: boolean;
   onUpdate: (id: string, patch: Partial<EditOperation>) => void;
 };
 
-export function Inspector({ operation, operationCount, pageTextItems, onExport, onUpdate }: InspectorProps) {
+export function Inspector({ operation, operationCount, pageTextItems, onExport, onOcrPage, ocrBusy, onUpdate }: InspectorProps) {
   const update = (patch: Partial<EditOperation>) => {
     if (operation) onUpdate(operation.id, patch);
   };
@@ -185,6 +187,7 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
           <button onClick={() => onExport("txt")}><FileText aria-hidden="true" /> TXT</button>
           <button onClick={() => onExport("csv")}><FileSpreadsheet aria-hidden="true" /> CSV</button>
           <button onClick={() => onExport("xlsx")}><FileSpreadsheet aria-hidden="true" /> XLSX</button>
+          <button onClick={() => onExport("docx")}><FileText aria-hidden="true" /> DOCX</button>
         </div>
       </section>
 
@@ -198,6 +201,13 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
             <span key={`${item.str}-${index}`}>{item.str}</span>
           ))}
         </div>
+        {onOcrPage ? (
+          <div className="export-grid">
+            <button onClick={() => onOcrPage()} disabled={ocrBusy}>
+              <ScanText aria-hidden="true" /> {ocrBusy ? "OCR…" : "OCR page"}
+            </button>
+          </div>
+        ) : null}
       </section>
     </div>
   );

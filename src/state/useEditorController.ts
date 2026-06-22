@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { shiftOperationsForDeletedPage, shiftOperationsForInsertedPage } from "../editor/pageOperations";
 import { exportPipeline } from "../engine/exportPipeline";
+import { ocrEngine } from "../engine/ocr";
 import { pdfEngine } from "../engine/pdfEngine";
 import { editReducer, getSelectedOperation, initialEditState } from "./editModel";
 import type { EditState } from "./editModel";
@@ -324,6 +325,39 @@ export function useEditorController() {
     setStatus("Restored selected edit checkpoint");
   }, []);
 
+  /**
+   * OCR the current page: rasterize via PDF.js, recognize with the lazily-loaded
+   * tesseract.js engine, then merge the recognized words into the page-text index so
+   * they are searchable/exportable like native text. The recognizer is dynamically
+   * imported, so a blocked dependency download fails gracefully into the status bar.
+   */
+  const ocrCurrentPage = useCallback(async () => {
+    if (!document) return;
+    setIsBusy(true);
+    setStatus(`Running OCR on page ${pageIndex + 1}...`);
+    try {
+      const { text, items } = await ocrEngine.ocrPage(document.bytes, pageIndex);
+      if (items.length) {
+        setTextItems((current) => [...current, ...items]);
+      }
+      setStatus(
+        items.length
+          ? `OCR added ${items.length} text item${items.length === 1 ? "" : "s"} from page ${pageIndex + 1}`
+          : `OCR found no readable text on page ${pageIndex + 1}`,
+      );
+      return { text, items };
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? `OCR unavailable: ${error.message}`
+          : "OCR is unavailable in this environment.",
+      );
+      return undefined;
+    } finally {
+      setIsBusy(false);
+    }
+  }, [document, pageIndex]);
+
   const runExport = useCallback(async (format: ExportFormat) => {
     if (!document) return;
     setIsBusy(true);
@@ -383,6 +417,7 @@ export function useEditorController() {
     rotateCurrentPage,
     restoreHistoryEntry,
     runExport,
+    ocrCurrentPage,
   };
 }
 

@@ -39,6 +39,15 @@ export class ExportPipeline {
         );
         return;
       }
+      case "docx": {
+        downloadBlob(
+          new Blob([this.toDocxBytes(context.textItems)], {
+            type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          }),
+          `${base}.docx`,
+        );
+        return;
+      }
       default: {
         const exhaustive: never = format;
         throw new Error(`Unsupported export format: ${String(exhaustive)}`);
@@ -62,6 +71,32 @@ export class ExportPipeline {
   toXlsxBytes(textItems: TextItem[], operations: EditOperation[]) {
     const rows = this.tableRows(textItems, operations);
     return createWorkbookZip(rows.length ? rows : [["No table-like text detected"]]);
+  }
+
+  /**
+   * Build a minimal valid Word document (OOXML) from the extracted text. Items are
+   * grouped by page; each clustered visual line becomes one paragraph and pages are
+   * separated by an empty paragraph. All text is XML-escaped. Mirrors the hand-built
+   * XLSX writer — no heavy dependency (no `docx`/officegen), just `fflate`.
+   */
+  toDocxBytes(textItems: TextItem[]) {
+    const paragraphs: string[] = [];
+    const byPage = new Map<number, TextItem[]>();
+    for (const item of textItems) {
+      const bucket = byPage.get(item.pageIndex);
+      if (bucket) bucket.push(item);
+      else byPage.set(item.pageIndex, [item]);
+    }
+    const pageIndexes = [...byPage.keys()].sort((a, b) => a - b);
+    for (let i = 0; i < pageIndexes.length; i += 1) {
+      const rows = this.groupRows(byPage.get(pageIndexes[i]) ?? []);
+      for (const row of rows) {
+        paragraphs.push(row.map((item) => item.str).join(" "));
+      }
+      // Separate pages with a blank paragraph (except after the last page).
+      if (i < pageIndexes.length - 1) paragraphs.push("");
+    }
+    return createDocxZip(paragraphs.length ? paragraphs : ["No extractable text detected"]);
   }
 
   private tableRows(textItems: TextItem[], operations: EditOperation[]) {
@@ -162,6 +197,45 @@ function createWorkbookZip(rows: string[][]) {
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetData>${sheetRows}</sheetData>
 </worksheet>`),
+  };
+
+  return zipSync(files, { level: 6 });
+}
+
+/**
+ * Build a minimal valid `.docx` (OOXML WordprocessingML) package: the four parts a
+ * Word reader requires — `[Content_Types].xml`, `_rels/.rels`,
+ * `word/_rels/document.xml.rels`, and `word/document.xml`. Each input string becomes
+ * a `<w:p>` paragraph; text is XML-escaped and wrapped in an `xml:space="preserve"`
+ * run so leading/trailing whitespace survives. Like the XLSX writer, this is a
+ * dependency-free zip built with `fflate`.
+ */
+function createDocxZip(paragraphs: string[]) {
+  const body = paragraphs
+    .map((text) =>
+      text
+        ? `<w:p><w:r><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p>`
+        : `<w:p/>`,
+    )
+    .join("");
+
+  const files: Record<string, Uint8Array> = {
+    "[Content_Types].xml": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`),
+    "_rels/.rels": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`),
+    "word/_rels/document.xml.rels": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`),
+    "word/document.xml": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>${body}</w:body>
+</w:document>`),
   };
 
   return zipSync(files, { level: 6 });

@@ -70,6 +70,42 @@ describe("export pipeline", () => {
     expect(csv).not.toMatch(/"\n=cmd/);
   });
 
+  it("writes a minimal DOCX whose document.xml has escaped, page-grouped paragraphs", () => {
+    const bytes = new ExportPipeline().toDocxBytes([
+      ...items,
+      { str: "A&B <test>", pageIndex: 0, rect: { x: 10, y: 640, width: 80, height: 12 } },
+      { str: "Second page", pageIndex: 1, rect: { x: 10, y: 700, width: 80, height: 12 } },
+    ]);
+    const files = unzipSync(bytes);
+
+    // Valid zip magic ("PK").
+    expect(bytes[0]).toBe(0x50);
+    expect(bytes[1]).toBe(0x4b);
+
+    // All four OOXML parts a Word reader requires are present.
+    expect(files["[Content_Types].xml"]).toBeDefined();
+    expect(files["_rels/.rels"]).toBeDefined();
+    expect(files["word/_rels/document.xml.rels"]).toBeDefined();
+    expect(files["word/document.xml"]).toBeDefined();
+
+    const doc = strFromU8(files["word/document.xml"]);
+    expect(doc).toContain("Name Amount");
+    expect(doc).toContain("Akki $42");
+    // Text is XML-escaped.
+    expect(doc).toContain("A&amp;B &lt;test&gt;");
+    expect(doc).not.toContain("A&B <test>");
+    // Page break: an empty paragraph separates page 0 from page 1.
+    expect(doc).toContain("<w:p/>");
+    expect(doc).toContain("Second page");
+    // Content-type override declares the WordprocessingML main part.
+    expect(strFromU8(files["[Content_Types].xml"])).toContain("wordprocessingml.document.main+xml");
+  });
+
+  it("falls back to a placeholder paragraph when no text was extracted", () => {
+    const doc = strFromU8(unzipSync(new ExportPipeline().toDocxBytes([]))["word/document.xml"]);
+    expect(doc).toContain("No extractable text detected");
+  });
+
   it("neutralizes XLSX formula-injection payloads", () => {
     const bytes = new ExportPipeline().toXlsxBytes(
       [{ str: "=HYPERLINK(1)", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } }],

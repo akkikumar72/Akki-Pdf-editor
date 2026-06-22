@@ -85,6 +85,8 @@ export function EditorRoute() {
           operationCount={editState.operations.length}
           pageTextItems={editor.textItems.filter((item) => item.pageIndex === editor.pageIndex)}
           onExport={editor.runExport}
+          onOcrPage={() => void editor.ocrCurrentPage()}
+          ocrBusy={isBusy}
           onUpdate={editor.updateOperation}
         />
       )}
