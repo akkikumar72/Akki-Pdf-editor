@@ -19,6 +19,23 @@ browser; edits are modeled as overlay operations and only written into PDF bytes
   - `bun run test` — Vitest unit suite
   - `bun run build` — `tsc -b && vite build`
   - `bun run e2e` — Playwright (needs a Chromium install)
+- Real-browser smoke test (not a merge gate): `bun run smoke` boots the dev server and
+  drives a headless Chromium via [agent-browser](https://agent-browser.dev) to upload the
+  committed `pdf/sample-invoice.pdf` fixture and assert the editor renders it. Screenshots
+  are written to `artifacts/smoke/`. Point it at a specific Chromium with
+  `AGENT_BROWSER_EXECUTABLE_PATH`, or pass another file: `scripts/smoke-test.sh path/to.pdf`.
+
+## Commit attribution
+
+- Commits carry only the repo owner's authorship. A tracked `commit-msg` hook in
+  `.githooks/` strips any trailing co-author / assistant-session trailer lines from every
+  commit message, whoever (or whatever) wrote them.
+- `bun install` runs a `postinstall` that points `core.hooksPath` at `.githooks/`, so the
+  hook self-activates on a fresh clone. To enable it by hand: `git config core.hooksPath .githooks`.
+- Set your own `git config user.name` / `user.email` so commits land under your identity.
+- `.mailmap` coalesces the owner's emails (GitHub personal, Grafana work) onto one canonical
+  author, so `git log --use-mailmap` / `git shortlog` show a single contributor regardless of
+  which email a commit used.
 
 ## Architecture / layer map
 

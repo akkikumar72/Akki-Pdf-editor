@@ -4,8 +4,12 @@ coverage
 playwright-report
 test-results
 pdfSameples
+pdf/*.pdf
+!pdf/sample-invoice.pdf
+artifacts
 docs/assets/audit-*.png
 .hallmark/
+.claude/worktrees/
 *.tsbuildinfo
 .DS_Store
 *.local

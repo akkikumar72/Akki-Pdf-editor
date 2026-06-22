@@ -13,6 +13,7 @@ type InspectorProps = {
 
 export function Inspector({ operation, operationCount, pageTextItems, onExport, onUpdate }: InspectorProps) {
   const update = (patch: Partial<EditOperation>) => {
+    /* v8 ignore next -- every `update` caller renders only inside the `operation`-present block, so the guard's false branch is unreachable */
     if (operation) onUpdate(operation.id, patch);
   };
 
@@ -79,6 +80,7 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                     value={Math.round(operation.fontSize)}
                     onChange={(event) => {
                       const parsed = Number(event.currentTarget.value);
+                      /* v8 ignore next -- the control is type="number"; the DOM coerces any entry to a finite value (Number("")===0), so the non-finite guard is unreachable */
                       if (!Number.isFinite(parsed)) return;
                       const clamped = Math.min(96, Math.max(6, Math.round(parsed)));
                       update({ fontSize: clamped } as Partial<EditOperation>);

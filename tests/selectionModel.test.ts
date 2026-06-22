@@ -104,4 +104,35 @@ describe("selection model", () => {
     expect(moveOperationZ(operations, "c", "backward").map((operation) => operation.id)).toEqual(["a", "c", "b"]);
     expect(moveOperationZ(operations, "c", "forward")).toBe(operations);
   });
+
+  it("is a no-op when moving the first operation backward", () => {
+    const operations = [
+      { ...baseOperation, id: "a" },
+      { ...baseOperation, id: "b" },
+    ];
+    expect(moveOperationZ(operations, "a", "backward")).toBe(operations);
+  });
+
+  it("returns the same list when the target id is not found", () => {
+    const operations = [{ ...baseOperation, id: "a" }];
+    expect(moveOperationZ(operations, "missing", "forward")).toBe(operations);
+  });
+
+  it("duplicates a non-ink, non-text operation without touching points or whiteout", () => {
+    const shape = {
+      id: "shape_1",
+      type: "shape" as const,
+      kind: "rectangle" as const,
+      pageIndex: 0,
+      rect: { x: 30, y: 40, width: 50, height: 60 },
+      stroke: "#111827",
+      fill: "transparent",
+      strokeWidth: 1.5,
+      createdAt: 1,
+    };
+    const copy = duplicateOperation(shape);
+    expect(copy.id).not.toBe(shape.id);
+    expect(copy.type).toBe("shape");
+    expect(copy.rect).toEqual({ x: 42, y: 28, width: 50, height: 60 });
+  });
 });

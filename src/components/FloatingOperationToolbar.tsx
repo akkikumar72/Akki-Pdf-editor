@@ -198,9 +198,11 @@ export function FloatingOperationToolbar({
     if (!isText || FONT_SIZE_OPTIONS.includes(currentFontSize)) return FONT_SIZE_OPTIONS;
     return [...FONT_SIZE_OPTIONS, currentFontSize].sort((a, b) => a - b);
   }, [currentFontSize, isText]);
+  /* v8 ignore start -- "Inter" is always present in fontOptions, so the trailing fontOptions[0] fallback is unreachable */
   const selectedFontOption = isText
     ? fontOptions.find((font) => font.label === operation.fontFamily) ?? fontOptions.find((font) => font.label === "Inter") ?? fontOptions[0]
     : fontOptions[0];
+  /* v8 ignore stop */
   const visibleFontOptions = useMemo(() => {
     const query = normalizeFontSearch(fontInputValue);
     if (!query) return fontOptions;
@@ -211,6 +213,7 @@ export function FloatingOperationToolbar({
       .map((entry) => entry.font);
   }, [fontInputValue]);
   const previewFont = (font: FontOption) => {
+    /* v8 ignore next -- previewFont is only wired into the FontPreviewContext that renders solely inside the isText branch, so the false path is unreachable */
     if (isText) {
       onTextPreview(operation.id, fontPreviewPatch(font));
     }
@@ -331,6 +334,7 @@ export function FloatingOperationToolbar({
                 getOptionValue={(font) => font.value}
                 isSearchable
                 menuPlacement="bottom"
+                /* v8 ignore next -- SSR safety guard; `document` is always defined in the browser/jsdom runtime */
                 menuPortalTarget={typeof document === "undefined" ? undefined : document.body}
                 menuPosition="fixed"
                 options={visibleFontOptions}

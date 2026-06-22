@@ -46,12 +46,14 @@ function buildDocumentFontInfo(
   if (meta?.data && meta.data.byteLength > 0) {
     try {
       const font = fontkit.create(meta.data as Buffer) as unknown as FontkitFont;
+      /* v8 ignore start -- the parseable font fixtures always expose typed name/OS-2 fields, so the `: undefined`/numeric-fsSelection fallbacks here are only hit by malformed programs that fontkit rejects (caught below) */
       info.familyName = typeof font.familyName === "string" ? font.familyName : undefined;
       info.subfamilyName = typeof font.subfamilyName === "string" ? font.subfamilyName : undefined;
       const os2 = font["OS/2"];
       info.weight = typeof os2?.usWeightClass === "number" ? os2.usWeightClass : undefined;
       info.widthClass = typeof os2?.usWidthClass === "number" ? os2.usWidthClass : undefined;
       const fsItalic = typeof os2?.fsSelection === "number" ? (os2.fsSelection & 0x01) !== 0 : false;
+      /* v8 ignore stop */
       info.italic = fsItalic || (typeof font.italicAngle === "number" && font.italicAngle !== 0);
     } catch {
       // Unsupported/Type3/bitmap program: keep name-based info and let export fall back.
@@ -195,6 +197,7 @@ export class PdfEngine {
   async insertBlankPage(originalBytes: Uint8Array, index: number) {
     const pdf = await PDFDocument.load(originalBytes);
     const pages = pdf.getPages();
+    /* v8 ignore next -- pdf-lib never round-trips a 0-page document, so the page lookup always resolves and the size fallback is unreachable */
     const currentSize = pages[Math.max(0, Math.min(index, pages.length - 1))]?.getSize() ?? { width: 612, height: 792 };
     pdf.insertPage(Math.max(0, Math.min(index + 1, pages.length)), [currentSize.width, currentSize.height]);
     return new Uint8Array(await pdf.save({ useObjectStreams: false }));

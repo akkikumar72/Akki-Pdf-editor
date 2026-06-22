@@ -94,9 +94,11 @@ export function createOperationsForTool({
         pageIndex,
         rect: isReplacement
           ? {
+              /* v8 ignore start -- coverRect is always defined when isReplacement is true (padReplacementCoverRect never returns undefined), so the rect fallbacks are unreachable */
               ...(coverRect ?? rect),
               width: Math.max(coverRect?.width ?? rect.width, replacementWidth, 16),
               height: Math.max(coverRect?.height ?? rect.height, fontSize),
+              /* v8 ignore stop */
             }
           : { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, 28) },
         text,

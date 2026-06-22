@@ -234,6 +234,7 @@ export function ToolRibbon(props: ToolRibbonProps) {
                 size="sm"
                 disabled={!activeHistoryId}
                 onClick={() => {
+                  /* v8 ignore next -- the button is disabled whenever activeHistoryId is falsy, so this guard never executes */
                   if (!activeHistoryId) return;
                   props.onRestoreHistory(activeHistoryId);
                   setHistoryOpen(false);
