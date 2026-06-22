@@ -15,6 +15,10 @@ confirm no core functionality regressed — do not consider the work done until 
 Automated suites (`bun run test`, `bun run e2e`) are necessary but NOT sufficient — also
 do an interactive browser check.
 
+The executable companion to this rule is the project skill at
+`.claude/skills/control-ui/SKILL.md`, which drives the app with the `agent-browser` CLI
+(works for Cursor, Claude Code, Codex, etc.). Follow it for the steps below.
+
 ## What the control-ui pass must cover
 
 1. Reuse the already-running dev server if present (check the terminals folder); only start
