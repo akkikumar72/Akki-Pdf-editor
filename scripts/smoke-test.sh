@@ -7,7 +7,7 @@
 # artifacts/smoke/.
 #
 # Usage:
-#   bun run smoke                      # uses pdf/sample-invoice.pdf
+#   bun run smoke                      # uses the committed pdf/sample-invoice.pdf
 #   scripts/smoke-test.sh path/to.pdf  # use a different PDF
 #   PORT=5180 scripts/smoke-test.sh    # override the dev-server port
 #
@@ -28,11 +28,6 @@ mkdir -p "$ART"
 
 # Absolute path for the upload (agent-browser resolves relative to its daemon cwd).
 case "$PDF_PATH" in /*) : ;; *) PDF_PATH="$ROOT/$PDF_PATH" ;; esac
-# Auto-generate the default fixture if it is missing (kept out of git).
-if [ ! -f "$PDF_PATH" ] && [ "$PDF_PATH" = "$ROOT/pdf/sample-invoice.pdf" ]; then
-  echo "• Generating sample PDF fixture ..."
-  bun run scripts/make-sample-pdf.mjs >/dev/null
-fi
 [ -f "$PDF_PATH" ] || { echo "✗ PDF not found: $PDF_PATH"; exit 1; }
 PDF_NAME="$(basename "$PDF_PATH")"
 
