@@ -1,9 +1,9 @@
-# Sejda PDF Editor — Toolbar Feature Inventory
+# Reference PDF Editor — Toolbar Feature Inventory
 
-Reference: https://www.sejda.com/pdf-editor
+Reference: a leading online PDF editor (URL redacted)
 
 This document lists every toolbar action, dropdown, and sub-option observed in the
-Sejda online PDF editor. It is meant as an implementation checklist for adding the
+the reference online PDF editor. It is meant as an implementation checklist for adding the
 same capabilities to **Akki PDF Editor**. No implementation is included here — this
 is purely a feature map for whoever picks it up next.
 
@@ -20,7 +20,7 @@ is purely a feature map for whoever picks it up next.
 
 ## 0. How editing actually works (interaction model) — VERIFIED LIVE
 
-This is the single most important part for implementation. Every tool in Sejda
+This is the single most important part for implementation. Every tool in the reference editor
 follows the **same overlay-based interaction pattern**. Edits are **NOT** baked
 into the PDF/canvas while you work — each edit is a separate, absolutely-positioned
 HTML/SVG element layered on top of the rendered page, and they are only flattened
@@ -297,9 +297,9 @@ These appear for text boxes, images, shapes, signatures, etc.:
 
 ---
 
-## 6. Text move UX — Sejda reference (verified live 2026-06-17)
+## 6. Text move UX — reference (verified live 2026-06-17)
 
-Observed on the live Sejda editor with an existing-text overlay (`#text-editable-2`,
+Observed on the live reference editor with an existing-text overlay (`#text-editable-2`,
 content **"Akki Pathak"**) on an Uber receipt PDF. Reproduced by selecting the text,
 clicking **Move** on the floating toolbar, and dragging while inspecting DOM/CSS.
 
@@ -307,7 +307,7 @@ clicking **Move** on the floating toolbar, and dragging while inspecting DOM/CSS
 
 Akki currently differs in three ways that hurt text repositioning UX:
 
-| Behavior | Sejda (target) | Akki PDF Editor (today) |
+| Behavior | the reference editor (target) | Akki PDF Editor (today) |
 |----------|----------------|-------------------------|
 | Move activation | **Two paths:** click Move *or* direct cursor-drag on text | Any pointer-down on overlay starts drag immediately |
 | Move toolbar feedback | Cursor changes to `move` after Move click; drag works even without it | Move icon is passive/decorative (`floating-toolbar__button--passive`) |
@@ -339,7 +339,7 @@ drag immediately repositions it. Observed behavior:
 - Drag succeeds even while `draggable('option', 'disabled') === true` (jQuery UI
   still handles the gesture on `.ui-draggable-handle`).
 - Alignment guides appear during drag (~84 lines observed).
-- The Move button does **not** gain an `.active` / `aria-pressed` class — Sejda
+- The Move button does **not** gain an `.active` / `aria-pressed` class — the reference editor
   does not visually “select” the Move icon when drag starts implicitly.
 - Implicit feedback is the drag itself + snap guides, not toolbar button state.
 - After explicit Move click, cursor becomes `move`; during implicit drag it stays
@@ -348,7 +348,7 @@ drag immediately repositions it. Observed behavior:
 > Akki takeaway: support **both** paths. Default: pointer-down on a selected text
 > overlay starts move-drag (with guides). Optional: clicking Move sets `moveMode` and
 > changes cursor to `move`. Do **not** require Move click before every drag — that
-> would be a regression vs Sejda. Wire the passive Move icon in
+> would be a regression vs the reference editor. Wire the passive Move icon in
 > `FloatingOperationToolbar.tsx` as an optional explicit toggle, not the only gate.
 
 ### 6.3 Drag behavior
@@ -390,7 +390,7 @@ busy receipt page). Each guide:
 <div class="guide horizontal snapped" style="top: 107px;"></div>
 ```
 
-**CSS (from Sejda stylesheet):**
+**CSS (from the reference editor stylesheet):**
 
 ```css
 .guidesLayer { position: absolute; top: 0; pointer-events: none; mix-blend-mode: multiply; }
@@ -464,7 +464,7 @@ Pointer up
 
 **`app.css`:**
 
-- [ ] `.guides-layer` + `.guide.horizontal` / `.guide.vertical` / `.snapped` (match Sejda colors or use design tokens).
+- [ ] `.guides-layer` + `.guide.horizontal` / `.guide.vertical` / `.snapped` (match the reference editor colors or use design tokens).
 - [ ] `.operation--text.is-selected` — lighter selection chrome (no resize frame).
 - [ ] `.operation.is-move-mode { cursor: grab; }`
 
@@ -473,18 +473,18 @@ Pointer up
 - [ ] E2E: select text → click Move → drag → assert position changed and no resize handles visible.
 - [ ] Unit: snap helper returns snapped rect when within tolerance.
 
-### 6.7 Floating toolbar placement — VERIFIED (Sejda vs Akki gap)
+### 6.7 Floating toolbar placement — VERIFIED (Reference vs Akki gap)
 
 Measured live with **"Akki Pathak"** selected on both editors (same Uber receipt).
 
-| Metric | Sejda | Akki PDF Editor (today) |
+| Metric | the reference editor | Akki PDF Editor (today) |
 |--------|-------|-------------------------|
 | Vertical gap (toolbar bottom → text top) | **~15px** | **~12px** (OK) |
 | Horizontal offset (toolbar left − text left) | **0px** (left-aligned) | **−276px** (toolbar far left of text) |
 | Center alignment delta | **~10px** (toolbar ≈ centered on text) | **−177px** (toolbar not near text) |
 | Toolbar width vs text width | 411px vs 390px | 418px vs 218px |
 
-**Sejda positioning rules (observed):**
+**Reference positioning rules (observed):**
 
 - Toolbar `#text-editable-menu` is **left-aligned with the text block**
   (`menu.style.left === text.style.left`, offset 0px).
@@ -507,16 +507,16 @@ Visually the toolbar looks detached even though vertical gap is fine.
 
 **Recommended Akki fix:**
 
-1. **Left-align** toolbar with text (`left = rect.left`), matching Sejda — not
+1. **Left-align** toolbar with text (`left = rect.left`), matching the reference editor — not
    center-on-text with a hard page clamp.
 2. Use **measured toolbar width** (ref/`getBoundingClientRect`) instead of
    `estimatedWidth = 430`.
 3. Clamp relative to **both page bounds and text block** so toolbar stays adjacent:
    `clamp(left, 8, min(pageWidth - toolbarWidth - 8, textRight - toolbarWidth))`.
-4. Tighten vertical offset: Sejda ≈ **15px** gap; Akki uses `top - 48` which works
+4. Tighten vertical offset: the reference editor ≈ **15px** gap; Akki uses `top - 48` which works
    only because toolbar height (~36px) absorbs the rest — prefer explicit
    `top = rect.top - toolbarHeight - 12`.
-5. After drag, **recompute placement** from updated operation rect (Sejda does this).
+5. After drag, **recompute placement** from updated operation rect (the reference editor does this).
 
 > Files to change when implementing: `FloatingOperationToolbar.tsx`
 > (`getToolbarPlacement`, `clampToolbarLeft`) and possibly measure toolbar via ref
@@ -524,10 +524,10 @@ Visually the toolbar looks detached even though vertical gap is fine.
 
 ### 6.8 Out of scope (for this pass)
 
-- The top-right `fa-th-large` grid icon on Sejda pages — appears unrelated to drag
+- The top-right `fa-th-large` grid icon on the reference editor pages — appears unrelated to drag
   guides (guides appear during drag without toggling it). Treat as page-layout tool
   unless further investigation proves otherwise.
-- Move-via-dragging-the-Move-button itself — Sejda uses Move as a **mode toggle**,
+- Move-via-dragging-the-Move-button itself — the reference editor uses Move as a **mode toggle**,
   not a drag handle.
 
 ---

@@ -1,21 +1,21 @@
-# Sejda Font Replacement Parity
+# Font Replacement Parity
 
-Reference: https://www.sejda.com/pdf-editor  
+Reference: a leading online PDF editor (URL redacted)  
 Related: root [`plan.md`](../plan.md) §0.2 (text interaction model)
 
-This plan specifies how Sejda handles **existing-text / font replacement** and tracks
+This plan specifies how the reference editor handles **existing-text / font replacement** and tracks
 Akki PDF Editor gaps. The primary user-visible defect is underline/distortion when
 clicking PDF text (e.g. `0,00` on an Apoteket receipt) — original glyph ink bleeds
 through an incomplete whiteout mask.
 
 ---
 
-## A. Sejda reference behavior
+## A. Reference behavior
 
-Observed on the live editor with the same Apoteket receipt PDF, plus Sejda UI strings
+Observed on the live editor with the same Apoteket receipt PDF, plus the reference editor UI strings
 and [`plan.md`](../plan.md) §0.2.
 
-| Capability | Sejda behavior |
+| Capability | the reference editor behavior |
 |------------|----------------|
 | Activation | **Text** tool → click existing PDF text → in-place editable run (`div.text-editable`) |
 | Original text | Hidden/replaced cleanly — no ghost glyphs or underline artifacts |
@@ -28,7 +28,7 @@ and [`plan.md`](../plan.md) §0.2.
 | Export | Downloaded PDF preserves edits with no underline/distortion |
 | Constraints | Warns on scans, rotated pages, complex scripts, text too small, embedded-font missing glyphs |
 
-### Sejda DOM model (existing text)
+### Reference DOM model (existing text)
 
 ```
 div.page-wrap.rendered
@@ -83,7 +83,7 @@ residual original ink — not CSS `text-decoration`.
 | Mask rect vertical misalignment (~2px) | **P0** | Mask from PDF transform rect; PDF.js span uses different box |
 | Baseline vs CSS center alignment | **P1** | Screen/export divergence |
 | Embedded font not prioritized on screen | **P1** | Falls back to ArialMT/Liberation Sans |
-| No font-substitution dialog | **P2** | Sejda modal on missing glyphs |
+| No font-substitution dialog | **P2** | the reference editor modal on missing glyphs |
 | Export StandardFonts fallback | **P1** | Helvetica for ArialMT when embedded reuse fails |
 
 ---
@@ -107,7 +107,7 @@ and a moved run dragged a white box with it.
   [`textMetrics.ts`](../src/utils/textMetrics.ts)) — mask hugs the run, line above intact.
 - [x] Make the editable/replacement run transparent; only `.operation--source-cover`
   masks the original ([`OperationOverlay.tsx`](../src/components/OperationOverlay.tsx)).
-  Moved/edited text is now pure glyphs (Sejda `.text-editable` parity, §I.2).
+  Moved/edited text is now pure glyphs (the reference editor `.text-editable` parity, §I.2).
 
 **Acceptance:** Editing `534,93` under a tight line leaves the line above's descenders
 intact; dragging the run shows only text with no trailing white box; original stays masked.
@@ -120,7 +120,7 @@ intact; dragging the run shows only text with no trailing white box; original st
 
 **Acceptance:** Replacement visually matches original weight/position; export matches screen.
 
-### P2 — Sejda UX (deferred)
+### P2 — Reference UX (deferred)
 
 - [ ] Font substitution modal when typed character missing from embedded font
 - [ ] "Always use this replacement" preference
@@ -141,7 +141,7 @@ intact; dragging the run shows only text with no trailing white box; original st
 
 ## G. Out of scope
 
-- Sejda font-substitution modal (P2)
+- the reference editor font-substitution modal (P2)
 - Full fontkit metric positioning for all fonts (iterate after P0)
 - BUG-07 multi-line flattening, BUG-01 rotation desync
 
@@ -161,15 +161,15 @@ intact; dragging the run shows only text with no trailing white box; original st
 
 ---
 
-## I. Sejda text-selection & cursor UX (captured via control-ui, 2026-06-21)
+## I. Reference text-selection & cursor UX (captured via control-ui, 2026-06-21)
 
-Live inspection of `https://www.sejda.com/pdf-editor` with the **Text** tool active on the
+Live inspection of `a leading online PDF editor (URL redacted)` with the **Text** tool active on the
 Apoteket receipt. Findings come from the computed styles + matched CSS rules of the running
 editor, so another agent can reproduce and verify them exactly.
 
 ### I.1 Two-layer model
 
-Sejda separates **hit-detection / hover** from the **editable run**:
+the reference editor separates **hit-detection / hover** from the **editable run**:
 
 ```
 .page canvas                         ← rasterized page
@@ -181,7 +181,7 @@ Sejda separates **hit-detection / hover** from the **editable run**:
 - The hover outline and the whiteout are both applied to the **same PDF.js `.textLayer > div`**
   (not a separate hit button). The editable overlay is layered on top only after a click.
 
-### I.2 Exact CSS (copy from Sejda, verbatim)
+### I.2 Exact CSS (copy from the reference editor, verbatim)
 
 ```css
 /* page-wide I-beam while the Text tool is active */
@@ -199,7 +199,7 @@ Sejda separates **hit-detection / hover** from the **editable run**:
   overflow: hidden;
 }
 
-/* HOVER: the dashed box turns Sejda-blue around just that run */
+/* HOVER: the dashed box turns reference-blue around just that run */
 [data-tool="text"] .textLayer > div:hover { outline-color: rgb(2, 130, 229); }
 
 /* once a run is edited or not editable, suppress the hover box */
@@ -226,7 +226,7 @@ Sejda separates **hit-detection / hover** from the **editable run**:
 [data-tool="text"] .text-editable { pointer-events: all; }
 ```
 
-Accent color is **`rgb(2, 130, 229)` = `#0282E5`** (Sejda blue). Border weight **2px dashed**.
+Accent color is **`rgb(2, 130, 229)` = `#0282E5`** (reference blue). Border weight **2px dashed**.
 
 ### I.3 Observed cursor + selection states
 
@@ -246,7 +246,7 @@ with `contenteditable="true"`, `cursor: auto`; sibling runs are `contenteditable
 
 ### I.4 Akki current behavior (gap)
 
-| Aspect | Sejda | Akki today | File |
+| Aspect | the reference editor | Akki today | File |
 |--------|-------|------------|------|
 | Hover indicator | 2px **dashed** `#0282E5` outline, no fill | 1px **solid** accent border + soft background fill | `.text-hit:hover` in [`src/styles/app.css`](../src/styles/app.css) (~1716) |
 | Hit surface | reuses PDF.js `.textLayer > div` | separate `<button class="text-hit">` per run | [`src/components/PdfCanvas.tsx`](../src/components/PdfCanvas.tsx) (~735) |
@@ -264,14 +264,14 @@ behavior). Each item is independently verifiable in a control-ui pass.
 
 - [ ] **Dashed hover outline.** Change `.text-hit:hover` to a 2px dashed accent outline with
   **no background fill**, hugging the run (use `outline`, not `border`, to avoid reflow).
-  Acceptance: hovering `534,93` shows a thin dashed blue box and no fill, matching Sejda.
+  Acceptance: hovering `534,93` shows a thin dashed blue box and no fill, matching the reference editor.
 - [ ] **I-beam over the active page.** When the Text tool is active, apply `cursor: text` to
   the page/text-hit layer surface (not just individual buttons), so the I-beam shows between
   runs too. Acceptance: cursor is an I-beam anywhere over the page with Text active.
 - [ ] **Caret at click position.** In [`OperationOverlay.tsx`](../src/components/OperationOverlay.tsx)
   (~89–101), place the caret at the clicked character (via `caretPositionFromPoint` /
   `caretRangeFromPoint`) instead of collapsing to start. Acceptance: clicking mid-word puts
-  the caret there, like Sejda.
+  the caret there, like the reference editor.
 - [ ] **Move cursor on selected (non-editing) text.** Confirm a selected text overlay that is
   not being edited shows `cursor: move` and can be dragged to reposition (already partially via
   `.operation.is-move-mode`). Acceptance: select a run, see `move`, drag relocates it.
@@ -284,5 +284,5 @@ behavior). Each item is independently verifiable in a control-ui pass.
 1. Serve `bun run dev`, open `http://localhost:5173/pdf-editor`, load the Apoteket receipt.
 2. Select the Text tool; hover a numeric run and screenshot the dashed box + I-beam.
 3. Click mid-word and confirm caret position; type and confirm border hides while focused.
-4. Compare side-by-side with `https://www.sejda.com/pdf-editor` (same receipt) screenshots.
+4. Compare side-by-side with `a leading online PDF editor (URL redacted)` (same receipt) screenshots.
 5. Leave document state restored; unlock the browser.

@@ -93,7 +93,7 @@ export function OperationOverlay({
     element.focus({ preventScroll: true });
     const selection = window.getSelection();
     if (!selection) return;
-    // Sejda parity: drop the caret where the user clicked. Fall back to the
+    // Reference parity: drop the caret where the user clicked. Fall back to the
     // start of the run when the click point can't be resolved inside this run.
     const point = getLastPointerDownPoint();
     if (point) {
@@ -135,7 +135,7 @@ export function OperationOverlay({
           letterSpacing: operation.letterSpacing ? operation.letterSpacing * scale : undefined,
           color: operation.color,
           textAlign: operation.align,
-          // Sejda parity: the editable run carries no fill of its own — the
+          // Reference parity: the editable run carries no fill of its own — the
           // dedicated `.operation--source-cover` masks the original glyphs. This
           // keeps a moved/edited run as pure text (no white box clipping the line
           // above or trailing behind when dragged). The guarded fallback only
@@ -221,13 +221,56 @@ export function OperationOverlay({
   }
 
   if (operation.type === "shape") {
+    if (operation.kind === "line" || operation.kind === "arrow") {
+      // Linear shapes render as SVG (a bordered box can't represent a diagonal
+      // line). Drawn bottom-left -> top-right to match the PDF export writer.
+      const width = Math.max(1, rect.width);
+      const height = Math.max(1, rect.height);
+      const strokeWidth = Math.max(1, operation.strokeWidth * scale);
+      const markerId = `arrowhead-${operation.id}`;
+      return (
+        <div
+          className={`${className} operation--shape-${operation.kind}`}
+          style={style}
+          onPointerDown={onPointerDown}
+        >
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ overflow: "visible" }}>
+            {operation.kind === "arrow" ? (
+              <defs>
+                <marker
+                  id={markerId}
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="8"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L8,3 L0,6 Z" fill={operation.stroke} />
+                </marker>
+              </defs>
+            ) : null}
+            <line
+              x1={0}
+              y1={height}
+              x2={width}
+              y2={0}
+              stroke={operation.stroke}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              markerEnd={operation.kind === "arrow" ? `url(#${markerId})` : undefined}
+            />
+          </svg>
+        </div>
+      );
+    }
     return (
       <div
         className={`${className} operation--shape-${operation.kind}`}
         style={{
           ...style,
           borderColor: operation.stroke,
-          borderWidth: operation.strokeWidth,
+          borderWidth: Math.max(1, operation.strokeWidth * scale),
           background: operation.fill === "transparent" ? "transparent" : operation.fill,
         }}
         onPointerDown={onPointerDown}
