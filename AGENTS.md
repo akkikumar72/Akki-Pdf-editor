@@ -25,6 +25,15 @@ browser; edits are modeled as overlay operations and only written into PDF bytes
   are written to `artifacts/smoke/`. Point it at a specific Chromium with
   `AGENT_BROWSER_EXECUTABLE_PATH`, or pass another file: `scripts/smoke-test.sh path/to.pdf`.
 
+## Commit attribution
+
+- Commits carry only the repo owner's authorship — no AI co-authorship trailers. A tracked
+  `commit-msg` hook in `.githooks/` strips any `Co-Authored-By:` / `Claude-Session:` lines
+  from every commit message, whoever (or whatever) wrote them.
+- `bun install` runs a `postinstall` that points `core.hooksPath` at `.githooks/`, so the
+  hook self-activates on a fresh clone. To enable it by hand: `git config core.hooksPath .githooks`.
+- Set your own `git config user.name` / `user.email` so commits land under your identity.
+
 ## Architecture / layer map
 
 - `src/engine/` — PDF loading, page sizing, text extraction, writing/export, font
