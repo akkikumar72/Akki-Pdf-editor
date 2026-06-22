@@ -1,10 +1,10 @@
 import type { EditorTool } from "../types/editor";
 
 /**
- * In-page activation hints, mirroring Sejda's top-of-page banner copy.
+ * In-page activation hints, mirroring a reference editor's top-of-page banner copy.
  * `armed` shows the moment a tool is selected; `drawing` (when present)
  * replaces it while the user is mid drag-to-draw. See
- * plans/008-sejda-shapes-toolbar-parity.md §B for the source strings.
+ * plans/008-shapes-toolbar-parity.md §B for the source strings.
  */
 export type ToolHint = {
   armed: string;

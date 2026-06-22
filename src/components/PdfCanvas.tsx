@@ -612,7 +612,7 @@ export function PdfCanvas({
       window.requestAnimationFrame(() => setEditingTextId(createdText.id));
     } else if (nextOperations[0]) {
       // Select the freshly drawn op (shape, whiteout, …) so its inline toolbar
-      // and resize handles appear immediately — Sejda parity for shapes.
+      // and resize handles appear immediately — reference parity for shapes.
       onOperationSelect(nextOperations[0].id);
     }
   };
@@ -943,7 +943,7 @@ export function PdfCanvas({
                   event.stopPropagation();
                   onOperationSelect(operation.id);
                   // With the Text tool active, clicking a text overlay edits it in place
-                  // (Sejda-style) rather than starting a move-drag.
+                  // (reference-style) rather than starting a move-drag.
                   if (activeTool === "text" && operation.type === "text") {
                     /* v8 ignore next -- the already-editing (false) sub-branch: a pointerdown on an overlay that is already the active edit target does not re-fire selection in practice */
                     if (editingTextId !== operation.id) setEditingTextId(operation.id);

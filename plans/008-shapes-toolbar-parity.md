@@ -1,9 +1,9 @@
-# Sejda Shapes Toolbar Parity
+# Shapes Toolbar Parity
 
-Reference: https://www.sejda.com/pdf-editor (live editor, inspected 2026-06-22)
-Related: [`007-sejda-font-replacement-parity.md`](007-sejda-font-replacement-parity.md), root [`plan.md`](../plan.md)
+Reference: a leading online PDF editor (URL redacted — competitor), inspected 2026-06-22
+Related: [`007-font-replacement-parity.md`](007-font-replacement-parity.md), root [`plan.md`](../plan.md)
 
-This is a **research/reference note** captured by driving the live Sejda editor (DOM +
+This is a **research/reference note** captured by driving the live reference editor (DOM +
 CSS + i18n strings inspected via CDP). It documents how every top-toolbar tool announces
 itself and, in depth, how the **Shapes** tool works, so we can mirror the UX in Akki. No
 Akki code is changed by this note — section F lists the concrete follow-ups.
@@ -12,7 +12,7 @@ Akki code is changed by this note — section F lists the concrete follow-ups.
 
 ## A. The top toolbar (left → right)
 
-Sejda's editor toolbar (`#tools-menu`, each button carries `data-tool="…"`):
+The reference editor's toolbar (`#tools-menu`, each button carries `data-tool="…"`):
 
 | Order | Tool | `data-tool` | Type | Dropdown? |
 |-------|------|-------------|------|-----------|
@@ -127,10 +127,10 @@ Key facts:
 - Drag = jQuery UI `draggable`; resize = jQuery UI `resizable` with 8 handles
   (`ui-resizable-n/e/s/w` + corners). While dragging/resizing the dashed selection outline
   and handles are hidden (`.ui-draggable-dragging { outline: none }`).
-  **⚠️ Akki note:** this is how *Sejda* does it — **do not copy jQuery UI**. Implement the
+  **⚠️ Akki note:** this is how *the reference editor* does it — **do not copy jQuery UI**. Implement the
   equivalent drag/resize in React (see §F constraint).
 - Selection affordance: `.shape-editable { border: 2px dashed transparent }`, and on
-  `:hover`/`.active` the dashed outline turns Sejda blue (`rgb(2,130,229)`).
+  `:hover`/`.active` the dashed outline turns the reference editor blue (`rgb(2,130,229)`).
 
 ### C.4 The floating per-shape menu (`#shape-editable-menu`)
 
@@ -187,16 +187,16 @@ document eyedropper.
 
 ---
 
-## E. Sejda vs Akki — shapes gap matrix
+## E. Reference vs Akki — shapes gap matrix
 
 Akki already models shapes (`src/types/editor.ts`, `src/editor/toolRegistry.ts`):
 
 - `ShapeOperation = { type:"shape"; kind:"rectangle"|"ellipse"|"line"|"arrow"; stroke; fill?; strokeWidth }`
 - Tools `shape` / `shape-ellipse` / `shape-line` / `shape-arrow`, all `placement: "region"`
-  (drag-to-draw), grouped under a `shapes` hub with `primary: "shape"` — matching Sejda's
+  (drag-to-draw), grouped under a `shapes` hub with `primary: "shape"` — matching the reference editor's
   4-item dropdown and area-selection archetype.
 
-| Capability | Sejda | Akki today | Gap |
+| Capability | the reference editor | Akki today | Gap |
 |------------|-------|------------|-----|
 | Shape types | Ellipse, Rectangle, Line, Arrow | same 4 (`ShapeKind`) | ✅ parity in model |
 | Activation hint banner | per-tool single-line hint (B) | verify Akki shows equivalent region hint | check |
@@ -219,7 +219,7 @@ Akki already models shapes (`src/types/editor.ts`, `src/editor/toolRegistry.ts`)
 ## F. Follow-ups (when we mirror this in Akki)
 
 1. **In-page hint banner (required)** — show the message **on the page itself** (a banner
-   pinned to the top of the page area, exactly like Sejda) so the user knows how to perform
+   pinned to the top of the page area, exactly like the reference editor) so the user knows how to perform
    the action. It must update between states: armed → `Add a shape by making an area
    selection on the page`, then during drag → `Click and drag to draw the shape`. Also wire
    the off-page (`Looks like you clicked outside the page? …`) and `Press ESC to cancel`
@@ -234,11 +234,11 @@ Akki already models shapes (`src/types/editor.ts`, `src/editor/toolRegistry.ts`)
    arrowhead baked into the path.
 6. **Coordinate model** — store shape geometry in page-local space and scale stroke width by
    zoom on render (Akki overlay already works in page space — keep consistent on export).
-7. **Whiteout** — treat as a shape variant (white fill) for code reuse, matching Sejda.
+7. **Whiteout** — treat as a shape variant (white fill) for code reuse, matching the reference editor.
 
 ### ⚠️ Implementation constraint — React only, no jQuery
 
-Sejda's shapes rely on **jQuery + jQuery UI** (`ui-draggable`, `ui-resizable`). **Do NOT port
+the reference editor's shapes rely on **jQuery + jQuery UI** (`ui-draggable`, `ui-resizable`). **Do NOT port
 that.** Akki is a React 18 + TS app with no jQuery dependency, and we are keeping it that way.
 
 - Implement drag/move and resize with **React** — pointer events (`onPointerDown/Move/Up`
@@ -274,4 +274,4 @@ DevTools Protocol:
 
 Not exercised live (trusted-input drawing is restricted in the harness): the byte-level
 export of each shape and the exact preset width/swatch values — those are inferred from the
-DOM/CSS and Sejda's i18n strings and should be confirmed if we need pixel-exact parity.
+DOM/CSS and the reference editor's i18n strings and should be confirmed if we need pixel-exact parity.
