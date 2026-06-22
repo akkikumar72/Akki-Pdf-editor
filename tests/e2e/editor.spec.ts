@@ -234,7 +234,10 @@ test("replacement text overlays sample the existing PDF background", async ({ pa
     .locator(".text-hit-layer.is-active .text-hit[title='Replace: Colored background text']")
     .click();
 
-  await expect(page.locator(".operation--text")).toHaveCSS("background-color", "rgb(199, 230, 255)");
+  // The sampled page background lives on the dedicated mask, not the editable run
+  // (the run itself is transparent so it never clips neighboring lines).
+  await expect(page.locator(".operation--source-cover")).toHaveCSS("background-color", "rgb(199, 230, 255)");
+  await expect(page.locator(".operation--text")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(page.getByRole("toolbar", { name: "Inline edit tools" })).toBeVisible();
 });
 
@@ -251,7 +254,8 @@ test("replacement text overlays sample the existing PDF text color", async ({ pa
     .locator(".text-hit-layer.is-active .text-hit[title='Replace: White foreground text']")
     .click();
 
-  await expect(page.locator(".operation--text")).toHaveCSS("background-color", "rgb(13, 20, 33)");
+  await expect(page.locator(".operation--source-cover")).toHaveCSS("background-color", "rgb(13, 20, 33)");
+  await expect(page.locator(".operation--text")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   const textColor = parseRgb(await page.locator(".operation--text").evaluate((node) => getComputedStyle(node).color));
   expect(textColor.red).toBeGreaterThan(235);
   expect(textColor.green).toBeGreaterThan(235);
@@ -303,7 +307,8 @@ test("replacement text groups adjacent same-line PDF fragments into one color-co
 
   const replacement = page.locator(".operation--text");
   await expect(replacement).toHaveText("Technical Expertise");
-  await expect(replacement).toHaveCSS("background-color", "rgb(13, 20, 33)");
+  await expect(page.locator(".operation--source-cover")).toHaveCSS("background-color", "rgb(13, 20, 33)");
+  await expect(replacement).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(replacement).toHaveCSS("white-space", "pre");
   await expect(replacement).toHaveCSS("font-weight", "700");
   await expect(replacement).toHaveCSS("font-family", /Helvetica|Arial/);

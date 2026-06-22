@@ -6,15 +6,33 @@ export function replacementCoverPadding(fontSize: number): number {
 }
 
 /**
- * Expand and shift a PDF-space cover rect so it fully masks the PDF.js text layer.
- * PDF rects use a bottom-left anchor; decreasing `y` moves the box down on screen.
+ * How much to trim the top of the whiteout cover so it hugs the glyph ascent
+ * instead of the full PDF.js line box. PDF.js text-run boxes span a full em
+ * (~ascent + descent + leading); the painted glyphs only reach cap/ascent
+ * (~0.78em). Whiting out the untouched top strip erases the descenders of a
+ * tightly-leaded line above (Sejda keeps the mask tight to the run). Trimming
+ * the top is safe: the original glyphs never reach that strip.
+ */
+export function replacementCoverTopTrim(fontSize: number): number {
+  return fontSize * 0.16;
+}
+
+/**
+ * Expand and shift a PDF-space cover rect so it masks the original glyphs without
+ * bleeding onto neighboring lines. PDF rects use a bottom-left anchor; decreasing
+ * `y` moves the box down on screen, increasing `y + height` moves the top up.
+ *
+ * - Bottom edge: padded down (`pad * 1.2`) to cover PDF.js span bleed below the run.
+ * - Top edge: trimmed down to the glyph ascent so it never overlaps the line above.
  */
 export function padReplacementCoverRect(rect: PdfRect, fontSize: number): PdfRect {
   const pad = replacementCoverPadding(fontSize);
+  const bottomPad = pad * 1.2;
+  const topTrim = replacementCoverTopTrim(fontSize);
   return {
     ...rect,
-    y: rect.y - pad * 1.2,
-    height: rect.height + pad * 0.8,
+    y: rect.y - bottomPad,
+    height: Math.max(fontSize * 0.5, rect.height - topTrim + bottomPad),
   };
 }
 
