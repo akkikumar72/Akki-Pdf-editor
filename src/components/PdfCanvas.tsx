@@ -431,6 +431,7 @@ export function PdfCanvas({
   const [drag, setDrag] = useState<DragState | null>(null);
   const [resize, setResize] = useState<ResizeState | null>(null);
   const [draw, setDraw] = useState<DrawState | null>(null);
+  const [hintVisible, setHintVisible] = useState(false);
   const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
   const [moveModeOperationId, setMoveModeOperationId] = useState<string | undefined>();
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
@@ -550,6 +551,18 @@ export function PdfCanvas({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [draw]);
+
+  // Surface the in-page hint when a tool is armed (or a draw starts/ends) and
+  // auto-dismiss it after a few seconds so it doesn't linger over the page.
+  useEffect(() => {
+    if (activeTool === "select") {
+      setHintVisible(false);
+      return;
+    }
+    setHintVisible(true);
+    const timer = window.setTimeout(() => setHintVisible(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [activeTool, draw]);
 
   useEffect(() => {
     if (!documentFonts) return;
@@ -858,10 +871,6 @@ export function PdfCanvas({
 
           {draw ? <div className="draw-marquee" aria-hidden="true" style={marqueeRect(draw)} /> : null}
 
-          {activeTool !== "select" && !editingTextId && !drag && !resize ? (
-            <CanvasHintBanner tool={activeTool} drawing={Boolean(draw)} />
-          ) : null}
-
           <div className="operation-layer">
             {operations.map((operation) => {
               if (operation.type !== "text" || !operation.sourceCoverRect) return null;
@@ -1000,6 +1009,10 @@ export function PdfCanvas({
           />
         </div>
       </div>
+
+      {activeTool !== "select" && !editingTextId && !drag && !resize && (hintVisible || draw) ? (
+        <CanvasHintBanner tool={activeTool} drawing={Boolean(draw)} />
+      ) : null}
 
       <button className="floating-image" disabled={activeTool !== "image"} onClick={() => imageInputRef.current?.click()}>
         <ImagePlus aria-hidden="true" />

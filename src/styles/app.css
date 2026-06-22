@@ -1876,13 +1876,16 @@ select:disabled {
   pointer-events: none;
 }
 
-/* In-page activation banner (Sejda parity) */
+/* In-page activation banner (Sejda parity). Anchored to the bottom-centre of the
+   canvas column so the top toolbar dropdowns never cover it; auto-dismissed by
+   the component after a few seconds. */
 .canvas-hint {
   position: absolute;
-  top: var(--space-sm);
+  bottom: var(--space-xl);
   left: 50%;
-  z-index: 12;
+  z-index: 20;
   transform: translateX(-50%);
+  animation: canvas-hint-in var(--dur-fast, 160ms) var(--ease-out, ease-out);
   display: inline-flex;
   align-items: center;
   gap: var(--space-sm);
@@ -1904,6 +1907,23 @@ select:disabled {
   border-left: 1px solid oklch(100% 0 0 / 0.32);
   font-weight: 500;
   opacity: 0.85;
+}
+
+@keyframes canvas-hint-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(0.4rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-hint {
+    animation: none;
+  }
 }
 
 /* Live drag-to-draw marquee */
