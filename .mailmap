@@ -1,7 +1,5 @@
 # Canonical identity for Akash Kumar Pathak.
-# Maps every email/name used (GitHub personal, Grafana work, and any agent
-# default) onto one author so `git log --use-mailmap`, `git shortlog`, and
-# `git blame` show a single, consistent contributor.
+# Unifies the Grafana work email and GitHub no-reply address onto one author
+# so `git log --use-mailmap` / `git shortlog` show a single contributor.
 Akash Kumar Pathak <4746256+akkikumar72@users.noreply.github.com> <akash.pathak@grafana.com>
-Akash Kumar Pathak <4746256+akkikumar72@users.noreply.github.com> Claude <noreply@anthropic.com>
 Akash Kumar Pathak <4746256+akkikumar72@users.noreply.github.com> <akkikumar72@users.noreply.github.com>
