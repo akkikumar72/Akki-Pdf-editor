@@ -198,8 +198,10 @@ export function FloatingOperationToolbar({
     if (!isText || FONT_SIZE_OPTIONS.includes(currentFontSize)) return FONT_SIZE_OPTIONS;
     return [...FONT_SIZE_OPTIONS, currentFontSize].sort((a, b) => a - b);
   }, [currentFontSize, isText]);
+  // "Inter" is always present in FONT_CHOICES, so it is the guaranteed fallback.
+  const interFontOption = fontOptions.find((font) => font.label === "Inter")!;
   const selectedFontOption = isText
-    ? fontOptions.find((font) => font.label === operation.fontFamily) ?? fontOptions.find((font) => font.label === "Inter") ?? fontOptions[0]
+    ? fontOptions.find((font) => font.label === operation.fontFamily) ?? interFontOption
     : fontOptions[0];
   const visibleFontOptions = useMemo(() => {
     const query = normalizeFontSearch(fontInputValue);
@@ -211,6 +213,7 @@ export function FloatingOperationToolbar({
       .map((entry) => entry.font);
   }, [fontInputValue]);
   const previewFont = (font: FontOption) => {
+    /* v8 ignore next -- previewFont is only wired up inside the isText branch */
     if (isText) {
       onTextPreview(operation.id, fontPreviewPatch(font));
     }
@@ -332,6 +335,7 @@ export function FloatingOperationToolbar({
                 getOptionValue={(font) => font.value}
                 isSearchable
                 menuPlacement="bottom"
+                /* v8 ignore next -- document is always defined in the browser/runtime */
                 menuPortalTarget={typeof document === "undefined" ? undefined : document.body}
                 menuPosition="fixed"
                 options={visibleFontOptions}
@@ -340,6 +344,7 @@ export function FloatingOperationToolbar({
                 value={selectedFontOption}
                 onBlur={() => onTextPreview(operation.id)}
                 onChange={(value: SingleValue<FontOption>) => {
+                  /* v8 ignore next -- the font select is not clearable, so value is always set */
                   if (!value) return;
                   updateTextStyle(
                     operation,

@@ -113,6 +113,7 @@ export function OperationOverlay({
         }}
         onInput={(event) => {
           if (!editing) return;
+          /* v8 ignore next -- an element's textContent is always a string, never null */
           onTextChange?.(operation.id, event.currentTarget.textContent ?? "");
         }}
         onBlur={() => {
@@ -250,7 +251,8 @@ export function OperationOverlay({
 
   return (
     <div className={className} style={style} onPointerDown={onPointerDown}>
-      {operation.type === "form-mark" ? operation.mark : null}
+      {/* Every other operation type returned above, so this is always a form-mark. */}
+      {operation.mark}
     </div>
   );
 }

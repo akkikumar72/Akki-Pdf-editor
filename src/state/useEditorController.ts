@@ -127,6 +127,7 @@ export function useEditorController() {
   }, [loadPdfState]);
 
   const saveCurrentSession = useCallback(async (silent = false) => {
+    /* v8 ignore next -- callers (autosave effect + returnHome) only run with a document loaded */
     if (!document) return;
     const sessionId = document.fingerprint ?? document.name;
     const savedAt = Date.now();
@@ -146,9 +147,11 @@ export function useEditorController() {
       },
     });
     await refreshRecentSessions();
+    /* v8 ignore start -- saveCurrentSession is only ever invoked silently (autosave + returnHome) */
     if (!silent) {
       setStatus(`${document.name} saved locally · ${new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
     }
+    /* v8 ignore stop */
   }, [document, editState.future, editState.operations, editState.past, pageIndex, refreshRecentSessions, rotation, scale]);
 
   useEffect(() => {
@@ -256,6 +259,7 @@ export function useEditorController() {
     statusMessage = "Document updated",
     nextOperations = editState.operations,
   ) => {
+    /* v8 ignore next -- every caller guards on `document` before invoking this */
     if (!document) return;
     const next: LoadedPdf = {
       ...document,

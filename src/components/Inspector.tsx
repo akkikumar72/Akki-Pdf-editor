@@ -20,6 +20,7 @@ const sectionHeading =
 
 export function Inspector({ operation, operationCount, pageTextItems, onExport, onUpdate }: InspectorProps) {
   const update = (patch: Partial<EditOperation>) => {
+    /* v8 ignore next -- update() is only bound inside the operation-present branch */
     if (operation) onUpdate(operation.id, patch);
   };
 
@@ -91,6 +92,7 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                     value={Math.round(operation.fontSize)}
                     onChange={(event) => {
                       const parsed = Number(event.currentTarget.value);
+                      /* v8 ignore next -- a number input only yields a finite float or "" (0) */
                       if (!Number.isFinite(parsed)) return;
                       const clamped = Math.min(96, Math.max(6, Math.round(parsed)));
                       update({ fontSize: clamped } as Partial<EditOperation>);

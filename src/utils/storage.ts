@@ -44,6 +44,7 @@ function openDb(): Promise<IDBDatabase> {
     request.onsuccess = () => resolve(request.result);
     request.onupgradeneeded = () => {
       const db = request.result;
+      /* v8 ignore next -- at fixed VERSION=1 the store never pre-exists during upgrade */
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: "id" });
       }

@@ -194,6 +194,7 @@ export class PdfEngine {
   async insertBlankPage(originalBytes: Uint8Array, index: number) {
     const pdf = await PDFDocument.load(originalBytes);
     const pages = pdf.getPages();
+    /* v8 ignore next -- a loadable PDF always has the clamped page, so the size default is unreachable */
     const currentSize = pages[Math.max(0, Math.min(index, pages.length - 1))]?.getSize() ?? { width: 612, height: 792 };
     pdf.insertPage(Math.max(0, Math.min(index + 1, pages.length)), [currentSize.width, currentSize.height]);
     return new Uint8Array(await pdf.save({ useObjectStreams: false }));

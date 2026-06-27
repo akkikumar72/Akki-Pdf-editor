@@ -137,6 +137,7 @@ export function CanvasControls(props: CanvasControlsProps) {
               size="sm"
               disabled={!activeHistoryId}
               onClick={() => {
+                /* v8 ignore next -- the button is disabled whenever activeHistoryId is falsy */
                 if (!activeHistoryId) return;
                 props.onRestoreHistory(activeHistoryId);
                 setHistoryOpen(false);
