@@ -2,6 +2,7 @@ import type { DocumentFonts, EditOperation } from "../types/editor";
 import { resolveFont } from "../engine/fontResolver";
 import { cssFamilyForFontKey, registerEmbeddedFont } from "../engine/fontRegistry";
 import { pdfRectToViewport } from "../utils/coordinates";
+import { caretRangeFromClientPoint, getLastPointerDownPoint } from "../utils/caret";
 import { useEffect, useRef } from "react";
 
 function safeImageSrc(src: string | undefined): string | undefined {
@@ -72,12 +73,19 @@ export function OperationOverlay({
     if (!editing || operation.type !== "text" || !textRef.current) return;
     const element = textRef.current;
     element.focus({ preventScroll: true });
-    // Place a collapsed caret at the start ("cursor on the left") instead of
-    // selecting all, so editing reads like typing directly into the document.
+    const selection = window.getSelection();
+    // Drop the caret where the user clicked into the run; fall back to a
+    // collapsed caret at the start when the click point can't be resolved here.
+    const point = getLastPointerDownPoint();
+    const clicked = point ? caretRangeFromClientPoint(point.x, point.y) : null;
+    if (clicked && element.contains(clicked.startContainer)) {
+      selection?.removeAllRanges();
+      selection?.addRange(clicked);
+      return;
+    }
     const range = document.createRange();
     range.selectNodeContents(element);
     range.collapse(true);
-    const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
   }, [editing, operation.type]);

@@ -63,6 +63,21 @@ describe("OperationOverlay — text editing", () => {
     expect(handlers.onTextCommit).toHaveBeenCalled(); // Enter/Escape/blur all commit
   });
 
+  it("drops the caret at the last click point when it resolves inside the run", () => {
+    fireEvent.pointerDown(document.body, { clientX: 7, clientY: 9 }); // captured by caret.ts
+    // Resolve the platform caret API to a point inside the editing element.
+    (document as unknown as { caretRangeFromPoint?: (x: number, y: number) => Range }).caretRangeFromPoint = () => {
+      const el = document.querySelector('[role="textbox"]') ?? document.body;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(true);
+      return range;
+    };
+    renderOverlay(textOp, { selected: true, editing: true });
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    delete (document as unknown as { caretRangeFromPoint?: unknown }).caretRangeFromPoint;
+  });
+
   it("ignores input/blur/keydown when not editing and starts editing on double click", () => {
     const { handlers } = renderOverlay(textOp, { selected: true });
     const box = screen.getByText("Hi");

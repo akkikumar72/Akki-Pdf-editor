@@ -479,6 +479,25 @@ describe("PdfCanvas — misc", () => {
     fireEvent.click(button);
   });
 
+  it("shows the in-page hint for an armed tool and auto-dismisses it", () => {
+    vi.useFakeTimers();
+    try {
+      render(<PdfCanvas {...baseProps({ activeTool: "shape" })} />);
+      expect(screen.getByRole("status")).toHaveTextContent(/shape/i);
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the hint hidden for the select tool", () => {
+    render(<PdfCanvas {...baseProps({ activeTool: "select" })} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("hides a text-hit target once its source run has been replaced", () => {
     const props = baseProps({
       activeTool: "select",

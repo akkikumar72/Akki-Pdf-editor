@@ -24,6 +24,7 @@ import { sanitizeUrl } from "../utils/url";
 import { FloatingOperationToolbar } from "./FloatingOperationToolbar";
 import { OperationOverlay } from "./OperationOverlay";
 import { ResizeHandles, type ResizeHandle } from "./ResizeHandles";
+import { CanvasHintBanner } from "./CanvasHintBanner";
 
 type PdfCanvasProps = {
   activeTool: EditorTool;
@@ -413,6 +414,7 @@ export function PdfCanvas({
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
   const [isPageRendered, setIsPageRendered] = useState(false);
+  const [hintVisible, setHintVisible] = useState(false);
   const pageWidth = pageSize?.width ?? 612;
   const pageHeight = pageSize?.height ?? 792;
   const selectedOperation = operations.find((operation) => operation.id === selectedId);
@@ -463,6 +465,18 @@ export function PdfCanvas({
     if (!documentFonts) return;
     for (const info of Object.values(documentFonts)) registerEmbeddedFont(info.key, info.bytes);
   }, [documentFonts]);
+
+  // Surface the in-page hint when a tool is armed, and auto-dismiss it after a
+  // few seconds so it does not linger over the page.
+  useEffect(() => {
+    if (activeTool === "select") {
+      setHintVisible(false);
+      return;
+    }
+    setHintVisible(true);
+    const timer = window.setTimeout(() => setHintVisible(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [activeTool]);
 
   const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem) => {
     const inheritStyleFromTextItem = sourceTextItem
@@ -859,6 +873,10 @@ export function PdfCanvas({
           />
         </div>
       </div>
+
+      {activeTool !== "select" && !editingTextId && !drag && !resize && hintVisible ? (
+        <CanvasHintBanner tool={activeTool} />
+      ) : null}
 
       <button
         className="absolute right-4 bottom-4 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border bg-card px-3 py-2 text-sm shadow-md hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-4 [&_svg]:text-muted-foreground"
