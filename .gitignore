@@ -14,3 +14,8 @@ docs/assets/audit-*.png
 .DS_Store
 *.local
 .vercel
+
+# Agent / skill local artifacts
+.agents/
+skills-lock.json
+.claude/skills/
