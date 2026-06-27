@@ -1,14 +1,19 @@
-import { useEffect, useRef, useState } from "react";
-import { AuroraBackground } from "./AuroraBackground";
-import { AkkiPdfLogoLink } from "./AkkiPdfLogo";
+import { useRef, useState } from "react";
 import {
-  LumenCloudIcon,
-  LumenShieldNetworkIcon,
-  LumenTrashIcon,
-  LumenUploadIcon,
-} from "./LumenIcons";
+  ArrowRight,
+  Cloud,
+  FileText,
+  PenLine,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import type { SessionSummary } from "../utils/storage";
+import { AkkiPdfMark } from "./AkkiPdfLogo";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Card } from "./ui/card";
 
 type ToolHubProps = {
   isBusy: boolean;
@@ -23,14 +28,23 @@ type ToolHubProps = {
 
 const plannedImports = ["Google Drive", "Dropbox", "Web URL"];
 
-const trustPoints = [
-  ["Private by default", "Your file stays in this browser."],
-  ["Edit in context", "Text, signatures, images, and markup."],
-  ["Export cleanly", "PDF, TXT, CSV, and XLSX."],
+const highlights = [
+  {
+    icon: ShieldCheck,
+    title: "Private by default",
+    description: "Your file is parsed and edited entirely in this browser tab.",
+  },
+  {
+    icon: PenLine,
+    title: "Edit in context",
+    description: "Text, signatures, images, shapes, forms, and markup.",
+  },
+  {
+    icon: FileText,
+    title: "Export cleanly",
+    description: "Save back to PDF, or pull out TXT, CSV, and XLSX.",
+  },
 ];
-
-const footerProduct = ["PDF editor", "Local sessions", "Blank PDF"];
-const footerWorkflow = ["Annotate", "Sign", "Export"];
 
 function formatRecentTime(value: number) {
   return new Date(value).toLocaleString([], {
@@ -39,6 +53,15 @@ function formatRecentTime(value: number) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function Wordmark() {
+  return (
+    <span className="inline-flex items-center gap-2 font-heading font-semibold text-foreground">
+      <AkkiPdfMark className="size-6 text-primary" aria-hidden="true" />
+      AkkiPDF
+    </span>
+  );
 }
 
 export function ToolHub({
@@ -52,31 +75,7 @@ export function ToolHub({
   onResume,
 }: ToolHubProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const navRef = useRef<HTMLElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-
-  useEffect(() => {
-    const nav = navRef.current;
-    if (!nav) return;
-
-    let ticking = false;
-    const onScroll = () => {
-      nav.classList.toggle("is-floating", window.scrollY > 24);
-      ticking = false;
-    };
-
-    const handleScroll = () => {
-      if (!ticking) {
-        ticking = true;
-        requestAnimationFrame(onScroll);
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    onScroll();
-
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
 
   const acceptFile = async (file?: File) => {
     if (!file) return;
@@ -84,21 +83,24 @@ export function ToolHub({
   };
 
   return (
-    <div className={`tool-hub lumen pdf-landing ${isDragging ? "is-dragging" : ""}`}>
-      <header className="lumen-nav" id="lumen-nav" ref={navRef}>
-        <nav className="lumen-nav__inner" aria-label="PDF editor">
-          <AkkiPdfLogoLink className="lumen-wordmark" href="#editor" aria-label="AkkiPDF home" />
-          <button className="lumen-nav__cta" type="button" onClick={() => inputRef.current?.click()}>
+    <div className="flex min-h-screen flex-col bg-background font-sans text-foreground antialiased">
+      <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
+        <nav
+          className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6"
+          aria-label="AkkiPDF"
+        >
+          <Wordmark />
+          <Button size="sm" disabled={isBusy} onClick={() => inputRef.current?.click()}>
+            <Upload aria-hidden="true" />
             Choose file
-            <LumenUploadIcon aria-hidden="true" />
-          </button>
+          </Button>
         </nav>
       </header>
 
-      <main className="lumen-main">
+      <main className="flex-1">
+        {/* Hero */}
         <section
           id="editor"
-          className="lumen-hero"
           aria-label="Import PDF"
           onDragLeave={() => setIsDragging(false)}
           onDragOver={(event) => {
@@ -110,194 +112,187 @@ export function ToolHub({
             setIsDragging(false);
             void acceptFile(event.dataTransfer.files[0]);
           }}
+          className="mx-auto grid w-full max-w-6xl items-center gap-12 px-6 py-16 lg:grid-cols-[1.05fr_1fr] lg:py-24"
         >
-          <AuroraBackground
-            colorStops={["var(--color-accent-soft)", "var(--color-sky)", "var(--color-paper-3)"]}
-            speed={28}
-            amplitude={0.72}
-            blend={0.52}
-          />
-
-          <div className="pdf-landing__content">
-            <div className="pdf-landing__heading">
-              <p className="pdf-landing__eyebrow">Local-first PDF workbench</p>
-              <h1>Edit PDFs with a lighter touch.</h1>
-              <p>Open a document, make small precise changes, sign, annotate, and export without sending the file away.</p>
-              <div className="pdf-landing__actions">
-                <Button variant="primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
-                  Start editing
-                </Button>
-                <Button variant="tonal" disabled={isBusy} onClick={() => void onBlank()}>
-                  Blank PDF -&gt;
-                </Button>
-              </div>
-              <span className="pdf-landing__drop-copy">Drop a PDF anywhere on this section.</span>
-              {status ? (
-                <p className="pdf-landing__status" role="status" aria-live="polite">{status}</p>
-              ) : null}
+          <div className="flex flex-col items-start gap-6">
+            <Badge variant="secondary" className="gap-1.5">
+              <Sparkles aria-hidden="true" className="size-3.5" />
+              Local-first PDF workbench
+            </Badge>
+            <h1 className="font-heading text-balance font-semibold text-5xl tracking-tight lg:text-6xl">
+              Edit PDFs with a lighter touch.
+            </h1>
+            <p className="max-w-xl text-pretty text-lg text-muted-foreground">
+              Open a document, make small precise changes, sign, annotate, and export — without
+              sending the file away.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button size="lg" loading={isBusy} onClick={() => inputRef.current?.click()}>
+                Start editing
+                <ArrowRight aria-hidden="true" />
+              </Button>
+              <Button size="lg" variant="outline" disabled={isBusy} onClick={() => void onBlank()}>
+                Blank PDF
+              </Button>
             </div>
+            {status ? (
+              <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+                {status}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Drop a PDF anywhere on this section.</p>
+            )}
+          </div>
 
-            <div className="pdf-editor-preview" aria-label="PDF editor preview">
-              <div className="pdf-editor-preview__toolbar">
-                <span>Text</span>
-                <span>Sign</span>
-                <span>Annotate</span>
-                <strong>118%</strong>
-              </div>
-              <div className="pdf-editor-preview__body">
-                <aside className="pdf-editor-preview__pages" aria-hidden="true">
-                  <span />
-                  <span />
-                </aside>
-                <div className="pdf-editor-preview__page">
-                  <div className="pdf-editor-preview__doc-lines" aria-hidden="true">
-                    <strong />
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <div className="pdf-landing__dropzone">
-                    <span className="pdf-landing__drop-icon"><LumenUploadIcon aria-hidden="true" /></span>
-                    <strong>Bring in a PDF</strong>
-                    <small>or create a blank one.</small>
-                    <div className="pdf-landing__actions pdf-landing__actions--inside">
-                      <Button variant="primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
-                        Choose file
-                      </Button>
-                      <Button variant="tonal" disabled={isBusy} onClick={() => void onBlank()}>
-                        Blank PDF
-                      </Button>
-                    </div>
-                    <div className="pdf-landing__sources" aria-label="Planned import sources">
-                      {plannedImports.map((source) => (
-                        <button key={source} disabled title={`${source} import is planned after local-first v1`}>
-                          <LumenCloudIcon aria-hidden="true" />
-                          {source}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <input
-                ref={inputRef}
-                type="file"
-                accept="application/pdf"
-                onChange={(event) => void acceptFile(event.currentTarget.files?.[0])}
-              />
+          {/* Dropzone card */}
+          <Card
+            className={`items-center gap-4 border-dashed p-10 text-center transition-colors ${
+              isDragging ? "border-primary bg-accent/50" : ""
+            }`}
+          >
+            <span className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Upload aria-hidden="true" className="size-5" />
+            </span>
+            <div className="flex flex-col gap-1">
+              <strong className="font-heading font-semibold text-lg">Bring in a PDF</strong>
+              <small className="text-muted-foreground text-sm">or create a blank one.</small>
             </div>
-
-            <div className="pdf-landing__trust" aria-label="Editor highlights">
-              {trustPoints.map(([title, description]) => (
-                <div key={title}>
-                  <LumenShieldNetworkIcon aria-hidden="true" />
-                  <strong>{title}</strong>
-                  <span>{description}</span>
-                </div>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Button disabled={isBusy} onClick={() => inputRef.current?.click()}>
+                <Upload aria-hidden="true" />
+                Choose file
+              </Button>
+              <Button variant="outline" disabled={isBusy} onClick={() => void onBlank()}>
+                Blank PDF
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+              {plannedImports.map((source) => (
+                <Button
+                  key={source}
+                  size="sm"
+                  variant="ghost"
+                  disabled
+                  title={`${source} import is planned after local-first v1`}
+                  className="text-muted-foreground"
+                >
+                  <Cloud aria-hidden="true" />
+                  {source}
+                </Button>
               ))}
             </div>
-          </div>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="application/pdf"
+              className="sr-only"
+              onChange={(event) => void acceptFile(event.currentTarget.files?.[0])}
+            />
+          </Card>
         </section>
 
-        {recentSessions.length ? (
-          <section className="pdf-recent-section" aria-label="Recent local sessions">
-            <div className="pdf-recent-section__inner">
-              <header className="pdf-recent-section__head">
-                <p><span aria-hidden="true" /> Local sessions</p>
-                <h2>Pick up where you left off.</h2>
-              </header>
+        {/* Highlights */}
+        <section
+          aria-label="Editor highlights"
+          className="mx-auto grid w-full max-w-6xl gap-4 px-6 pb-16 sm:grid-cols-3"
+        >
+          {highlights.map(({ icon: Icon, title, description }) => (
+            <Card key={title} className="gap-3 p-6">
+              <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-foreground">
+                <Icon aria-hidden="true" className="size-5" />
+              </span>
+              <strong className="font-heading font-semibold">{title}</strong>
+              <span className="text-muted-foreground text-sm">{description}</span>
+            </Card>
+          ))}
+        </section>
 
-              <div className="lumen-recent">
-                <div className="lumen-recent__head">
-                  <strong>{recentSessions.length} saved in this browser</strong>
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    title="Clear all recent local sessions"
-                    onClick={() => void onClearSessions()}
-                  >
-                    Clear all
-                  </button>
+        {/* Recent sessions */}
+        {recentSessions.length ? (
+          <section aria-label="Recent local sessions" className="border-t bg-muted/30 py-16">
+            <div className="mx-auto w-full max-w-6xl px-6">
+              <div className="mb-6 flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-muted-foreground text-sm">Local sessions</p>
+                  <h2 className="font-heading font-semibold text-2xl tracking-tight">
+                    Pick up where you left off.
+                  </h2>
                 </div>
-                <div className="lumen-recent__grid">
-                  {recentSessions.slice(0, 3).map((session) => (
-                    <div className="lumen-recent__row" key={session.id}>
-                      <button disabled={isBusy} onClick={() => void onResume(session.id)}>
-                        <span>{session.name}</span>
-                        <small>{session.operationCount} edits · {formatRecentTime(session.updatedAt)}</small>
-                      </button>
-                      <button
-                        type="button"
-                        className="lumen-recent__delete"
-                        disabled={isBusy}
-                        title={`Remove ${session.name} from browser storage`}
-                        aria-label={`Remove ${session.name}`}
-                        onClick={() => void onDeleteSession(session.id)}
-                      >
-                        <LumenTrashIcon aria-hidden="true" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isBusy}
+                  title="Clear all recent local sessions"
+                  onClick={() => void onClearSessions()}
+                >
+                  Clear all
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {recentSessions.slice(0, 3).map((session) => (
+                  <Card key={session.id} className="flex-row items-center justify-between gap-2 p-2">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void onResume(session.id)}
+                      className="flex flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left hover:bg-accent/60"
+                    >
+                      <span className="font-medium text-sm">{session.name}</span>
+                      <small className="text-muted-foreground text-xs">
+                        {session.operationCount} edits · {formatRecentTime(session.updatedAt)}
+                      </small>
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={isBusy}
+                      title={`Remove ${session.name} from browser storage`}
+                      aria-label={`Remove ${session.name}`}
+                      onClick={() => void onDeleteSession(session.id)}
+                    >
+                      <Trash2 aria-hidden="true" />
+                    </Button>
+                  </Card>
+                ))}
               </div>
             </div>
           </section>
         ) : null}
 
-        <section className="pdf-landing__closing" aria-label="Start editing locally">
-          <div>
-            <h2>Start with one PDF.</h2>
-            <p>
-              Pick a file, make the small edit, and export a clean copy. No account, no upload queue, no document leaving your browser.
+        {/* Closing CTA */}
+        <section aria-label="Start editing locally" className="border-t py-20">
+          <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-5 px-6 text-center">
+            <h2 className="font-heading text-balance font-semibold text-3xl tracking-tight">
+              Start with one PDF.
+            </h2>
+            <p className="text-pretty text-muted-foreground">
+              Pick a file, make the small edit, and export a clean copy. No account, no upload
+              queue, no document leaving your browser.
             </p>
-            <div className="pdf-landing__closing-actions">
-              <Button variant="primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
-                Start editing -&gt;
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Button size="lg" loading={isBusy} onClick={() => inputRef.current?.click()}>
+                Start editing
+                <ArrowRight aria-hidden="true" />
               </Button>
-              <Button variant="quiet" disabled={isBusy} onClick={() => void onBlank()}>
+              <Button size="lg" variant="ghost" disabled={isBusy} onClick={() => void onBlank()}>
                 Blank PDF
               </Button>
             </div>
-            <small>Private by default · local sessions · export-ready</small>
+            <small className="text-muted-foreground text-xs">
+              Private by default · local sessions · export-ready
+            </small>
           </div>
         </section>
       </main>
 
-      <footer className="pdf-footer">
-        <div className="pdf-footer__inner">
-          <p className="pdf-footer__statement">Files stay close.</p>
-
-          <div className="pdf-footer__meta">
-            <AkkiPdfLogoLink className="pdf-footer__brand" href="#editor" aria-label="AkkiPDF home" />
-
-            <p className="pdf-footer__col">
-              <span>Local workbench</span>
-              <span>Browser only</span>
-              <span>No upload by default</span>
-            </p>
-
-            <nav className="pdf-footer__col" aria-label="Product">
-              {footerProduct.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  disabled={isBusy}
-                  onClick={() => item === "Blank PDF" ? void onBlank() : document.getElementById("editor")?.scrollIntoView({ behavior: "smooth" })}
-                >
-                  {item}
-                </button>
-              ))}
-              {footerWorkflow.map((item) => (
-                <a key={item} href="#editor">{item}</a>
-              ))}
-            </nav>
-
-            <p className="pdf-footer__col pdf-footer__copy">
-              <span>© 2026 AkkiPDF</span>
-              <span>PDF · TXT · CSV · XLSX</span>
-              <span><LumenShieldNetworkIcon aria-hidden="true" /> Local unless you export</span>
-            </p>
-          </div>
+      <footer className="border-t">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
+          <Wordmark />
+          <p className="flex items-center gap-2 text-muted-foreground text-sm">
+            <ShieldCheck aria-hidden="true" className="size-4" />
+            Local unless you export · PDF · TXT · CSV · XLSX
+          </p>
+          <span className="text-muted-foreground text-xs">© 2026 AkkiPDF</span>
         </div>
       </footer>
     </div>

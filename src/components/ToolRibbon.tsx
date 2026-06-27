@@ -162,7 +162,7 @@ export function ToolRibbon(props: ToolRibbonProps) {
       </div>
 
       <div className="tool-group tool-group--export" aria-label="Export">
-        <Button variant="primary" disabled={props.disabled} onClick={() => props.onExport("pdf")}>
+        <Button variant="default" disabled={props.disabled} onClick={() => props.onExport("pdf")}>
           <Save aria-hidden="true" />
           Apply
         </Button>
@@ -219,9 +219,9 @@ export function ToolRibbon(props: ToolRibbonProps) {
             )}
           </div>
           <DialogFooter className="border-border flex-row justify-end border-t px-4 py-3">
-            <Button variant="quiet" size="sm" onClick={() => setHistoryOpen(false)}>Cancel</Button>
+            <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(false)}>Cancel</Button>
             <Button
-              variant="primary"
+              variant="default"
               size="sm"
               disabled={!activeHistoryId}
               onClick={() => {
