@@ -2,6 +2,7 @@ import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, SlidersH
 import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeUrl } from "../utils/url";
+import { Button } from "./ui/button";
 
 type InspectorProps = {
   operation?: EditOperation;
@@ -11,42 +12,52 @@ type InspectorProps = {
   onUpdate: (id: string, patch: Partial<EditOperation>) => void;
 };
 
+const fieldLabel = "flex flex-col gap-1.5 text-muted-foreground text-xs font-medium";
+const fieldInput =
+  "h-9 w-full rounded-lg border bg-background px-2.5 text-foreground text-sm shadow-xs/5 outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8";
+const sectionHeading =
+  "flex items-center justify-between px-4 py-2.5 text-muted-foreground text-xs uppercase tracking-wide";
+
 export function Inspector({ operation, operationCount, pageTextItems, onExport, onUpdate }: InspectorProps) {
   const update = (patch: Partial<EditOperation>) => {
     if (operation) onUpdate(operation.id, patch);
   };
 
   return (
-    <div className="inspector__inner">
-      <div className="panel-heading">
+    <div className="flex flex-col divide-y text-sm">
+      <div className="flex items-center justify-between px-4 py-3 font-heading font-semibold text-foreground [&_svg]:size-4 [&_svg]:text-muted-foreground">
         <span>Inspector</span>
         <SlidersHorizontal aria-hidden="true" />
       </div>
 
       {!operation ? (
-        <div className="empty-panel">
-          <strong>No selection</strong>
-          <p>Select an overlay or choose a tool, then click the page to add an edit.</p>
+        <div className="flex flex-col gap-1 p-4">
+          <strong className="font-medium">No selection</strong>
+          <p className="text-muted-foreground text-xs">
+            Select an overlay or choose a tool, then click the page to add an edit.
+          </p>
         </div>
       ) : (
-        <div className="field-stack">
-          <div className="inspector-summary">
-            <span>{operation.type.replace("-", " ")}</span>
-            <strong>Page {operation.pageIndex + 1}</strong>
+        <div className="flex flex-col gap-3 p-4">
+          <div className="flex items-center justify-between rounded-lg bg-muted px-3 py-2">
+            <span className="text-muted-foreground text-xs capitalize">{operation.type.replace("-", " ")}</span>
+            <strong className="text-xs">Page {operation.pageIndex + 1}</strong>
           </div>
 
           {"text" in operation && operation.type === "text" ? (
             <>
-              <label>
+              <label className={fieldLabel}>
                 Text
                 <textarea
+                  className={`${fieldInput} h-auto min-h-16 resize-y py-2`}
                   value={operation.text}
                   onChange={(event) => update({ text: event.currentTarget.value } as Partial<EditOperation>)}
                 />
               </label>
-              <label>
+              <label className={fieldLabel}>
                 Font
                 <select
+                  className={fieldInput}
                   value={operation.fontFamily}
                   onChange={(event) =>
                     update({
@@ -61,21 +72,22 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                   ))}
                 </select>
               </label>
-              <p className="helper-text">
+              <p className="text-muted-foreground text-xs">
                 {operation.embeddedFontKey
                   ? `Matched the original embedded font${operation.detectedFontName ? ` (${operation.detectedFontName})` : ""}`
                   : operation.detectedFontName || operation.cssFontFamily
                     ? describeDetectedFont(operation.detectedFontName, operation.cssFontFamily, operation.fontFamily)
                     : describeFallback(operation.fontFamily)}
               </p>
-              <div className="field-grid">
-                <label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className={fieldLabel}>
                   Size
                   <input
                     type="number"
                     min={6}
                     max={96}
                     step={1}
+                    className={fieldInput}
                     value={Math.round(operation.fontSize)}
                     onChange={(event) => {
                       const parsed = Number(event.currentTarget.value);
@@ -85,16 +97,17 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                     }}
                   />
                 </label>
-                <label>
+                <label className={fieldLabel}>
                   Color
                   <input
                     type="color"
+                    className="h-9 w-full cursor-pointer rounded-lg border bg-background p-1 sm:h-8"
                     value={operation.color}
                     onChange={(event) => update({ color: event.currentTarget.value } as Partial<EditOperation>)}
                   />
                 </label>
               </div>
-              <div className="segmented" aria-label="Text alignment">
+              <div className="inline-flex rounded-lg border p-0.5" aria-label="Text alignment">
                 {([
                   ["left", AlignLeft],
                   ["center", AlignCenter],
@@ -102,26 +115,32 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                 ] as Array<[TextAlign, typeof AlignLeft]>).map(([align, Icon]) => (
                   <button
                     key={align}
+                    type="button"
                     aria-pressed={operation.align === align}
                     onClick={() => update({ align } as Partial<EditOperation>)}
+                    className={`flex flex-1 cursor-pointer items-center justify-center rounded-md py-1.5 [&_svg]:size-4 ${
+                      operation.align === align ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent"
+                    }`}
                   >
                     <Icon aria-hidden="true" />
                   </button>
                 ))}
               </div>
-              <label className="checkbox-row">
+              <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
+                  className="size-4 accent-primary"
                   checked={operation.whiteout}
                   onChange={(event) => update({ whiteout: event.currentTarget.checked } as Partial<EditOperation>)}
                 />
                 Whiteout behind text
               </label>
               {operation.whiteout ? (
-                <label>
+                <label className={fieldLabel}>
                   Background
                   <input
                     type="color"
+                    className="h-9 w-full cursor-pointer rounded-lg border bg-background p-1 sm:h-8"
                     value={operation.whiteoutColor ?? "#ffffff"}
                     onChange={(event) => update({ whiteoutColor: event.currentTarget.value } as Partial<EditOperation>)}
                   />
@@ -131,13 +150,14 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
           ) : null}
 
           {"opacity" in operation ? (
-            <label>
+            <label className={fieldLabel}>
               Opacity
               <input
                 type="range"
                 min={0.1}
                 max={1}
                 step={0.05}
+                className="w-full accent-primary"
                 value={operation.opacity ?? 1}
                 onChange={(event) => update({ opacity: Number(event.currentTarget.value) } as Partial<EditOperation>)}
               />
@@ -146,27 +166,25 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
 
           {operation.type === "shape" ? (
             <>
-              <label>
+              <label className={fieldLabel}>
                 Stroke
-                <input type="color" value={operation.stroke} onChange={(event) => update({ stroke: event.currentTarget.value } as Partial<EditOperation>)} />
+                <input type="color" className="h-9 w-full cursor-pointer rounded-lg border bg-background p-1 sm:h-8" value={operation.stroke} onChange={(event) => update({ stroke: event.currentTarget.value } as Partial<EditOperation>)} />
               </label>
-              <label>
+              <label className={fieldLabel}>
                 Stroke width
-                <input type="number" min={1} max={12} value={operation.strokeWidth} onChange={(event) => update({ strokeWidth: Number(event.currentTarget.value) } as Partial<EditOperation>)} />
+                <input type="number" min={1} max={12} className={fieldInput} value={operation.strokeWidth} onChange={(event) => update({ strokeWidth: Number(event.currentTarget.value) } as Partial<EditOperation>)} />
               </label>
             </>
           ) : null}
 
           {operation.type === "link" ? (
-            <label>
+            <label className={fieldLabel}>
               URL
               <input
+                className={fieldInput}
                 value={operation.href}
                 onChange={(event) => update({ href: event.currentTarget.value } as Partial<EditOperation>)}
                 onBlur={(event) => {
-                  // Never leave an unsafe URL in the edit model. sanitizeUrl returns the
-                  // safe form (http/https/mailto) or null; on null, clear the field rather
-                  // than keeping the raw value the onChange already wrote.
                   update({ href: sanitizeUrl(event.currentTarget.value) ?? "" } as Partial<EditOperation>);
                 }}
               />
@@ -175,27 +193,32 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
         </div>
       )}
 
-      <section className="inspector-section">
-        <div className="panel-heading panel-heading--small">
+      <section>
+        <div className={sectionHeading}>
           <span>Export</span>
-          <strong>{operationCount} edits</strong>
+          <strong className="text-foreground normal-case">{operationCount} edits</strong>
         </div>
-        <div className="export-grid">
-          <button onClick={() => onExport("pdf")}><FileText aria-hidden="true" /> PDF</button>
-          <button onClick={() => onExport("txt")}><FileText aria-hidden="true" /> TXT</button>
-          <button onClick={() => onExport("csv")}><FileSpreadsheet aria-hidden="true" /> CSV</button>
-          <button onClick={() => onExport("xlsx")}><FileSpreadsheet aria-hidden="true" /> XLSX</button>
+        <div className="grid grid-cols-2 gap-2 px-4 pb-4">
+          <Button variant="outline" size="sm" onClick={() => onExport("pdf")}><FileText aria-hidden="true" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => onExport("txt")}><FileText aria-hidden="true" /> TXT</Button>
+          <Button variant="outline" size="sm" onClick={() => onExport("csv")}><FileSpreadsheet aria-hidden="true" /> CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => onExport("xlsx")}><FileSpreadsheet aria-hidden="true" /> XLSX</Button>
         </div>
       </section>
 
-      <section className="inspector-section">
-        <div className="panel-heading panel-heading--small">
+      <section>
+        <div className={sectionHeading}>
           <span>Page text</span>
-          <strong>{pageTextItems.length}</strong>
+          <strong className="text-foreground normal-case">{pageTextItems.length}</strong>
         </div>
-        <div className="text-sample">
+        <div className="flex flex-wrap gap-1.5 px-4 pb-4">
           {pageTextItems.slice(0, 18).map((item, index) => (
-            <span key={`${item.str}-${index}`}>{item.str}</span>
+            <span
+              key={`${item.str}-${index}`}
+              className="max-w-full truncate rounded-md border bg-muted/50 px-1.5 py-0.5 text-muted-foreground text-xs"
+            >
+              {item.str}
+            </span>
           ))}
         </div>
       </section>

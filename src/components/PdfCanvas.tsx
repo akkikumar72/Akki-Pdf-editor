@@ -536,14 +536,16 @@ export function PdfCanvas({
   };
 
   return (
-    <div className="canvas-workbench">
-      <div className="canvas-workbench__topline">
+    <div className="canvas-workbench relative flex h-full flex-col bg-muted/40 [background-image:none]">
+      <div className="flex items-center gap-3 border-b bg-card px-4 py-2 text-muted-foreground text-xs">
         <span>{document.name}</span>
-        <strong>Page {pageIndex + 1}</strong>
-        <span>Overlay-first edits · original bytes preserved until export</span>
+        <strong className="text-foreground">Page {pageIndex + 1}</strong>
+        <span className="hidden text-muted-foreground/80 sm:inline">
+          Overlay-first edits · original bytes preserved until export
+        </span>
       </div>
 
-      <div className="document-scroll">
+      <div className="document-scroll [background-image:none]">
         <div
           ref={stageRef}
           className="page-stage"
@@ -854,7 +856,11 @@ export function PdfCanvas({
         </div>
       </div>
 
-      <button className="floating-image" disabled={activeTool !== "image"} onClick={() => imageInputRef.current?.click()}>
+      <button
+        className="absolute right-4 bottom-4 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border bg-card px-3 py-2 text-sm shadow-md hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-4 [&_svg]:text-muted-foreground"
+        disabled={activeTool !== "image"}
+        onClick={() => imageInputRef.current?.click()}
+      >
         <ImagePlus aria-hidden="true" />
         Image
       </button>
