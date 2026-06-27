@@ -107,7 +107,10 @@ export function editReducer(state: EditState, action: EditAction): EditState {
       );
     case "remove": {
       const operations = state.operations.filter((operation) => operation.id !== action.id);
-      return commit(state, operations, state.selectedId === action.id ? undefined : state.selectedId, "Delete edit");
+      // commit()'s `selectedId = state.selectedId` default swallows an explicit
+      // `undefined`, so removing the selected op never cleared selection.
+      const next = state.selectedId === action.id ? undefined : state.selectedId;
+      return { ...commit(state, operations, next, "Delete edit"), selectedId: next };
     }
     case "select":
       return { ...state, selectedId: action.id };
