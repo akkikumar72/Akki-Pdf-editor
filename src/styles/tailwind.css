@@ -4,15 +4,6 @@
  * Full Tailwind (preflight + theme + utilities) so coss components and the
  * coss-styled pages render with the correct base reset, borders, and tokens.
  */
-/* Declare layer order up front: legacy (old green/paper system) is the LOWEST
- * priority so the coss/Tailwind layers win. */
-@layer legacy, theme, base, components, utilities;
-
-/* Legacy green/paper design system, parked in the low-priority layer above.
- * Removed entirely once the editor page is migrated off app.css (phase 2). */
-@import "./tokens.css" layer(legacy);
-@import "./app.css" layer(legacy);
-
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
@@ -21,16 +12,6 @@
  */
 @custom-variant dark (&:is(.dark *));
 
-/*
- * Bridge the project's existing semantic tokens (declared in tokens.css and
- * already mapped to the green/paper palette) into Tailwind's color theme, so
- * shadcn utilities such as `bg-background`, `text-muted-foreground`,
- * `bg-primary`, and `border-border` resolve to the same values.
- *
- * `@theme inline` makes the generated utilities reference the source vars
- * directly and does NOT re-emit these names into :root — that's what keeps
- * tokens.css values like `--color-accent` / `--color-muted` intact.
- */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
