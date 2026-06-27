@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duplicateOperation, moveOperationZ } from "../src/editor/selectionModel";
+import { duplicateOperation, moveOperationZ, translateOperation, translatePoints } from "../src/editor/selectionModel";
 import type { InkOperation, TextOperation } from "../src/types/editor";
 
 const baseOperation: TextOperation = {
@@ -103,5 +103,19 @@ describe("selection model", () => {
     expect(moveOperationZ(operations, "a", "forward").map((operation) => operation.id)).toEqual(["b", "a", "c"]);
     expect(moveOperationZ(operations, "c", "backward").map((operation) => operation.id)).toEqual(["a", "c", "b"]);
     expect(moveOperationZ(operations, "c", "forward")).toBe(operations);
+    // first element cannot move backward (target < 0)
+    expect(moveOperationZ(operations, "a", "backward")).toBe(operations);
+    // unknown id is a no-op (index < 0)
+    expect(moveOperationZ(operations, "missing", "forward")).toBe(operations);
+  });
+
+  it("translates a non-ink operation's rect without touching points", () => {
+    const moved = translateOperation(baseOperation, 5, -3) as TextOperation;
+    expect(moved.rect).toEqual({ x: 15, y: 17, width: 120, height: 30 });
+    expect(moved).not.toHaveProperty("points");
+  });
+
+  it("translates a list of points by a uniform delta", () => {
+    expect(translatePoints([{ x: 1, y: 2 }], 10, 20)).toEqual([{ x: 11, y: 22 }]);
   });
 });

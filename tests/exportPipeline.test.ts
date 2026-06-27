@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { strFromU8, unzipSync } from "fflate";
-import { ExportPipeline } from "../src/engine/exportPipeline";
-import type { TextItem } from "../src/types/editor";
+import { ExportPipeline, type ExportContext } from "../src/engine/exportPipeline";
+import type { ExportFormat, TextItem } from "../src/types/editor";
 
 const items: TextItem[] = [
   { str: "Name", pageIndex: 0, rect: { x: 10, y: 700, width: 40, height: 12 } },
@@ -77,5 +77,70 @@ describe("export pipeline", () => {
     );
     const sheet = strFromU8(unzipSync(bytes)["xl/worksheets/sheet1.xml"]);
     expect(sheet).toContain("&apos;=HYPERLINK(1)");
+  });
+
+  it("falls back to a placeholder row when no table-like text exists", () => {
+    const sheet = strFromU8(unzipSync(new ExportPipeline().toXlsxBytes([], []))["xl/worksheets/sheet1.xml"]);
+    expect(sheet).toContain("No table-like text detected");
+  });
+
+  it("joins grouped rows into plain text", () => {
+    expect(new ExportPipeline().toText(items)).toBe("Name Amount\nAkki $42");
+  });
+});
+
+describe("export() dispatch", () => {
+  const downloads: Array<{ blob: Blob; name: string }> = [];
+
+  beforeEach(() => {
+    downloads.length = 0;
+    vi.useFakeTimers();
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:fake"),
+      revokeObjectURL: vi.fn(),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      // record the most recent object URL target so we can assert per-format wiring
+      downloads.push({ blob: new Blob(), name: this.download });
+    });
+  });
+
+  afterEach(() => {
+    vi.runAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function context(): ExportContext {
+    return {
+      filename: "Report.final.pdf",
+      bytes: new Uint8Array([1, 2, 3]),
+      operations: [],
+      textItems: items,
+    };
+  }
+
+  it("routes pdf exports through the engine.savePdf hook", async () => {
+    const savePdf = vi.fn(async () => new Uint8Array([9, 9]));
+    const pipeline = new ExportPipeline({ savePdf } as never);
+    await pipeline.export("pdf", context());
+    expect(savePdf).toHaveBeenCalledOnce();
+    expect(downloads.at(-1)?.name).toBe("Report-final-edited.pdf");
+  });
+
+  it("routes txt, csv, and xlsx exports to their serializers", async () => {
+    const pipeline = new ExportPipeline();
+    await pipeline.export("txt", context());
+    expect(downloads.at(-1)?.name).toBe("Report-final.txt");
+    await pipeline.export("csv", context());
+    expect(downloads.at(-1)?.name).toBe("Report-final.csv");
+    await pipeline.export("xlsx", context());
+    expect(downloads.at(-1)?.name).toBe("Report-final.xlsx");
+  });
+
+  it("throws on an unsupported format", async () => {
+    await expect(new ExportPipeline().export("bogus" as ExportFormat, context())).rejects.toThrow(/Unsupported export format/);
   });
 });

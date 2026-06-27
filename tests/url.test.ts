@@ -19,6 +19,11 @@ describe("sanitizeUrl", () => {
     expect(sanitizeUrl("file:///etc/passwd")).toBeNull();
   });
 
+  it("rejects a scheme-bearing string that is not a parseable URL", () => {
+    // Passes the scheme regex so it is not prefixed, but `new URL()` throws.
+    expect(sanitizeUrl("http://")).toBeNull();
+  });
+
   it("rejects empty and control-character inputs", () => {
     expect(sanitizeUrl("")).toBeNull();
     expect(sanitizeUrl("   ")).toBeNull();

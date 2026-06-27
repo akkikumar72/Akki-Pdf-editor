@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { dataUrlToBytes, safeBaseName } from "../src/utils/download";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { dataUrlToBytes, downloadBlob, safeBaseName } from "../src/utils/download";
 
 describe("dataUrlToBytes", () => {
   it("decodes a valid base64 data URL", () => {
@@ -24,5 +24,33 @@ describe("safeBaseName", () => {
 
   it("falls back to document when empty", () => {
     expect(safeBaseName("***.pdf")).toBe("document");
+  });
+});
+
+describe("downloadBlob", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("creates an object URL, clicks an anchor, and defers revocation", () => {
+    vi.useFakeTimers();
+    const createObjectURL = vi.fn(() => "blob:fake");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    downloadBlob(new Blob(["hi"], { type: "text/plain" }), "out.txt");
+
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    // Anchor is removed synchronously; revocation only happens after the timer fires.
+    expect(document.querySelector("a[download]")).toBeNull();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+
+    vi.runAllTimers();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake");
+
+    vi.unstubAllGlobals();
   });
 });

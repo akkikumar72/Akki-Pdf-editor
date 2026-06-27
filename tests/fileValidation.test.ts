@@ -39,6 +39,11 @@ describe("validateImageFile", () => {
     expect((await validateImageFile(fileFromBytes([...JPEG_MAGIC, 0x00], "a.jpg", "image/jpeg"))).ok).toBe(true);
   });
 
+  it("rejects an empty image", async () => {
+    const result = await validateImageFile(fileFromBytes([], "empty.png", "image/png"));
+    expect(result).toEqual({ ok: false, reason: expect.stringContaining("empty") });
+  });
+
   it("rejects a non-image payload", async () => {
     const result = await validateImageFile(fileFromBytes([0x25, 0x50, 0x44, 0x46, 0x2d], "x.png", "image/png"));
     expect(result.ok).toBe(false);
