@@ -83,7 +83,7 @@ export function ToolHub({
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background font-sans text-foreground antialiased">
+    <div className="theme-garden flex min-h-screen flex-col bg-background font-sans text-foreground antialiased">
       <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
         <nav
           className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6"

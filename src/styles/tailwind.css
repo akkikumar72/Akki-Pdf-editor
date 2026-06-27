@@ -276,3 +276,38 @@
     @apply font-sans font-mono;
   }
 }
+/*
+ * Hallmark garden-01 theme.
+ * Garden-green accent applied to the coss tokens app-wide (so the editor
+ * carries green accents), plus a warm-paper "garden" surface scoped to the
+ * landing via .theme-garden. Palette is the project's original Hallmark
+ * garden output (paper oklch(96.8% 0.022 92), accent oklch(69% 0.17 145)).
+ */
+:root {
+  --primary: oklch(55% 0.15 145);
+  --primary-foreground: oklch(98% 0.01 92);
+  --accent: oklch(95.2% 0.058 140);
+  --accent-foreground: oklch(17% 0.035 142);
+  --ring: oklch(55% 0.16 146);
+  --sidebar-primary: oklch(55% 0.15 145);
+  --sidebar-primary-foreground: oklch(98% 0.01 92);
+  --sidebar-ring: oklch(55% 0.16 146);
+}
+
+.theme-garden {
+  --background: oklch(96.8% 0.022 92);
+  --foreground: oklch(18% 0.025 126);
+  --card: oklch(98.6% 0.014 96);
+  --card-foreground: oklch(18% 0.025 126);
+  --popover: oklch(98.6% 0.014 96);
+  --popover-foreground: oklch(18% 0.025 126);
+  --muted: oklch(93.6% 0.03 94);
+  --muted-foreground: oklch(42% 0.03 130);
+  --secondary: oklch(90.5% 0.09 145);
+  --secondary-foreground: oklch(17% 0.035 142);
+  --border: oklch(82% 0.034 104);
+  --input: oklch(82% 0.034 104);
+  --ring: oklch(55% 0.16 146);
+  --font-heading: "Plus Jakarta Sans", "Inter", sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Inter", sans-serif;
+}
