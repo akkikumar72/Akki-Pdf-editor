@@ -99,9 +99,9 @@ const fontSelectStyles: StylesConfig<FontOption, false> = {
     minWidth: "4.85rem",
     border: 0,
     borderRadius: 0,
-    boxShadow: state.isFocused ? "inset 0 0 0 2px var(--color-focus)" : "none",
-    background: state.menuIsOpen ? "var(--color-accent-soft)" : "transparent",
-    color: "var(--color-accent)",
+    boxShadow: state.isFocused ? "inset 0 0 0 2px var(--ring)" : "none",
+    background: state.menuIsOpen ? "var(--accent)" : "transparent",
+    color: "var(--primary)",
     cursor: "pointer",
   }),
   valueContainer: (base) => ({
@@ -113,8 +113,8 @@ const fontSelectStyles: StylesConfig<FontOption, false> = {
     ...base,
     display: "flex",
     alignItems: "center",
-    color: "var(--color-accent)",
-    fontFamily: "var(--font-ui)",
+    color: "var(--primary)",
+    fontFamily: "var(--font-sans)",
     fontSize: "0.98rem",
     fontWeight: 700,
   }),
@@ -122,14 +122,14 @@ const fontSelectStyles: StylesConfig<FontOption, false> = {
   dropdownIndicator: (base) => ({
     ...base,
     padding: "0 0.45rem 0 0.1rem",
-    color: "var(--color-accent)",
+    color: "var(--primary)",
   }),
   menuPortal: (base) => ({ ...base, zIndex: 1000 }),
   menu: (base) => ({
     ...base,
     width: "min(22rem, calc(100vw - 1rem))",
-    border: "var(--rule-hair) solid var(--color-rule-2)",
-    borderRadius: "var(--radius-md)",
+    border: "1px solid var(--border)",
+    borderRadius: "0.5rem",
     boxShadow: "0 18px 44px -28px oklch(0% 0 0 / 0.62)",
     overflow: "hidden",
   }),
@@ -142,13 +142,13 @@ const fontSelectStyles: StylesConfig<FontOption, false> = {
     ...base,
     minHeight: "2.25rem",
     padding: "0.45rem 0.75rem",
-    background: state.isSelected || state.isFocused ? "var(--color-accent-soft)" : "var(--color-paper)",
-    color: state.isSelected || state.isFocused ? "var(--color-accent)" : "var(--color-ink-2)",
+    background: state.isSelected || state.isFocused ? "var(--accent)" : "var(--popover)",
+    color: state.isSelected || state.isFocused ? "var(--primary)" : "var(--popover-foreground)",
     cursor: "pointer",
   }),
   input: (base) => ({
     ...base,
-    color: "var(--color-accent)",
+    color: "var(--primary)",
     margin: 0,
     padding: 0,
   }),
@@ -221,7 +221,7 @@ export function FloatingOperationToolbar({
   return (
     <div
       ref={toolbarRef}
-      className={`floating-toolbar ${isText ? "floating-toolbar--text" : ""}`}
+      className="absolute z-40 flex items-center gap-0.5 rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
       data-placement={toolbarPlacement.placement}
       aria-label="Inline edit tools"
       role="toolbar"
@@ -233,7 +233,7 @@ export function FloatingOperationToolbar({
         <>
           <button
             type="button"
-            className="floating-toolbar__button"
+            className="flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-pressed:bg-primary/10 aria-pressed:text-primary [&_svg]:size-4"
             aria-pressed={Boolean(operation.bold)}
             aria-label="Bold"
             title="Bold"
@@ -252,7 +252,7 @@ export function FloatingOperationToolbar({
           </button>
           <button
             type="button"
-            className="floating-toolbar__button"
+            className="flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-pressed:bg-primary/10 aria-pressed:text-primary [&_svg]:size-4"
             aria-pressed={Boolean(operation.italic)}
             aria-label="Italic"
             title="Italic"
@@ -269,10 +269,10 @@ export function FloatingOperationToolbar({
           >
             <Italic aria-hidden="true" />
           </button>
-          <div className="floating-toolbar__menu" title="Font size">
+          <div className="relative" title="Font size">
             <button
               type="button"
-              className="floating-toolbar__select"
+              className="flex h-8 cursor-pointer items-center gap-1 rounded-md px-2 text-muted-foreground text-sm transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-4"
               aria-expanded={openMenu === "size"}
               aria-haspopup="menu"
               aria-label={`Font size ${currentFontSize}`}
@@ -283,13 +283,14 @@ export function FloatingOperationToolbar({
               <ChevronDown aria-hidden="true" />
             </button>
             {openMenu === "size" ? (
-              <div className="floating-toolbar__popover floating-toolbar__popover--size" role="menu" aria-label="Font size options">
+              <div className="absolute top-full left-0 z-50 mt-1 grid max-h-64 grid-cols-3 gap-0.5 overflow-y-auto rounded-lg border bg-popover p-1 shadow-md" role="menu" aria-label="Font size options">
                 {fontSizeOptions.map((size) => (
                   <button
                     key={size}
                     type="button"
                     role="menuitemradio"
                     aria-checked={currentFontSize === size}
+                    className="cursor-pointer rounded-md px-2 py-1 text-center text-sm hover:bg-accent aria-checked:bg-primary/10 aria-checked:text-primary"
                     onClick={() => {
                       updateTextStyle(
                         operation,
@@ -311,7 +312,7 @@ export function FloatingOperationToolbar({
               </div>
             ) : null}
           </div>
-          <div className="floating-toolbar__menu floating-toolbar__font-select">
+          <div className="relative">
             <FontPreviewContext.Provider value={previewFont}>
               <Select<FontOption, false>
                 aria-label="Font family"
@@ -362,11 +363,12 @@ export function FloatingOperationToolbar({
               />
             </FontPreviewContext.Provider>
           </div>
-          <label className="floating-toolbar__color" title="Text color">
+          <label className="flex h-8 cursor-pointer items-center gap-1 rounded-md px-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-4" title="Text color">
             <Palette aria-hidden="true" />
             <input
               aria-label="Text color"
               type="color"
+              className="size-5 cursor-pointer rounded border-0 bg-transparent p-0"
               value={operation.color}
               onChange={(event) => updateTextStyle(operation, { color: event.currentTarget.value }, onUpdate)}
             />
@@ -374,12 +376,12 @@ export function FloatingOperationToolbar({
         </>
       ) : null}
 
-      <button type="button" className="floating-toolbar__button" aria-label="Add link" title="Add link" onClick={() => onLink(operation)}>
+      <button type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-pressed:bg-primary/10 aria-pressed:text-primary [&_svg]:size-4" aria-label="Add link" title="Add link" onClick={() => onLink(operation)}>
         <Link2 aria-hidden="true" />
       </button>
       <button
         type="button"
-        className="floating-toolbar__button"
+        className="flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-pressed:bg-primary/10 aria-pressed:text-primary [&_svg]:size-4"
         aria-label="Move"
         aria-pressed={moveModeActive}
         title={moveModeActive ? "Move mode on — drag to reposition" : "Move — drag overlay to reposition"}
@@ -387,10 +389,10 @@ export function FloatingOperationToolbar({
       >
         <Move aria-hidden="true" />
       </button>
-      <button type="button" className="floating-toolbar__button" aria-label="Duplicate" title="Duplicate" onClick={() => onDuplicate(operation)}>
+      <button type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-pressed:bg-primary/10 aria-pressed:text-primary [&_svg]:size-4" aria-label="Duplicate" title="Duplicate" onClick={() => onDuplicate(operation)}>
         <Copy aria-hidden="true" />
       </button>
-      <button type="button" className="floating-toolbar__button" aria-label="Delete" title="Delete" onClick={() => onDelete(operation.id)}>
+      <button type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-pressed:bg-primary/10 aria-pressed:text-primary [&_svg]:size-4" aria-label="Delete" title="Delete" onClick={() => onDelete(operation.id)}>
         <Trash2 aria-hidden="true" />
       </button>
     </div>
