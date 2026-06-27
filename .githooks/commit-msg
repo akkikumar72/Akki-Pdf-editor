@@ -1,0 +1,9 @@
+#!/bin/sh
+# Reject commits that carry AI/assistant attribution trailers.
+msg_file="$1"
+if grep -qiE '(Co-Authored-By:.*(Claude|Anthropic|noreply@anthropic))|Generated (with|by).*(Claude|Claude Code)|Claude-Session:|🤖 Generated' "$msg_file"; then
+  echo "commit-msg hook: refusing commit with AI/assistant attribution trailer." >&2
+  echo "Remove Co-Authored-By/Generated-by/Claude-Session lines before committing." >&2
+  exit 1
+fi
+exit 0
