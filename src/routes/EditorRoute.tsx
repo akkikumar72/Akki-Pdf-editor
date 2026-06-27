@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { CanvasControls } from "../components/CanvasControls";
 import { Inspector } from "../components/Inspector";
 import { PageRail } from "../components/PageRail";
 import { PdfCanvas } from "../components/PdfCanvas";
@@ -47,28 +48,33 @@ export function EditorRoute() {
       header={(
         <ToolRibbon
           activeTool={editor.activeTool}
-          canRedo={editState.future.length > 0}
-          canUndo={editState.past.length > 0}
           disabled={isBusy}
-          historyEntries={editState.past}
           onExport={editor.runExport}
           onHome={() => {
             navigate("/");
             void editor.returnHome();
           }}
+          onToolChange={editor.setActiveTool}
+        />
+      )}
+      canvasToolbar={(
+        <CanvasControls
+          canRedo={editState.future.length > 0}
+          canUndo={editState.past.length > 0}
+          disabled={isBusy}
+          selectedId={editState.selectedId}
+          scale={editor.scale}
+          historyEntries={editState.past}
+          onUndo={() => editor.dispatch({ type: "undo" })}
           onRedo={() => editor.dispatch({ type: "redo" })}
           onRemove={editor.removeSelected}
-          onDeletePage={editor.deleteCurrentPage}
           onInsertPage={editor.insertPageAfter}
+          onDeletePage={editor.deleteCurrentPage}
+          onZoomIn={() => editor.setScale((value) => Math.min(2.4, value + 0.1))}
+          onZoomOut={() => editor.setScale((value) => Math.max(0.45, value - 0.1))}
           onRotate={() => editor.setRotation((value) => (value + 90) % 360)}
           onRotatePage={editor.rotateCurrentPage}
           onRestoreHistory={editor.restoreHistoryEntry}
-          onToolChange={editor.setActiveTool}
-          onUndo={() => editor.dispatch({ type: "undo" })}
-          onZoomIn={() => editor.setScale((value) => Math.min(2.4, value + 0.1))}
-          onZoomOut={() => editor.setScale((value) => Math.max(0.45, value - 0.1))}
-          scale={editor.scale}
-          selectedId={editState.selectedId}
         />
       )}
       rail={(

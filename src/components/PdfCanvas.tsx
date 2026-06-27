@@ -536,16 +536,8 @@ export function PdfCanvas({
   };
 
   return (
-    <div className="canvas-workbench relative flex h-full flex-col bg-muted/40 [background-image:none]">
-      <div className="flex items-center gap-3 border-b bg-card px-4 py-2 text-muted-foreground text-xs">
-        <span>{document.name}</span>
-        <strong className="text-foreground">Page {pageIndex + 1}</strong>
-        <span className="hidden text-muted-foreground/80 sm:inline">
-          Overlay-first edits · original bytes preserved until export
-        </span>
-      </div>
-
-      <div className="document-scroll [background-image:none]">
+    <div className="canvas-workbench relative flex h-full min-h-0 flex-col bg-muted/40 [background-image:none]">
+      <div className="document-scroll min-h-0 flex-1 pt-16 [background-image:none]">
         <div
           ref={stageRef}
           className="page-stage"

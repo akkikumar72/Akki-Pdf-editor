@@ -5,10 +5,11 @@ type AppShellProps = {
   rail: ReactNode;
   inspector: ReactNode;
   status: ReactNode;
+  canvasToolbar?: ReactNode;
   children: ReactNode;
 };
 
-export function AppShell({ header, rail, inspector, status, children }: AppShellProps) {
+export function AppShell({ header, rail, inspector, status, canvasToolbar, children }: AppShellProps) {
   return (
     <div className="grid h-screen grid-rows-[auto_minmax(0,1fr)_auto] bg-background font-sans text-foreground antialiased">
       <a
@@ -23,10 +24,15 @@ export function AppShell({ header, rail, inspector, status, children }: AppShell
           {rail}
         </aside>
         <section
-          className="min-h-0 overflow-auto bg-muted/40"
+          className="relative min-h-0 overflow-hidden bg-muted/40"
           id="editor-canvas"
           aria-label="PDF editor canvas"
         >
+          {canvasToolbar ? (
+            <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-4">
+              {canvasToolbar}
+            </div>
+          ) : null}
           {children}
         </section>
         <aside className="min-h-0 w-[320px] overflow-y-auto border-l bg-card" aria-label="Inspector">
