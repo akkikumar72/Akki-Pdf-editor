@@ -571,29 +571,9 @@ describe("PdfEngine.savePdf – form marks and fields", () => {
     await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
   });
 
-  it("draws checkbox (checked/unchecked), radio (checked/unchecked), signature and text fields", async () => {
+  it("draws radio (checked/unchecked), signature and text fields", async () => {
     const original = await blankPdfBytes();
     const operations: EditOperation[] = [
-      {
-        id: "f_check_on",
-        type: "form-field",
-        kind: "checkbox",
-        name: "agree",
-        checked: true,
-        pageIndex: 0,
-        rect: { x: 40, y: 700, width: 30, height: 20 },
-        createdAt: 1,
-      },
-      {
-        id: "f_check_off",
-        type: "form-field",
-        kind: "checkbox",
-        name: "agree2",
-        checked: false,
-        pageIndex: 0,
-        rect: { x: 40, y: 660, width: 30, height: 20 },
-        createdAt: 2,
-      },
       {
         id: "f_radio_on",
         type: "form-field",

@@ -603,17 +603,7 @@ export class PdfEngine {
           opacity: Math.min(opacity, 0.82),
         });
 
-        if (operation.kind === "checkbox") {
-          const boxSize = Math.min(rect.width, rect.height) * 0.58;
-          const boxRect = {
-            x: rect.x + 5,
-            y: rect.y + (rect.height - boxSize) / 2,
-            width: boxSize,
-            height: boxSize,
-          };
-          page.drawRectangle({ ...boxRect, borderColor: hexToRgb("#475569"), borderWidth: 1 });
-          if (operation.checked) drawCheckMark(page, boxRect, "#111827", opacity, 1.4);
-        } else if (operation.kind === "radio") {
+        if (operation.kind === "radio") {
           page.drawEllipse({
             x: rect.x + Math.min(rect.width, rect.height) * 0.42,
             y: rect.y + rect.height / 2,

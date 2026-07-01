@@ -26,7 +26,7 @@ export type EditorTool =
 
 export type TextAlign = "left" | "center" | "right";
 export type ShapeKind = "rectangle" | "ellipse" | "line" | "arrow";
-export type FormFieldKind = "text" | "multiline" | "dropdown" | "radio" | "checkbox" | "signature";
+export type FormFieldKind = "text" | "multiline" | "dropdown" | "radio" | "signature";
 export type AnnotationKind = "note" | "strikeout" | "underline" | "highlight" | "freehand-highlight" | "draw";
 
 export type PdfPoint = {

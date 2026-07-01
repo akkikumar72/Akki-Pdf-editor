@@ -2015,17 +2015,8 @@ select:disabled {
   font-size: var(--text-xs);
 }
 
-.operation--form-checkbox,
 .operation--form-radio {
   place-items: center;
-}
-
-.operation--form-checkbox::before {
-  content: "";
-  width: min(1rem, 60%);
-  aspect-ratio: 1;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-xs);
 }
 
 .operation--form-radio::before {
