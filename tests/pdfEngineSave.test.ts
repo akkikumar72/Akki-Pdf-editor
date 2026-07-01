@@ -699,6 +699,77 @@ describe("PdfEngine.savePdf – hexToRgb color forms", () => {
   });
 });
 
+describe("PdfEngine.savePdf – export validity (writer registry regression)", () => {
+  it("writes text, highlight, shape, stamp, form-field and link operations to a loadable, page-count-preserved PDF", async () => {
+    const original = await blankPdfBytes(2);
+    const operations: EditOperation[] = [
+      {
+        id: "text_1",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 72, y: 700, width: 200, height: 24 },
+        text: "Hello world",
+        fontFamily: "Helvetica",
+        fontSize: 14,
+        color: "#101010",
+        align: "left",
+        createdAt: 1,
+      },
+      {
+        id: "highlight_1",
+        type: "annotation",
+        kind: "highlight",
+        pageIndex: 0,
+        rect: { x: 72, y: 640, width: 160, height: 20 },
+        color: "#facc15",
+        createdAt: 2,
+      },
+      {
+        id: "shape_1",
+        type: "shape",
+        kind: "rectangle",
+        pageIndex: 0,
+        rect: { x: 72, y: 580, width: 100, height: 60 },
+        stroke: "#1d4ed8",
+        strokeWidth: 2,
+        createdAt: 3,
+      },
+      {
+        id: "stamp_1",
+        type: "stamp",
+        pageIndex: 1,
+        rect: { x: 72, y: 500, width: 120, height: 30 },
+        label: "approved",
+        color: "#166534",
+        borderColor: "#166534",
+        createdAt: 4,
+      },
+      {
+        id: "form_field_1",
+        type: "form-field",
+        kind: "text",
+        name: "fullName",
+        value: "Akki",
+        pageIndex: 1,
+        rect: { x: 72, y: 440, width: 160, height: 24 },
+        createdAt: 5,
+      },
+      {
+        id: "link_1",
+        type: "link",
+        pageIndex: 1,
+        rect: { x: 72, y: 400, width: 120, height: 24 },
+        href: "https://example.com",
+        createdAt: 6,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    expect(reloaded.getPageCount()).toBe(2);
+    expect(reloaded.getPage(1).node.Annots()?.size()).toBe(1);
+  });
+});
+
 describe("PdfEngine page operations (pdf-lib only)", () => {
   const engine = new PdfEngine();
 
