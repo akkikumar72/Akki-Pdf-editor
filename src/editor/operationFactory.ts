@@ -6,7 +6,21 @@ import { createId } from "../utils/ids";
 import { sanitizeUrl } from "../utils/url";
 import { toolLabel } from "./toolRegistry";
 
-type Prompt = (message: string, defaultValue?: string) => string | null;
+/** A single text/textarea field to collect through an inline input popover before creating an operation. */
+export type InlineInputField = {
+  key: string;
+  label: string;
+  defaultValue: string;
+  placeholder?: string;
+  multiline?: boolean;
+};
+
+/** Describes the inline popover (if any) `activeTool` needs filled in before `createOperationsForTool` can produce an operation. */
+export type InlineInputDescriptor = {
+  title: string;
+  confirmLabel: string;
+  fields: InlineInputField[];
+};
 
 type CreateOperationInput = {
   activeTool: EditorTool;
@@ -15,7 +29,8 @@ type CreateOperationInput = {
   pageIndex: number;
   scale: number;
   operations: EditOperation[];
-  prompt: Prompt;
+  /** Values resolved from the tool's inline input popover (see `describeInlineInput`), keyed by field. */
+  resolvedFields?: Record<string, string>;
   sourceTextItem?: TextItem;
   inheritStyleFromTextItem?: TextItem;
   sampledBackgroundColor?: string;
@@ -50,6 +65,59 @@ function estimateSingleLineTextWidth(text: string, fontSize: number, fontWeight?
   return text.length * fontSize * averageGlyphWidth * weightFactor;
 }
 
+/**
+ * Returns the inline popover fields `activeTool` needs before it can create an
+ * operation (annotation note, link URL, stamp label, signature text, form field
+ * name/options), or `null` when the tool creates immediately with no text input.
+ */
+export function describeInlineInput(activeTool: EditorTool, operations: EditOperation[]): InlineInputDescriptor | null {
+  if (activeTool === "annotate-text") {
+    return {
+      title: "Annotation note",
+      confirmLabel: "Add note",
+      fields: [{ key: "text", label: "Note", defaultValue: "Note" }],
+    };
+  }
+  if (activeTool === "link") {
+    return {
+      title: "Add link",
+      confirmLabel: "Add link",
+      fields: [{ key: "href", label: "Link URL", defaultValue: "https://" }],
+    };
+  }
+  if (activeTool === "stamp") {
+    return {
+      title: "Add stamp",
+      confirmLabel: "Add stamp",
+      fields: [{ key: "label", label: "Stamp label", defaultValue: "APPROVED" }],
+    };
+  }
+  if (activeTool === "signature") {
+    return {
+      title: "Add signature",
+      confirmLabel: "Add signature",
+      fields: [{ key: "value", label: "Signature text", defaultValue: "Akki Pathak" }],
+    };
+  }
+  if (activeTool in FORM_KIND_BY_TOOL) {
+    const index = operations.filter((operation) => operation.type === "form-field").length + 1;
+    const nameField: InlineInputField = {
+      key: "name",
+      label: "Field name",
+      defaultValue: `${toolLabel(activeTool).replace(/\s+/g, "_").toLowerCase()}_${index}`,
+    };
+    return {
+      title: "Add form field",
+      confirmLabel: "Add field",
+      fields:
+        activeTool === "form-dropdown"
+          ? [nameField, { key: "options", label: "Dropdown options", defaultValue: "Option 1, Option 2", placeholder: "Comma-separated" }]
+          : [nameField],
+    };
+  }
+  return null;
+}
+
 export function createOperationsForTool({
   activeTool,
   viewportRect,
@@ -57,7 +125,7 @@ export function createOperationsForTool({
   pageIndex,
   scale,
   operations,
-  prompt,
+  resolvedFields,
   sourceTextItem,
   inheritStyleFromTextItem,
   sampledBackgroundColor,
@@ -187,7 +255,7 @@ export function createOperationsForTool({
   }
 
   if (activeTool === "annotate-text") {
-    const text = prompt("Annotation note", "Note");
+    const text = resolvedFields?.text?.trim();
     if (!text) return [];
     return [
       {
@@ -261,7 +329,7 @@ export function createOperationsForTool({
   }
 
   if (activeTool === "link") {
-    const href = prompt("Link URL", "https://");
+    const href = resolvedFields?.href?.trim();
     if (!href) return [];
     const safeHref = sanitizeUrl(href);
     if (!safeHref) return [];
@@ -279,7 +347,7 @@ export function createOperationsForTool({
   }
 
   if (activeTool === "stamp") {
-    const label = prompt("Stamp label", "APPROVED");
+    const label = resolvedFields?.label?.trim();
     if (!label) return [];
     return [
       {
@@ -297,7 +365,7 @@ export function createOperationsForTool({
   }
 
   if (activeTool === "signature") {
-    const value = prompt("Signature text", "Akki Pathak");
+    const value = resolvedFields?.value?.trim();
     if (!value) return [];
     return [
       {
@@ -343,12 +411,11 @@ export function createOperationsForTool({
   }
 
   if (activeTool in FORM_KIND_BY_TOOL) {
-    const index = operations.filter((operation) => operation.type === "form-field").length + 1;
-    const name = prompt("Field name", `${toolLabel(activeTool).replace(/\s+/g, "_").toLowerCase()}_${index}`);
+    const name = resolvedFields?.name?.trim();
     if (!name) return [];
     const options =
       activeTool === "form-dropdown"
-        ? (prompt("Dropdown options", "Option 1, Option 2") ?? "")
+        ? (resolvedFields?.options ?? "")
             .split(",")
             .map((option) => option.trim())
             .filter(Boolean)

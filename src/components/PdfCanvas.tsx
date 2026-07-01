@@ -12,10 +12,11 @@ import type {
   TextItem,
   ViewportRect,
 } from "../types/editor";
-import { createOperationsForTool } from "../editor/operationFactory";
+import { createOperationsForTool, describeInlineInput } from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
 import { CanvasHintBanner } from "./CanvasHintBanner";
+import { InlineInputPopover, type PendingInputRequest } from "./InlineInputPopover";
 import { pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
 import { sampleTextBackgroundColor, sampleTextColor, sampleTextFontWeight } from "../utils/canvasTextStyleSampling";
 import { validateImageFile } from "../utils/fileValidation";
@@ -98,6 +99,7 @@ export function PdfCanvas({
   const [moveModeOperationId, setMoveModeOperationId] = useState<string | undefined>();
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
+  const [pendingInput, setPendingInput] = useState<PendingInputRequest | null>(null);
   const [isPageRendered, setIsPageRendered] = useState(false);
   const pageWidth = pageSize?.width ?? 612;
   const pageHeight = pageSize?.height ?? 792;
@@ -117,7 +119,14 @@ export function PdfCanvas({
   useEffect(() => {
     setIsPageRendered(false);
     setEditingTextId(undefined);
+    // The popover's anchor is a viewport rect for the page/scale it opened at, so
+    // it goes stale the moment any of those change.
+    setPendingInput(null);
   }, [document.fingerprint, pageIndex, rotation, scale]);
+
+  useEffect(() => {
+    setPendingInput(null);
+  }, [activeTool]);
 
   useEffect(() => {
     if (editingTextId && selectedId !== editingTextId) setEditingTextId(undefined);
@@ -208,6 +217,21 @@ export function PdfCanvas({
     for (const info of Object.values(documentFonts)) registerEmbeddedFont(info.key, info.bytes);
   }, [documentFonts]);
 
+  const finalizeCreatedOperations = (nextOperations: EditOperation[]) => {
+    nextOperations.forEach(onOperationAdd);
+    const createdText = nextOperations.find(
+      (operation): operation is TextOperation => operation.type === "text",
+    );
+    if (createdText) {
+      onOperationSelect(createdText.id);
+      window.requestAnimationFrame(() => setEditingTextId(createdText.id));
+    } else if (nextOperations[0]) {
+      // Select the freshly drawn op (shape, whiteout, …) so its inline toolbar
+      // and resize handles appear immediately — reference parity for shapes.
+      onOperationSelect(nextOperations[0].id);
+    }
+  };
+
   const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem) => {
     const inheritStyleFromTextItem = sourceTextItem
       ? undefined
@@ -228,62 +252,72 @@ export function PdfCanvas({
     const sampledFontWeight = styleSampleRect
       ? sampleTextFontWeight(stageRef.current, styleSampleRect, sampledBackgroundColor)
       : undefined;
-    const nextOperations = createOperationsForTool({
-      activeTool,
-      viewportRect,
-      pageHeight,
-      pageIndex,
-      scale,
-      operations,
-      prompt: window.prompt.bind(window),
-      sourceTextItem,
-      inheritStyleFromTextItem,
-      sampledBackgroundColor,
-      sampledTextColor,
-      sampledFontWeight,
-    });
-    nextOperations.forEach(onOperationAdd);
-    const createdText = nextOperations.find(
-      (operation): operation is TextOperation => operation.type === "text",
-    );
-    if (createdText) {
-      onOperationSelect(createdText.id);
-      window.requestAnimationFrame(() => setEditingTextId(createdText.id));
-    } else if (nextOperations[0]) {
-      // Select the freshly drawn op (shape, whiteout, …) so its inline toolbar
-      // and resize handles appear immediately — reference parity for shapes.
-      onOperationSelect(nextOperations[0].id);
+    const create = (resolvedFields?: Record<string, string>) =>
+      finalizeCreatedOperations(
+        createOperationsForTool({
+          activeTool,
+          viewportRect,
+          pageHeight,
+          pageIndex,
+          scale,
+          operations,
+          resolvedFields,
+          sourceTextItem,
+          inheritStyleFromTextItem,
+          sampledBackgroundColor,
+          sampledTextColor,
+          sampledFontWeight,
+        }),
+      );
+
+    const inputRequest = describeInlineInput(activeTool, operations);
+    if (inputRequest) {
+      setPendingInput({
+        ...inputRequest,
+        anchor: viewportRect,
+        onConfirm: (values) => {
+          setPendingInput(null);
+          create(values);
+        },
+        onCancel: () => setPendingInput(null),
+      });
+      return;
     }
+    create();
   };
 
   const addLinkForOperation = (operation: EditOperation) => {
-    if (operation.type === "link") {
-      const href = window.prompt("Link URL", operation.href);
-      if (!href) return;
-      const safeHref = sanitizeUrl(href);
-      if (!safeHref) {
-        onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
-        return;
-      }
-      onOperationUpdate(operation.id, { href: safeHref } as Partial<EditOperation>);
-      return;
-    }
-
-    const href = window.prompt("Link URL", "https://");
-    if (!href) return;
-    const safeHref = sanitizeUrl(href);
-    if (!safeHref) {
-      onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
-      return;
-    }
-    onOperationAdd({
-      id: createId("link"),
-      type: "link",
-      pageIndex: operation.pageIndex,
-      rect: { ...operation.rect },
-      href: safeHref,
-      opacity: 1,
-      createdAt: Date.now(),
+    const isExistingLink = operation.type === "link";
+    const defaultHref = operation.type === "link" ? operation.href : "https://";
+    setPendingInput({
+      title: isExistingLink ? "Edit link" : "Add link",
+      confirmLabel: isExistingLink ? "Save link" : "Add link",
+      fields: [{ key: "href", label: "Link URL", defaultValue: defaultHref }],
+      anchor: pdfRectToViewport(operation.rect, pageHeight, scale),
+      onConfirm: (values) => {
+        setPendingInput(null);
+        const href = values.href?.trim();
+        if (!href) return;
+        const safeHref = sanitizeUrl(href);
+        if (!safeHref) {
+          onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
+          return;
+        }
+        if (isExistingLink) {
+          onOperationUpdate(operation.id, { href: safeHref } as Partial<EditOperation>);
+          return;
+        }
+        onOperationAdd({
+          id: createId("link"),
+          type: "link",
+          pageIndex: operation.pageIndex,
+          rect: { ...operation.rect },
+          href: safeHref,
+          opacity: 1,
+          createdAt: Date.now(),
+        });
+      },
+      onCancel: () => setPendingInput(null),
     });
   };
 
@@ -477,6 +511,9 @@ export function PdfCanvas({
                 rect={pdfRectToViewport(liveSelectedOperation.rect, pageHeight, scale)}
                 onResizeStart={(handle, event) => handleResizeStart(handle, event, selectedOperation)}
               />
+            ) : null}
+            {pendingInput ? (
+              <InlineInputPopover request={pendingInput} pageWidth={pageWidth} scale={scale} />
             ) : null}
             {operations.map((operation) => (
               <OperationOverlay
