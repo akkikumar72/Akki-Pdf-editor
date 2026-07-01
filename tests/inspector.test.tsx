@@ -113,18 +113,31 @@ describe("Inspector", () => {
       expect(onUpdate).toHaveBeenCalledWith("op-1", { whiteout: true });
     });
 
-    it("clamps out-of-range font sizes", () => {
+    it("passes font size changes through unclamped while typing, and clamps only on blur", () => {
       const { onUpdate } = renderInspector(baseText({ fontSize: 14 }));
       const size = screen.getByLabelText("Size");
-      // Below min clamps to 6.
-      fireEvent.change(size, { target: { value: "1" } });
-      expect(onUpdate).toHaveBeenCalledWith("op-1", { fontSize: 6 });
-      // Above max clamps to 96.
+      // Clamping on every keystroke would round-trip an out-of-range intermediate
+      // value (e.g. "2" while typing "24") through the controlled `value`, corrupting
+      // the next digit typed — so `onChange` only rounds, never clamps.
+      fireEvent.change(size, { target: { value: "2" } });
+      expect(onUpdate).toHaveBeenCalledWith("op-1", { fontSize: 2 });
       fireEvent.change(size, { target: { value: "500" } });
-      expect(onUpdate).toHaveBeenCalledWith("op-1", { fontSize: 96 });
-      // A mid-range value passes through unclamped.
+      expect(onUpdate).toHaveBeenCalledWith("op-1", { fontSize: 500 });
+      // A mid-range value passes through unclamped either way.
       fireEvent.change(size, { target: { value: "30" } });
       expect(onUpdate).toHaveBeenCalledWith("op-1", { fontSize: 30 });
+      // Clamping happens once editing finishes.
+      fireEvent.blur(size, { target: { value: "1" } });
+      expect(onUpdate).toHaveBeenCalledWith("op-1", { fontSize: 6 });
+      fireEvent.blur(size, { target: { value: "500" } });
+      expect(onUpdate).toHaveBeenCalledWith("op-1", { fontSize: 96 });
+    });
+
+    it("clamps to the minimum on blur when the field is emptied", () => {
+      const { onUpdate } = renderInspector(baseText({ fontSize: 14 }));
+      const size = screen.getByLabelText("Size");
+      fireEvent.blur(size, { target: { value: "" } });
+      expect(onUpdate).toHaveBeenCalledWith("op-1", { fontSize: 6 });
     });
 
     it("shows the whiteout background color control when whiteout is on", () => {
