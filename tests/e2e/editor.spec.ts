@@ -485,7 +485,7 @@ test("text tool click on a text overlay edits it in place without moving", async
 
 test("creates a blank document from the tool hub", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("PDF editor preview").getByRole("button", { name: "Blank PDF" }).click();
+  await page.getByRole("button", { name: "Blank PDF" }).first().click();
 
   await expect(page.getByText(/Blank PDF created/i)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Apply/i })).toBeVisible();
