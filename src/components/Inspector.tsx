@@ -1,5 +1,5 @@
-import { AlignCenter, AlignLeft, AlignRight, FileSpreadsheet, FileText, SlidersHorizontal } from "lucide-react";
-import type { EditOperation, ExportFormat, TextAlign, TextItem } from "../types/editor";
+import { AlignCenter, AlignLeft, AlignRight, Check, Circle, FileSpreadsheet, FileText, SlidersHorizontal, X } from "lucide-react";
+import type { EditOperation, ExportFormat, FormMarkOperation, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeUrl } from "../utils/url";
 
@@ -173,6 +173,30 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                 }}
               />
             </label>
+          ) : null}
+
+          {operation.type === "form-mark" ? (
+            <>
+              <div className="segmented" aria-label="Mark style">
+                {([
+                  ["check", Check],
+                  ["cross", X],
+                  ["dot", Circle],
+                ] as Array<[FormMarkOperation["mark"], typeof Check]>).map(([mark, Icon]) => (
+                  <button
+                    key={mark}
+                    aria-pressed={operation.mark === mark}
+                    onClick={() => update({ mark } as Partial<EditOperation>)}
+                  >
+                    <Icon aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+              <label>
+                Color
+                <input type="color" value={operation.color} onChange={(event) => update({ color: event.currentTarget.value } as Partial<EditOperation>)} />
+              </label>
+            </>
           ) : null}
         </div>
       )}

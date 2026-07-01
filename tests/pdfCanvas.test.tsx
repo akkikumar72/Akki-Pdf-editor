@@ -718,7 +718,7 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     fireEvent.pointerUp(stage);
   });
 
-  it("editing-text overlay click in text tool enters edit mode rather than dragging", () => {
+  it("clicking a text overlay in the Text tool (no movement) enters edit mode instead of dragging", () => {
     const op = textOp();
     const onOperationSelect = vi.fn();
     const onOperationUpdate = vi.fn();
@@ -731,12 +731,31 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--text") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
     expect(onOperationSelect).toHaveBeenCalledWith(op.id);
-    // no drag-driven rect update from a single down
-    fireEvent.pointerMove(stage, { clientX: 70, clientY: 620 });
+    // Released with no movement in between -> resolves to "enter edit mode", not a move.
+    fireEvent.pointerUp(stage);
     expect(onOperationUpdate).not.toHaveBeenCalled();
+    expect(overlay.getAttribute("contenteditable")).toBe("true");
   });
 
-  it("ignores overlay drag for non-select tool without move mode", () => {
+  it("dragging a text overlay in the Text tool moves it instead of entering edit mode", () => {
+    const op = textOp();
+    const onOperationUpdate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "text", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--text") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 70, clientY: 620 });
+    expect(onOperationUpdate).toHaveBeenCalled();
+    expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
+    fireEvent.pointerUp(stage);
+    // Since the gesture moved, it must not also resolve to "enter edit mode".
+    expect(overlay.getAttribute("contenteditable")).toBe("false");
+  });
+
+  it("drag works on an overlay regardless of which tool is active", () => {
     const op = shapeOp();
     const onOperationUpdate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
@@ -747,7 +766,49 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    expect(onOperationUpdate).toHaveBeenCalled();
+    expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
+    fireEvent.pointerUp(stage);
+  });
+
+  it("suppresses the native click that follows a completed drag, so it doesn't add a stray operation", () => {
+    // A real browser fires a native `click` right after `pointerup`, even when that
+    // pointerup ended an actual drag over a different spot — jsdom's fireEvent doesn't
+    // synthesize this automatically, so it's replicated explicitly here.
+    const op = textOp();
+    const onOperationAdd = vi.fn();
+    const onOperationUpdate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "text", operations: [op], selectedId: op.id, stageRef, onOperationAdd, onOperationUpdate,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--text") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 160, clientY: 700 });
+    expect(onOperationUpdate).toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
+    // The click's target is the stage itself (empty canvas), same as a real release.
+    fireEvent.click(stage, { clientX: 160, clientY: 700 });
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("does not suppress a genuine plain click after a drag elsewhere finished", () => {
+    const op = shapeOp();
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "text", operations: [op], selectedId: op.id, stageRef, onOperationAdd,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
+    fireEvent.pointerUp(stage);
+    fireEvent.click(stage, { clientX: 150, clientY: 150 });
+    // A separate, later plain click on empty canvas must still add text normally.
+    fireEvent.click(stage, { clientX: 300, clientY: 300 });
+    expect(onOperationAdd).toHaveBeenCalledTimes(1);
   });
 
   it("renders snapped alignment guides while dragging near an edge", () => {
@@ -792,6 +853,34 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     onOperationUpdate.mockClear();
     fireEvent.pointerMove(stage, { clientX: 160, clientY: 160 });
     expect(onOperationUpdate).not.toHaveBeenCalled();
+  });
+
+  it("clicking with the Check mark tool places a mark centered on the click point", () => {
+    const onOperationAdd = vi.fn();
+    const { stage } = renderCanvas({ activeTool: "mark-check", onOperationAdd });
+    fireEvent.click(stage, { clientX: 100, clientY: 400 });
+    expect(onOperationAdd).toHaveBeenCalledTimes(1);
+    expect(onOperationAdd.mock.calls[0][0].type).toBe("form-mark");
+    expect(onOperationAdd.mock.calls[0][0].mark).toBe("check");
+  });
+
+  it("a placed check mark can be dragged like any other overlay", () => {
+    const op: EditOperation = {
+      id: "mark-1", type: "form-mark", mark: "check", pageIndex: 0,
+      rect: { x: 100, y: 400, width: 16, height: 16 }, createdAt: 1, color: "#111827",
+    };
+    const onOperationUpdate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--form-mark") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 100, clientY: 400, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 150, clientY: 450 });
+    fireEvent.pointerUp(stage);
+    expect(onOperationUpdate).toHaveBeenCalled();
+    expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
   });
 });
 
@@ -1092,7 +1181,7 @@ describe("PdfCanvas - resizable type branches", () => {
     ["note annotation", { id: "a2", type: "annotation", kind: "note", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 40 }, createdAt: 1, color: "#00f", text: "n" }, true],
     ["strikeout annotation (not resizable)", { id: "a3", type: "annotation", kind: "strikeout", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 18 }, createdAt: 1, color: "#f00" }, false],
     ["link (not resizable)", { id: "l1", type: "link", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 20 }, createdAt: 1, href: "https://x.com" }, false],
-    ["form-mark (not resizable)", { id: "fm1", type: "form-mark", pageIndex: 0, rect: { x: 50, y: 500, width: 20, height: 20 }, createdAt: 1, mark: "check", color: "#000" }, false],
+    ["form-mark (resizable, to fit whatever box size the PDF has)", { id: "fm1", type: "form-mark", pageIndex: 0, rect: { x: 50, y: 500, width: 20, height: 20 }, createdAt: 1, mark: "check", color: "#000" }, true],
     ["shape line (not resizable)", { id: "s9", type: "shape", kind: "line", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 4 }, createdAt: 1, stroke: "#000", strokeWidth: 2 }, false],
   ])("%s -> resize handles present=%s", (_label, op, expected) => {
     const { container } = renderCanvas({ operations: [op as EditOperation], selectedId: (op as EditOperation).id });
@@ -1247,11 +1336,13 @@ describe("PdfCanvas - editing-driven effects", () => {
   it("clears editing state when the selection changes away from the edited op", async () => {
     const op = textOp({ text: "edit me" });
     const other = shapeOp({ id: "shape-2" });
-    const { container, rerender, props } = renderCanvas({
+    const { container, stage, rerender, props } = renderCanvas({
       activeTool: "text", operations: [op, other], selectedId: op.id,
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
+    // A click (down + up, no movement) with the Text tool resolves to edit mode.
     fireEvent.pointerDown(el, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerUp(stage);
     // editing now active; change selection to the other op
     rerender(<PdfCanvas {...props} activeTool="text" operations={[op, other]} selectedId="shape-2" />);
     await waitFor(() => expect(container.querySelector(".operation--text.is-editing")).toBeNull());
@@ -1292,11 +1383,13 @@ describe("PdfCanvas - editing-driven effects", () => {
   it("does not delete while editing text even with Delete pressed", () => {
     const op = textOp({ text: "edit me" });
     const onOperationRemove = vi.fn();
-    const { container } = renderCanvas({
+    const { container, stage } = renderCanvas({
       activeTool: "text", operations: [op], selectedId: op.id, onOperationRemove,
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
+    // A click (down + up, no movement) with the Text tool resolves to edit mode.
     fireEvent.pointerDown(el, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerUp(stage);
     fireEvent.keyDown(window, { key: "Delete" });
     expect(onOperationRemove).not.toHaveBeenCalled();
   });

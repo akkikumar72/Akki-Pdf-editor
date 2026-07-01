@@ -9,7 +9,7 @@ export type GuideLine = {
   snapped: boolean;
 };
 
-type AlignmentLines = {
+export type AlignmentLines = {
   horizontal: number[];
   vertical: number[];
 };

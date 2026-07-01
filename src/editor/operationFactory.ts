@@ -36,9 +36,11 @@ const FORM_KIND_BY_TOOL = {
   "form-multiline": "multiline",
   "form-dropdown": "dropdown",
   "form-radio": "radio",
-  "form-checkbox": "checkbox",
   "form-signature": "signature",
 } as const;
+
+/** Square size (PDF pt) for a freshly placed check mark, before the user resizes it. */
+const CHECK_MARK_SIZE = 16;
 
 function estimateSingleLineTextWidth(text: string, fontSize: number, fontWeight?: number) {
   const uppercaseCount = [...text].filter((char) => /[A-Z]/.test(char)).length;
@@ -87,6 +89,15 @@ export function createOperationsForTool({
       ? Math.max(rect.width, estimateSingleLineTextWidth(text, fontSize, fontWeight))
       : Math.max(rect.width, 130);
     const coverRect = isReplacement ? padReplacementCoverRect(rect, fontSize) : undefined;
+    // A brand-new (non-replacement) box has no glyphs to hug yet, so size it to the
+    // font's own line height instead of an arbitrary flat constant. `textBaselineTopPaddingPx`
+    // pushes glyphs down by (boxHeight - 1.1*fontSize); a box far taller than one line
+    // (e.g. the old flat 28px against a 40pt font, or 28px dwarfing a 14pt line inside a
+    // 42px click box) visibly drops the caret below the click point. PDF rects anchor at
+    // the bottom-left, so shrinking `height` alone would shift the box down — preserve the
+    // top edge (unaffected by height) instead of the click's original `y`.
+    const newTextHeight = Math.max(fontSize * 1.15, 16);
+    const newTextTopEdge = rect.y + rect.height;
     return [
       {
         id: createId("text"),
@@ -100,7 +111,12 @@ export function createOperationsForTool({
               height: Math.max(coverRect?.height ?? rect.height, fontSize),
               /* v8 ignore stop */
             }
-          : { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, 28) },
+          : {
+              ...rect,
+              width: Math.max(rect.width, 130),
+              height: newTextHeight,
+              y: newTextTopEdge - newTextHeight,
+            },
         text,
         fontFamily: styleTextItem ? fontChoice.label : resolveFont().label,
         cssFontFamily: styleTextItem
@@ -299,6 +315,33 @@ export function createOperationsForTool({
     ];
   }
 
+  if (activeTool === "mark-check") {
+    // Center the mark on the actual click point rather than anchoring its top-left
+    // there — an existing printed checkbox is usually small, so centering on the
+    // click makes it much easier to land the mark inside it. `rect.x` is exactly the
+    // click's PDF-space X (unaffected by the placeholder box's width); `rect.y +
+    // rect.height` is the click's PDF-space Y (unaffected by the placeholder height).
+    const clickX = rect.x;
+    const clickY = rect.y + rect.height;
+    return [
+      {
+        id: createId("mark"),
+        type: "form-mark",
+        mark: "check",
+        pageIndex,
+        rect: {
+          x: clickX - CHECK_MARK_SIZE / 2,
+          y: clickY - CHECK_MARK_SIZE / 2,
+          width: CHECK_MARK_SIZE,
+          height: CHECK_MARK_SIZE,
+        },
+        color: DEFAULT_COLORS.ink,
+        opacity: 1,
+        createdAt: now,
+      },
+    ];
+  }
+
   if (activeTool in FORM_KIND_BY_TOOL) {
     const index = operations.filter((operation) => operation.type === "form-field").length + 1;
     const name = prompt("Field name", `${toolLabel(activeTool).replace(/\s+/g, "_").toLowerCase()}_${index}`);
@@ -324,7 +367,7 @@ export function createOperationsForTool({
         name,
         value: activeTool === "form-signature" ? "Signature" : undefined,
         options,
-        checked: activeTool === "form-checkbox" || activeTool === "form-radio" ? false : undefined,
+        checked: activeTool === "form-radio" ? false : undefined,
         opacity: 1,
         createdAt: now,
       },

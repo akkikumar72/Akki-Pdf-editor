@@ -38,7 +38,7 @@ describe("tool registry", () => {
       "form-multiline",
       "form-dropdown",
       "form-radio",
-      "form-checkbox",
+      "mark-check",
       "form-signature",
     ]);
   });

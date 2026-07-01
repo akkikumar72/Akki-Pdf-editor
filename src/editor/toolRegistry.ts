@@ -1,5 +1,5 @@
 import {
-  CheckSquare,
+  Check,
   CircleDot,
   Eraser,
   FileSignature,
@@ -50,7 +50,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   { id: "form-multiline", label: "Multiline", icon: MessageSquareText, placement: "region", group: "forms", description: "Add a multiline fillable text area." },
   { id: "form-dropdown", label: "Dropdown", icon: ListChecks, placement: "region", group: "forms", description: "Add a dropdown field with local options." },
   { id: "form-radio", label: "Radio", icon: CircleDot, placement: "region", group: "forms", description: "Add a radio choice marker." },
-  { id: "form-checkbox", label: "Checkbox", icon: CheckSquare, placement: "region", group: "forms", description: "Add a checkbox marker." },
+  { id: "mark-check", label: "Check mark", icon: Check, placement: "point", group: "forms", description: "Click an existing checkbox on the page to mark it checked." },
   { id: "form-signature", label: "Signature box", icon: FileSignature, placement: "region", group: "forms", description: "Reserve a signature box." },
 
   { id: "image", label: "New image", icon: Image, placement: "file", group: "media", description: "Place a local PNG or JPEG on the page." },
@@ -81,7 +81,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
     id: "forms",
     label: "Forms",
     primary: "form-text",
-    tools: ["form-text", "form-multiline", "form-dropdown", "form-radio", "form-checkbox", "form-signature"].map((id) => TOOL_BY_ID[id as EditorTool]),
+    tools: ["form-text", "form-multiline", "form-dropdown", "form-radio", "mark-check", "form-signature"].map((id) => TOOL_BY_ID[id as EditorTool]),
   },
   {
     id: "images",

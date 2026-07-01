@@ -617,13 +617,32 @@ describe("OperationOverlay - non-text branches", () => {
     expect(el.textContent).toBe("Table 1");
   });
 
-  it("renders the default branch showing the form-mark glyph", () => {
+  it("renders a check-mark glyph for a form-mark operation", () => {
     const op: FormMarkOperation = {
       id: "fm", type: "form-mark", pageIndex: 0, rect: RECT, createdAt: 1, mark: "check", color: "#000",
     };
     const { container } = renderOverlay(op);
     const el = container.querySelector(".operation--form-mark") as HTMLDivElement;
-    expect(el.textContent).toBe("check");
+    expect(el.textContent).toBe("\u2713");
+    expect(el.style.color).toBe("rgb(0, 0, 0)");
+  });
+
+  it("renders a cross glyph for a form-mark cross operation", () => {
+    const op: FormMarkOperation = {
+      id: "fm2", type: "form-mark", pageIndex: 0, rect: RECT, createdAt: 1, mark: "cross", color: "#000",
+    };
+    const { container } = renderOverlay(op);
+    const el = container.querySelector(".operation--form-mark") as HTMLDivElement;
+    expect(el.textContent).toBe("\u2717");
+  });
+
+  it("renders a dot glyph for a form-mark dot operation", () => {
+    const op: FormMarkOperation = {
+      id: "fm3", type: "form-mark", pageIndex: 0, rect: RECT, createdAt: 1, mark: "dot", color: "#000",
+    };
+    const { container } = renderOverlay(op);
+    const el = container.querySelector(".operation--form-mark") as HTMLDivElement;
+    expect(el.textContent).toBe("\u25CF");
   });
 
   it("renders the default branch as empty for a non-form-mark fallthrough type", () => {

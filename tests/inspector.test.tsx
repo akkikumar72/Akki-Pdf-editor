@@ -205,6 +205,40 @@ describe("Inspector", () => {
     });
   });
 
+  describe("form-mark operation", () => {
+    function mark(overrides: Partial<EditOperation> = {}): EditOperation {
+      return {
+        id: "fm-1",
+        type: "form-mark",
+        mark: "check",
+        pageIndex: 0,
+        rect,
+        createdAt: 1,
+        color: "#111827",
+        ...overrides,
+      } as EditOperation;
+    }
+
+    it("renders a mark-style segmented control and fires an update when switching styles", () => {
+      const { onUpdate } = renderInspector(mark({ mark: "check" }));
+      const seg = screen.getByLabelText("Mark style");
+      const buttons = within(seg).getAllByRole("button");
+      expect(buttons).toHaveLength(3);
+      buttons.forEach((b) => fireEvent.click(b));
+      expect(onUpdate).toHaveBeenCalledWith("fm-1", { mark: "check" });
+      expect(onUpdate).toHaveBeenCalledWith("fm-1", { mark: "cross" });
+      expect(onUpdate).toHaveBeenCalledWith("fm-1", { mark: "dot" });
+    });
+
+    it("renders a color picker and fires an update on change", () => {
+      const { onUpdate } = renderInspector(mark({ color: "#111827" }));
+      const color = screen.getByLabelText("Color") as HTMLInputElement;
+      expect(color.value).toBe("#111827");
+      fireEvent.change(color, { target: { value: "#ff0000" } });
+      expect(onUpdate).toHaveBeenCalledWith("fm-1", { color: "#ff0000" });
+    });
+  });
+
   describe("link operation", () => {
     it("renders the URL field, fires onChange, and sanitizes a safe URL on blur", () => {
       const link: EditOperation = {
