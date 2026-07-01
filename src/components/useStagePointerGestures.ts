@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import type { EditOperation, EditorTool, InkOperation, TextItem, ViewportRect } from "../types/editor";
+import type { EditOperation, EditorTool, InkOperation, PdfRect, TextItem, ViewportRect } from "../types/editor";
 import { isRegionTool } from "../editor/toolRegistry";
 import { translatePoints } from "../editor/selectionModel";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
@@ -15,6 +15,10 @@ type DragState = {
   // at drag start instead of on every pointermove — the prior per-move recompute over
   // every operation and PDF text item on the page was the dominant cause of drag lag.
   alignmentLines: AlignmentLines;
+  // Updated locally on every pointermove; only dispatched to the reducer once,
+  // at gesture end, so a drag doesn't force a full operations-array rebuild
+  // (and re-render of every overlay) on every frame.
+  livePatch?: Partial<EditOperation>;
 };
 
 type ResizeState = {
@@ -22,6 +26,8 @@ type ResizeState = {
   handle: ResizeHandle;
   startPointer: { x: number; y: number };
   startRect: ViewportRect;
+  // Same deferred-commit strategy as DragState.livePatch.
+  liveRect?: PdfRect;
 };
 
 export type DrawState = {
@@ -125,14 +131,6 @@ export function useStagePointerGestures({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [draw]);
 
-  const resetGestureState = () => {
-    setDraw(null);
-    setDrag(null);
-    setResize(null);
-    setActiveGuides([]);
-    clearMoveMode();
-  };
-
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     // Deselect only when pressing empty page area, so selecting an overlay
     // never gets cleared by a follow-up click (keeps its toolbar persistent).
@@ -219,7 +217,10 @@ export function useStagePointerGestures({
         height = MIN_RESIZE_PX;
       }
       const rect = clampRect(viewportRectToPdf({ left, top, width, height }, pageHeight, scale), pageWidth, pageHeight);
-      onOperationUpdate(resize.id, { rect } as Partial<EditOperation>);
+      // Local-only update: the reducer commit (and the full operations-array
+      // rebuild + overlay re-render it triggers) happens once, at gesture end.
+      /* v8 ignore next -- this updater only runs while `resize` is non-null (checked above), so `current` is always truthy */
+      setResize((current) => (current ? { ...current, liveRect: rect } : current));
       return;
     }
     if (!drag || !stageRef.current) return;
@@ -257,7 +258,24 @@ export function useStagePointerGestures({
         rect.y - dragged.rect.y,
       );
     }
-    onOperationUpdate(drag.id, patch);
+    // Local-only update; committed once at gesture end (see finishGesture).
+    /* v8 ignore next -- this updater only runs while `drag` is non-null (checked above), so `current` is always truthy */
+    setDrag((current) => (current ? { ...current, livePatch: patch } : current));
+  };
+
+  /** Dispatches the accumulated local drag/resize position (if any) to the reducer. */
+  const commitLiveGesture = () => {
+    if (drag?.livePatch) onOperationUpdate(drag.id, drag.livePatch);
+    if (resize?.liveRect) onOperationUpdate(resize.id, { rect: resize.liveRect } as Partial<EditOperation>);
+  };
+
+  const finishGesture = () => {
+    commitLiveGesture();
+    setDraw(null);
+    setDrag(null);
+    setResize(null);
+    setActiveGuides([]);
+    clearMoveMode();
   };
 
   const onPointerUp = () => {
@@ -267,7 +285,6 @@ export function useStagePointerGestures({
       const viewportRect = dragged
         ? rect
         : { left: draw.start.x, top: draw.start.y, ...DRAW_CLICK_FALLBACK };
-      setDraw(null);
       addAt(viewportRect);
     }
     // A press-and-release with no movement in between is a click, not a
@@ -280,10 +297,7 @@ export function useStagePointerGestures({
         setEditingTextId(pressedOperation.id);
       }
     }
-    setDrag(null);
-    setResize(null);
-    setActiveGuides([]);
-    clearMoveMode();
+    finishGesture();
   };
 
   const handleResizeStart = (handle: ResizeHandle, event: React.PointerEvent<HTMLElement>, operation: EditOperation) => {
@@ -341,8 +355,8 @@ export function useStagePointerGestures({
       onClick,
       onPointerMove,
       onPointerUp,
-      onPointerCancel: resetGestureState,
-      onLostPointerCapture: resetGestureState,
+      onPointerCancel: finishGesture,
+      onLostPointerCapture: finishGesture,
     },
     handleResizeStart,
     handleOverlayPointerDown,

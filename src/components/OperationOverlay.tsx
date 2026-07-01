@@ -4,7 +4,7 @@ import { cssFamilyForFontKey, ensureEmbeddedFontLoaded } from "../engine/fontReg
 import { pdfRectToViewport } from "../utils/coordinates";
 import { textBaselineTopPaddingPx } from "../utils/textMetrics";
 import { caretRangeFromClientPoint, getLastPointerDownPoint } from "../utils/caret";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 function safeImageSrc(src: string | undefined): string | undefined {
   return src && /^data:image\/(png|jpeg|jpg);base64,/i.test(src) ? src : undefined;
@@ -19,13 +19,13 @@ type OperationOverlayProps = {
   dragging?: boolean;
   moveModeActive?: boolean;
   documentFonts?: DocumentFonts;
-  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerDown: (id: string, event: React.PointerEvent<HTMLDivElement>) => void;
   onStartTextEdit?: (id: string) => void;
   onTextChange?: (id: string, text: string) => void;
   onTextCommit?: () => void;
 };
 
-export function OperationOverlay({
+function OperationOverlayComponent({
   operation,
   pageHeight,
   scale,
@@ -39,6 +39,7 @@ export function OperationOverlay({
   onTextChange,
   onTextCommit,
 }: OperationOverlayProps) {
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => onPointerDown(operation.id, event);
   const textRef = useRef<HTMLDivElement | null>(null);
   const wasEditing = useRef(false);
   const editingText = useRef(operation.type === "text" ? operation.text : "");
@@ -148,7 +149,7 @@ export function OperationOverlay({
             paddingTop: baselinePadding,
             opacity: showText ? (operation.opacity ?? 1) : 0,
           }}
-          onPointerDown={onPointerDown}
+          onPointerDown={handlePointerDown}
           onDoubleClick={(event) => {
             event.stopPropagation();
             onStartTextEdit?.(operation.id);
@@ -179,13 +180,13 @@ export function OperationOverlay({
         <div
           className={className}
           style={{ ...style, background: operation.color }}
-          onPointerDown={onPointerDown}
+          onPointerDown={handlePointerDown}
         />
       );
 
     case "image": {
       const src = safeImageSrc(operation.dataUrl);
-      return <div className={className} style={style} onPointerDown={onPointerDown}>{src ? <img src={src} alt="" /> : null}</div>;
+      return <div className={className} style={style} onPointerDown={handlePointerDown}>{src ? <img src={src} alt="" /> : null}</div>;
     }
 
     case "signature":
@@ -197,7 +198,7 @@ export function OperationOverlay({
             color: operation.color,
             fontFamily: resolveFont(operation.fontFamily).cssFamily,
           }}
-          onPointerDown={onPointerDown}
+          onPointerDown={handlePointerDown}
         >
           {operation.mode === "image" ? (safeImageSrc(operation.value) ? <img src={safeImageSrc(operation.value)} alt="Signature" /> : null) : operation.value}
         </div>
@@ -212,7 +213,7 @@ export function OperationOverlay({
             color: operation.color,
             borderColor: operation.borderColor,
           }}
-          onPointerDown={onPointerDown}
+          onPointerDown={handlePointerDown}
         >
           {operation.label}
         </div>
@@ -230,7 +231,7 @@ export function OperationOverlay({
           <div
             className={`${className} operation--shape-${operation.kind}`}
             style={style}
-            onPointerDown={onPointerDown}
+            onPointerDown={handlePointerDown}
           >
             <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ overflow: "visible" }}>
               {operation.kind === "arrow" ? (
@@ -271,7 +272,7 @@ export function OperationOverlay({
             borderWidth: Math.max(1, operation.strokeWidth * scale),
             background: operation.fill === "transparent" ? "transparent" : operation.fill,
           }}
-          onPointerDown={onPointerDown}
+          onPointerDown={handlePointerDown}
         />
       );
     }
@@ -281,7 +282,7 @@ export function OperationOverlay({
       const height = Math.max(1, operation.rect.height);
       const points = operation.points.map((point) => `${(point.x - operation.rect.x) * scale},${(operation.rect.height - (point.y - operation.rect.y)) * scale}`).join(" ");
       return (
-        <div className={className} style={style} onPointerDown={onPointerDown}>
+        <div className={className} style={style} onPointerDown={handlePointerDown}>
           <svg viewBox={`0 0 ${width * scale} ${height * scale}`} preserveAspectRatio="none">
             <polyline points={points} fill="none" stroke={operation.stroke} strokeWidth={operation.strokeWidth * scale} strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -295,7 +296,7 @@ export function OperationOverlay({
           <div
             className={className}
             style={{ ...style, background: operation.color }}
-            onPointerDown={onPointerDown}
+            onPointerDown={handlePointerDown}
           />
         );
       }
@@ -304,12 +305,12 @@ export function OperationOverlay({
           <div
             className={`${className} operation--annotation-${operation.kind}`}
             style={{ ...style, borderColor: operation.color, color: operation.color }}
-            onPointerDown={onPointerDown}
+            onPointerDown={handlePointerDown}
           />
         );
       }
       return (
-        <div className={className} style={{ ...style, color: operation.color, borderColor: operation.color }} onPointerDown={onPointerDown}>
+        <div className={className} style={{ ...style, color: operation.color, borderColor: operation.color }} onPointerDown={handlePointerDown}>
           {operation.text ?? operation.kind}
         </div>
       );
@@ -317,21 +318,21 @@ export function OperationOverlay({
 
     case "link":
       return (
-        <div className={className} style={style} onPointerDown={onPointerDown}>
+        <div className={className} style={style} onPointerDown={handlePointerDown}>
           <span>{operation.href}</span>
         </div>
       );
 
     case "form-field":
       return (
-        <div className={`${className} operation--form-field operation--form-${operation.kind}`} style={style} onPointerDown={onPointerDown}>
+        <div className={`${className} operation--form-field operation--form-${operation.kind}`} style={style} onPointerDown={handlePointerDown}>
           <span>{operation.checked ? "✓ " : null}{operation.value || operation.name}</span>
         </div>
       );
 
     case "table-region":
       return (
-        <div className={className} style={style} onPointerDown={onPointerDown}>
+        <div className={className} style={style} onPointerDown={handlePointerDown}>
           <span>{operation.label}</span>
         </div>
       );
@@ -342,7 +343,7 @@ export function OperationOverlay({
         <div
           className={className}
           style={{ ...style, color: operation.color, fontSize: Math.max(8, rect.height * 0.85) }}
-          onPointerDown={onPointerDown}
+          onPointerDown={handlePointerDown}
         >
           <span aria-hidden="true">{glyph}</span>
         </div>
@@ -352,7 +353,13 @@ export function OperationOverlay({
     default: {
       const exhaustive: never = operation;
       void exhaustive;
-      return <div className={className} style={style} onPointerDown={onPointerDown} />;
+      return <div className={className} style={style} onPointerDown={handlePointerDown} />;
     }
   }
 }
+
+// Memoized so a drag/resize gesture (which now only re-renders the moving
+// overlay -- see PdfCanvas's gestureOverride) doesn't force every other
+// overlay on the page to re-render too, as long as their props stay referentially
+// stable (see PdfCanvas's handleOverlayPointerDownById/handleStartTextEdit/etc.).
+export const OperationOverlay = memo(OperationOverlayComponent);

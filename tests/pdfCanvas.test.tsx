@@ -694,9 +694,11 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
     expect(onOperationSelect).toHaveBeenCalledWith(op.id);
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
+    // The commit is deferred until the gesture ends, not fired on every pointermove.
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
     expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
-    fireEvent.pointerUp(stage);
   });
 
   it("dragging an ink operation translates its points", () => {
@@ -713,9 +715,9 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--ink") ?? container.querySelector('[class*="operation--"]');
     fireEvent.pointerDown(overlay as HTMLElement, { clientX: 100, clientY: 400, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 120, clientY: 420 });
+    fireEvent.pointerUp(stage);
     const patch = onOperationUpdate.mock.calls.at(-1)?.[1];
     expect(patch).toHaveProperty("points");
-    fireEvent.pointerUp(stage);
   });
 
   it("clicking a text overlay in the Text tool (no movement) enters edit mode instead of dragging", () => {
@@ -737,6 +739,23 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     expect(overlay.getAttribute("contenteditable")).toBe("true");
   });
 
+  it("clicking a non-text overlay with no movement resolves to a no-op (not edit mode)", () => {
+    const op = shapeOp();
+    const onOperationSelect = vi.fn();
+    const onOperationUpdate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: [op], selectedId: op.id, stageRef,
+      onOperationSelect, onOperationUpdate,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
+    expect(onOperationSelect).toHaveBeenCalledWith(op.id);
+    fireEvent.pointerUp(stage);
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+  });
+
   it("dragging a text overlay in the Text tool moves it instead of entering edit mode", () => {
     const op = textOp();
     const onOperationUpdate = vi.fn();
@@ -748,9 +767,10 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--text") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 70, clientY: 620 });
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
     expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
-    fireEvent.pointerUp(stage);
     // Since the gesture moved, it must not also resolve to "enter edit mode".
     expect(overlay.getAttribute("contenteditable")).toBe("false");
   });
@@ -766,9 +786,10 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
     expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
-    fireEvent.pointerUp(stage);
   });
 
   it("suppresses the native click that follows a completed drag, so it doesn't add a stray operation", () => {
@@ -786,8 +807,8 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--text") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 160, clientY: 700 });
-    expect(onOperationUpdate).toHaveBeenCalled();
     fireEvent.pointerUp(stage);
+    expect(onOperationUpdate).toHaveBeenCalled();
     // The click's target is the stage itself (empty canvas), same as a real release.
     fireEvent.click(stage, { clientX: 160, clientY: 700 });
     expect(onOperationAdd).not.toHaveBeenCalled();
@@ -897,9 +918,10 @@ describe("PdfCanvas - resize interactions", () => {
     // HANDLES order: nw, n, ne, e, se, s, sw, w  -> index 4 is "se"
     fireEvent.pointerDown(handles[4], { clientX: 240, clientY: 470, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 300, clientY: 530 });
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
     expect(onOperationUpdate.mock.calls.at(-1)?.[1]).toHaveProperty("rect");
-    fireEvent.pointerUp(stage);
   });
 
   it("resizing from the NW handle clamps to the minimum size", () => {
@@ -915,8 +937,8 @@ describe("PdfCanvas - resize interactions", () => {
     fireEvent.pointerDown(handles[0], { clientX: 100, clientY: 372, pointerId: 1 });
     // drag far past the opposite edge to force min clamp on both axes
     fireEvent.pointerMove(stage, { clientX: 400, clientY: 400 });
-    expect(onOperationUpdate).toHaveBeenCalled();
     fireEvent.pointerUp(stage);
+    expect(onOperationUpdate).toHaveBeenCalled();
   });
 
   it("resize start without a stage ref does nothing", () => {

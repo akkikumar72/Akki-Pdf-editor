@@ -1,6 +1,6 @@
 import { Document, Page } from "react-pdf";
 import { ImagePlus } from "lucide-react";
-import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
+import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DocumentFonts,
   EditOperation,
@@ -316,6 +316,41 @@ export function PdfCanvas({
       addAt,
     });
 
+  // A drag/resize in progress only updates its own local (undispatched) rect —
+  // see useStagePointerGestures — so this overrides the affected operation's
+  // rendered position with that live value instead of the stale committed one.
+  const gestureOverride = (operation: EditOperation): EditOperation => {
+    if (drag?.id === operation.id && drag.livePatch) return { ...operation, ...drag.livePatch } as EditOperation;
+    if (resize?.id === operation.id && resize.liveRect) return { ...operation, rect: resize.liveRect };
+    return operation;
+  };
+  const liveSelectedOperation = selectedOperation ? gestureOverride(selectedOperation) : undefined;
+
+  // Stable across renders where `operations` hasn't changed (in particular,
+  // across every pointermove during one drag/resize gesture, since operations
+  // now only changes once at gesture end) so memoized OperationOverlay instances
+  // for every *other* operation skip re-rendering during that gesture.
+  const handleOverlayPointerDownById = useCallback(
+    (id: string, event: React.PointerEvent<HTMLDivElement>) => {
+      const target = operations.find((operation) => operation.id === id);
+      /* v8 ignore next -- id always comes from an OperationOverlay rendered from this same operations list, so the lookup always resolves */
+      if (target) handleOverlayPointerDown(target, event);
+    },
+    [operations, handleOverlayPointerDown],
+  );
+  const handleStartTextEdit = useCallback(
+    (id: string) => {
+      onOperationSelect(id);
+      setEditingTextId(id);
+    },
+    [onOperationSelect],
+  );
+  const handleTextChange = useCallback(
+    (id: string, text: string) => onOperationUpdate(id, { text } as Partial<EditOperation>),
+    [onOperationUpdate],
+  );
+  const handleTextCommit = useCallback(() => setEditingTextId(undefined), []);
+
   // Surface the in-page hint when a tool is armed (or a draw starts/ends) and
   // auto-dismiss it after a few seconds so it doesn't linger over the page.
   useEffect(() => {
@@ -420,11 +455,11 @@ export function PdfCanvas({
                 />
               );
             })}
-            {selectedOperation ? (
+            {selectedOperation && liveSelectedOperation ? (
               <FloatingOperationToolbar
                 operation={selectedOperation}
                 pageWidth={pageWidth}
-                rect={pdfRectToViewport(selectedOperation.rect, pageHeight, scale)}
+                rect={pdfRectToViewport(liveSelectedOperation.rect, pageHeight, scale)}
                 scale={scale}
                 hidden={Boolean(drag)}
                 moveModeActive={moveModeOperationId === selectedOperation.id}
@@ -437,16 +472,16 @@ export function PdfCanvas({
                 onUpdate={onOperationUpdate}
               />
             ) : null}
-            {selectedOperation && editingTextId !== selectedOperation.id && isResizableOperation(selectedOperation) ? (
+            {selectedOperation && liveSelectedOperation && editingTextId !== selectedOperation.id && isResizableOperation(selectedOperation) ? (
               <ResizeHandles
-                rect={pdfRectToViewport(selectedOperation.rect, pageHeight, scale)}
+                rect={pdfRectToViewport(liveSelectedOperation.rect, pageHeight, scale)}
                 onResizeStart={(handle, event) => handleResizeStart(handle, event, selectedOperation)}
               />
             ) : null}
             {operations.map((operation) => (
               <OperationOverlay
                 key={operation.id}
-                operation={previewOperation(operation)}
+                operation={previewOperation(gestureOverride(operation))}
                 editing={editingTextId === operation.id}
                 documentFonts={documentFonts}
                 pageHeight={pageHeight}
@@ -454,13 +489,10 @@ export function PdfCanvas({
                 selected={operation.id === selectedId}
                 dragging={drag?.id === operation.id}
                 moveModeActive={moveModeOperationId === operation.id}
-                onPointerDown={(event) => handleOverlayPointerDown(operation, event)}
-                onStartTextEdit={(id) => {
-                  onOperationSelect(id);
-                  setEditingTextId(id);
-                }}
-                onTextChange={(id, text) => onOperationUpdate(id, { text } as Partial<EditOperation>)}
-                onTextCommit={() => setEditingTextId(undefined)}
+                onPointerDown={handleOverlayPointerDownById}
+                onStartTextEdit={handleStartTextEdit}
+                onTextChange={handleTextChange}
+                onTextCommit={handleTextCommit}
               />
             ))}
           </div>
