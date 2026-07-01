@@ -174,6 +174,7 @@ function makeController(overrides: Partial<EditorController> = {}): EditorContro
     status: "Ready",
     documentFonts: {},
     textItems: [],
+    pageTextItems: [],
     pageSizes: [{ width: 612, height: 792 }],
     selectedOperation: undefined,
     visibleOperations: [],
@@ -359,11 +360,10 @@ describe("EditorRoute - with document", () => {
     expect(controller.updateOperation).toHaveBeenCalledWith("o", { text: "y" });
   });
 
-  it("filters text items to the active page for canvas and inspector", () => {
+  it("forwards the controller's pageTextItems to canvas and inspector", () => {
     const controller = makeController({
       pageIndex: 1,
-      textItems: [
-        { str: "a", pageIndex: 0, rect: { x: 0, y: 0, width: 1, height: 1 } },
+      pageTextItems: [
         { str: "b", pageIndex: 1, rect: { x: 0, y: 0, width: 1, height: 1 } },
       ] satisfies TextItem[],
     });
