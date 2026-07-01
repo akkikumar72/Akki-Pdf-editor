@@ -322,31 +322,49 @@ export class PdfEngine {
       if (!page) continue;
       const opacity = operation.opacity ?? 1;
 
-      if (operation.type === "whiteout") {
-        writeWhiteoutMask(page, operation.rect, operation.color, opacity);
-      } else if (operation.type === "text") {
-        await writeText(page, operation, opacity, ctx);
-      } else if (operation.type === "annotation") {
-        await writeAnnotation(page, operation, opacity, ctx);
-      } else if (operation.type === "shape") {
-        writeShape(page, operation, opacity);
-      } else if (operation.type === "ink") {
-        writeInk(page, operation, opacity);
-      } else if (operation.type === "image") {
-        await writeImage(pdf, page, operation, opacity);
-      } else if (operation.type === "signature") {
-        await writeSignature(pdf, page, operation, opacity, ctx);
-      } else if (operation.type === "stamp") {
-        await writeStamp(page, operation, opacity, ctx);
-      } else if (operation.type === "form-mark") {
-        writeFormMark(page, operation, opacity);
-      } else if (operation.type === "form-field") {
-        await writeFormField(page, operation, opacity, ctx);
-      } else if (operation.type === "link") {
-        writeLink(pdf, page, operation);
+      switch (operation.type) {
+        case "whiteout":
+          writeWhiteoutMask(page, operation.rect, operation.color, opacity);
+          break;
+        case "text":
+          await writeText(page, operation, opacity, ctx);
+          break;
+        case "annotation":
+          await writeAnnotation(page, operation, opacity, ctx);
+          break;
+        case "shape":
+          writeShape(page, operation, opacity);
+          break;
+        case "ink":
+          writeInk(page, operation, opacity);
+          break;
+        case "image":
+          await writeImage(pdf, page, operation, opacity);
+          break;
+        case "signature":
+          await writeSignature(pdf, page, operation, opacity, ctx);
+          break;
+        case "stamp":
+          await writeStamp(page, operation, opacity, ctx);
+          break;
+        case "form-mark":
+          writeFormMark(page, operation, opacity);
+          break;
+        case "form-field":
+          await writeFormField(page, operation, opacity, ctx);
+          break;
+        case "link":
+          writeLink(pdf, page, operation);
+          break;
+        case "table-region":
+          // Intentionally not drawn — a table-region is a non-exported
+          // organizational marker that renders only as an overlay label.
+          break;
+        default: {
+          const exhaustive: never = operation;
+          void exhaustive;
+        }
       }
-      // `table-region` is intentionally not drawn — it renders only as an
-      // overlay label, never exported into the PDF.
     }
 
     return pdf.save({ useObjectStreams: false });
