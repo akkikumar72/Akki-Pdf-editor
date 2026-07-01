@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 import { pdfEngine, PdfEngine } from "../src/engine/pdfEngine";
 import type { DocumentFonts, EditOperation } from "../src/types/editor";
 
@@ -9,6 +9,19 @@ async function blankPdfBytes(pages = 1): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   for (let i = 0; i < pages; i += 1) pdf.addPage([612, 792]);
   return new Uint8Array(await pdf.save());
+}
+
+/**
+ * Decodes a reloaded page's raw content stream operators to text so tests can
+ * assert on *what* was drawn (e.g. the `cm` translate before a rectangle path)
+ * instead of only that `savePdf` produced loadable bytes.
+ */
+function decodePageContentText(pdf: PDFDocument, page: ReturnType<PDFDocument["getPage"]>): string {
+  const contents = page.node.Contents();
+  const refs = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
+  return refs
+    .map((ref) => new TextDecoder().decode(decodePDFRawStream(pdf.context.lookup(ref) as PDFRawStream).decode()))
+    .join("\n");
 }
 
 // A real, fully-parseable TTF with broad Latin coverage; used to exercise the
@@ -166,7 +179,19 @@ describe("PdfEngine.savePdf – text operations", () => {
         createdAt: 3,
       },
     ];
-    await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    // t_left's whiteout mask must be anchored to sourceCoverRect (10, 690), not
+    // the editable rect (40, 700) -- the mask must stay put while dragged text moves.
+    expect(content).toContain("1 0 0 1 10 690 cm");
+    expect(content).not.toContain("1 0 0 1 40 700 cm");
+    // t_center has no sourceCoverRect, so its mask falls back to its own rect.
+    expect(content).toContain("1 0 0 1 40 650 cm");
+    // Encoded as hex strings in the Tj operator.
+    expect(content).toContain(Buffer.from("Left", "latin1").toString("hex").toUpperCase());
+    expect(content).toContain(Buffer.from("Center", "latin1").toString("hex").toUpperCase());
+    expect(content).toContain(Buffer.from("Right", "latin1").toString("hex").toUpperCase());
   });
 
   it("reuses the embedded font when it covers every glyph", async () => {
@@ -504,7 +529,12 @@ describe("PdfEngine.savePdf – images, signatures and stamps", () => {
         createdAt: 4,
       },
     ];
-    await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    const xObjects = reloaded.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict);
+    // One embedded image XObject per drawImage call (2 image ops + 1 image-mode
+    // signature + 1 no-mime-segment image) -- not just "the bytes reload".
+    expect(xObjects?.keys()).toHaveLength(4);
   });
 
   it("draws a typed signature and a stamp", async () => {
