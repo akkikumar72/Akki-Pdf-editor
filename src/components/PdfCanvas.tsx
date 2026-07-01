@@ -19,7 +19,7 @@ import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation, translatePoints } from "../editor/selectionModel";
 import { CanvasHintBanner } from "./CanvasHintBanner";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
-import { collectAlignmentLines, snapViewportRect, type GuideLine } from "../utils/alignmentGuides";
+import { collectAlignmentLines, snapViewportRect, type AlignmentLines, type GuideLine } from "../utils/alignmentGuides";
 import { validateImageFile } from "../utils/fileValidation";
 import { createId } from "../utils/ids";
 import { sanitizeUrl } from "../utils/url";
@@ -52,6 +52,11 @@ type DragState = {
   id: string;
   start: PdfPoint;
   origin: PdfPoint;
+  // Alignment guide candidates never depend on the dragged rect's own position (the
+  // moving operation is excluded from the calculation), so they're computed once here
+  // at drag start instead of on every pointermove — the prior per-move recompute over
+  // every operation and PDF text item on the page was the dominant cause of drag lag.
+  alignmentLines: AlignmentLines;
 };
 
 type ResizeState = {
@@ -428,6 +433,14 @@ export function PdfCanvas({
 }: PdfCanvasProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePoint = useRef<PdfPoint | null>(null);
+  // Tracks whether the in-progress drag/resize actually moved the pointer. Used two
+  // ways: (1) a plain click (press + release with no movement) resolves to a
+  // tool-specific action (toggle a checkbox, enter text edit) instead of a no-op move;
+  // (2) the stage's onClick guards against the native `click` a real browser fires
+  // right after `pointerup`, even when that pointerup ended an actual drag/resize —
+  // without it, a completed drag would fall through to "click on empty canvas" and
+  // place a stray new operation at the release point.
+  const dragMoved = useRef(false);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [resize, setResize] = useState<ResizeState | null>(null);
   const [draw, setDraw] = useState<DrawState | null>(null);
@@ -690,6 +703,15 @@ export function PdfCanvas({
             setDraw({ start: point, current: point });
           }}
           onClick={(event) => {
+            // A real browser fires a native `click` right after `pointerup`, even when
+            // that pointerup ended an actual drag (mousedown -> move -> mouseup over a
+            // different spot still counts as a "click" at the release point). Without
+            // this guard, a completed drag on an overlay would fall through to "click
+            // on empty canvas" and place a stray new operation at the release point.
+            if (dragMoved.current) {
+              dragMoved.current = false;
+              return;
+            }
             if (event.target !== event.currentTarget && !(event.target as HTMLElement).classList.contains("react-pdf__Page__canvas")) {
               return;
             }
@@ -716,6 +738,10 @@ export function PdfCanvas({
               return;
             }
             if (resize && stageRef.current) {
+              // Reuses the same drag-vs-click flag as overlay dragging: a real browser
+              // fires a native `click` right after this resize's `pointerup`, and the
+              // stage's onClick would otherwise treat it as "click on empty canvas".
+              dragMoved.current = true;
               const point = pointFromEvent(event, stageRef.current);
               const dx = point.x - resize.startPointer.x;
               const dy = point.y - resize.startPointer.y;
@@ -745,6 +771,7 @@ export function PdfCanvas({
               return;
             }
             if (!drag || !stageRef.current) return;
+            dragMoved.current = true;
             const point = pointFromEvent(event, stageRef.current);
             const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
             const dragged = operations.find((operation) => operation.id === drag.id);
@@ -761,16 +788,10 @@ export function PdfCanvas({
               pageHeight,
             );
             let viewportRect = pdfRectToViewport(nextPdfRect, pageHeight, scale);
-            const alignmentLines = collectAlignmentLines({
-              movingId: drag.id,
-              operations,
-              textItems,
-              pageIndex,
-              pageWidth,
-              pageHeight,
-              scale,
-            });
-            const snapped = snapViewportRect(viewportRect, alignmentLines);
+            // `drag.alignmentLines` was computed once at drag start (see the overlay's
+            // onPointerDown) — it never depends on the moving rect's current position,
+            // so recomputing it on every move here was pure wasted work.
+            const snapped = snapViewportRect(viewportRect, drag.alignmentLines);
             viewportRect = snapped.rect;
             setActiveGuides(snapped.guides);
             const rect = clampRect(viewportRectToPdf(viewportRect, pageHeight, scale), pageWidth, pageHeight);
@@ -795,6 +816,18 @@ export function PdfCanvas({
                 : { left: draw.start.x, top: draw.start.y, ...DRAW_CLICK_FALLBACK };
               setDraw(null);
               void addAt(viewportRect);
+            }
+            // A press-and-release with no movement in between is a click, not a
+            // completed (no-op) move — resolve it to whatever a plain click on this
+            // overlay/tool combination means, instead of leaving the gesture inert.
+            if (drag && !dragMoved.current) {
+              const pressedOperation = operations.find((operation) => operation.id === drag.id);
+              if (pressedOperation?.type === "form-field" && pressedOperation.kind === "checkbox") {
+                onOperationUpdate(pressedOperation.id, { checked: !pressedOperation.checked } as Partial<EditOperation>);
+              } else if (activeTool === "text" && pressedOperation?.type === "text" && editingTextId !== pressedOperation.id) {
+                // Reference-style click-to-edit: only fires when the click didn't drag.
+                setEditingTextId(pressedOperation.id);
+              }
             }
             setDrag(null);
             setResize(null);
@@ -919,6 +952,7 @@ export function PdfCanvas({
                     // setPointerCapture can throw for non-active pointer ids; capture is an enhancement, not required.
                   }
                   const point = pointFromEvent(event, stageRef.current);
+                  dragMoved.current = false;
                   setResize({
                     id: selectedOperation.id,
                     handle,
@@ -942,22 +976,28 @@ export function PdfCanvas({
                 onPointerDown={(event) => {
                   event.stopPropagation();
                   onOperationSelect(operation.id);
-                  // With the Text tool active, clicking a text overlay edits it in place
-                  // (reference-style) rather than starting a move-drag.
-                  if (activeTool === "text" && operation.type === "text") {
-                    /* v8 ignore next -- the already-editing (false) sub-branch: a pointerdown on an overlay that is already the active edit target does not re-fire selection in practice */
-                    if (editingTextId !== operation.id) setEditingTextId(operation.id);
-                    return;
-                  }
-                  // Move-drag is only available in Select tool or when move mode is explicitly on.
-                  if (activeTool !== "select" && moveModeOperationId !== operation.id) return;
+                  // A drag can start regardless of which tool is active or which overlay
+                  // type this is — moving an existing element must never depend on the
+                  // active tool. Whether this gesture turns out to be a plain click (e.g.
+                  // "enter text edit", "toggle checkbox") or an actual move is decided at
+                  // pointerup based on whether the pointer moved (see dragMoved / onPointerUp).
                   if (!canDragOperation(operation, editingTextId)) return;
                   /* v8 ignore next -- this handler only fires for overlays rendered inside the mounted stage, so stageRef.current is always populated */
                   if (!stageRef.current) return;
                   stageRef.current.setPointerCapture(event.pointerId);
                   const point = pointFromEvent(event, stageRef.current);
                   const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
-                  setDrag({ id: operation.id, start: pdfPoint, origin: { x: operation.rect.x, y: operation.rect.y } });
+                  const alignmentLines = collectAlignmentLines({
+                    movingId: operation.id,
+                    operations,
+                    textItems,
+                    pageIndex,
+                    pageWidth,
+                    pageHeight,
+                    scale,
+                  });
+                  dragMoved.current = false;
+                  setDrag({ id: operation.id, start: pdfPoint, origin: { x: operation.rect.x, y: operation.rect.y }, alignmentLines });
                 }}
                 onStartTextEdit={(id) => {
                   onOperationSelect(id);

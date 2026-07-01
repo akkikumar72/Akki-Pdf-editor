@@ -87,6 +87,15 @@ export function createOperationsForTool({
       ? Math.max(rect.width, estimateSingleLineTextWidth(text, fontSize, fontWeight))
       : Math.max(rect.width, 130);
     const coverRect = isReplacement ? padReplacementCoverRect(rect, fontSize) : undefined;
+    // A brand-new (non-replacement) box has no glyphs to hug yet, so size it to the
+    // font's own line height instead of an arbitrary flat constant. `textBaselineTopPaddingPx`
+    // pushes glyphs down by (boxHeight - 1.1*fontSize); a box far taller than one line
+    // (e.g. the old flat 28px against a 40pt font, or 28px dwarfing a 14pt line inside a
+    // 42px click box) visibly drops the caret below the click point. PDF rects anchor at
+    // the bottom-left, so shrinking `height` alone would shift the box down — preserve the
+    // top edge (unaffected by height) instead of the click's original `y`.
+    const newTextHeight = Math.max(fontSize * 1.15, 16);
+    const newTextTopEdge = rect.y + rect.height;
     return [
       {
         id: createId("text"),
@@ -100,7 +109,12 @@ export function createOperationsForTool({
               height: Math.max(coverRect?.height ?? rect.height, fontSize),
               /* v8 ignore stop */
             }
-          : { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, 28) },
+          : {
+              ...rect,
+              width: Math.max(rect.width, 130),
+              height: newTextHeight,
+              y: newTextTopEdge - newTextHeight,
+            },
         text,
         fontFamily: styleTextItem ? fontChoice.label : resolveFont().label,
         cssFontFamily: styleTextItem

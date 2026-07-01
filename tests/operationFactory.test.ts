@@ -200,7 +200,13 @@ describe("operation factory", () => {
     expect(operation.fontStyle).toBeUndefined();
     expect(operation.cssFontFamily).toBeUndefined();
     expect(operation.rect.width).toBeGreaterThanOrEqual(130);
-    expect(operation.rect.height).toBeGreaterThanOrEqual(28);
+    // Height must track the font's own line height (not a flat constant unrelated to
+    // fontSize) so the caret lands at the click point instead of visibly below it.
+    expect(operation.rect.height).toBeCloseTo(operation.fontSize * 1.15, 5);
+    // The click's top edge (pageHeight - viewportRect.top, here 792 - 50) must be
+    // preserved even though height shrank — PDF rects anchor at the bottom-left, so a
+    // naive height change without adjusting `y` would shift the box down on screen.
+    expect(operation.rect.y + operation.rect.height).toBeCloseTo(792 - 50, 5);
   });
 
   it("clamps to the sampled weight when no detected weight exists (generic font)", () => {

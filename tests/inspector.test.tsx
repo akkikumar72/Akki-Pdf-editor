@@ -205,6 +205,40 @@ describe("Inspector", () => {
     });
   });
 
+  describe("form-field checkbox operation", () => {
+    function checkbox(overrides: Partial<EditOperation> = {}): EditOperation {
+      return {
+        id: "cb-1",
+        type: "form-field",
+        kind: "checkbox",
+        pageIndex: 0,
+        rect,
+        createdAt: 1,
+        name: "Agree",
+        checked: false,
+        ...overrides,
+      } as EditOperation;
+    }
+
+    it("renders an unchecked toggle and fires an update on click", () => {
+      const { onUpdate } = renderInspector(checkbox({ checked: false }));
+      const toggle = screen.getByLabelText("Checked") as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      fireEvent.click(toggle);
+      expect(onUpdate).toHaveBeenCalledWith("cb-1", { checked: true });
+    });
+
+    it("reflects an already-checked state", () => {
+      renderInspector(checkbox({ checked: true }));
+      expect((screen.getByLabelText("Checked") as HTMLInputElement).checked).toBe(true);
+    });
+
+    it("does not render the checked toggle for a non-checkbox form field", () => {
+      renderInspector(checkbox({ kind: "text" }));
+      expect(screen.queryByLabelText("Checked")).not.toBeInTheDocument();
+    });
+  });
+
   describe("link operation", () => {
     it("renders the URL field, fires onChange, and sanitizes a safe URL on blur", () => {
       const link: EditOperation = {

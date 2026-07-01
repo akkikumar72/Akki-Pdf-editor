@@ -174,6 +174,17 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
               />
             </label>
           ) : null}
+
+          {operation.type === "form-field" && operation.kind === "checkbox" ? (
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={Boolean(operation.checked)}
+                onChange={(event) => update({ checked: event.currentTarget.checked } as Partial<EditOperation>)}
+              />
+              Checked
+            </label>
+          ) : null}
         </div>
       )}
 
