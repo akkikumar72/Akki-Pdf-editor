@@ -124,20 +124,6 @@ function textOp(overrides: Partial<TextOperation> = {}): TextOperation {
   };
 }
 
-function checkboxOp(overrides: Partial<EditOperation> = {}): EditOperation {
-  return {
-    id: "checkbox-1",
-    type: "form-field",
-    kind: "checkbox",
-    pageIndex: 0,
-    rect: { x: 100, y: 400, width: 24, height: 24 },
-    createdAt: 1,
-    name: "Agree",
-    checked: false,
-    ...overrides,
-  } as EditOperation;
-}
-
 function shapeOp(overrides: Partial<ShapeOperation> = {}): ShapeOperation {
   return {
     id: "shape-1",
@@ -869,48 +855,32 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     expect(onOperationUpdate).not.toHaveBeenCalled();
   });
 
-  it("clicking a checkbox with no movement toggles its checked state", () => {
-    const op = checkboxOp({ checked: false });
-    const onOperationUpdate = vi.fn();
-    const stageRef = { current: null } as Props["stageRef"];
-    const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
-    });
-    stageRef.current = stage;
-    const overlay = container.querySelector(".operation--form-checkbox") as HTMLElement;
-    fireEvent.pointerDown(overlay, { clientX: 100, clientY: 400, pointerId: 1 });
-    fireEvent.pointerUp(stage);
-    expect(onOperationUpdate).toHaveBeenCalledWith(op.id, { checked: true });
+  it("clicking with the Check mark tool places a mark centered on the click point", () => {
+    const onOperationAdd = vi.fn();
+    const { stage } = renderCanvas({ activeTool: "mark-check", onOperationAdd });
+    fireEvent.click(stage, { clientX: 100, clientY: 400 });
+    expect(onOperationAdd).toHaveBeenCalledTimes(1);
+    expect(onOperationAdd.mock.calls[0][0].type).toBe("form-mark");
+    expect(onOperationAdd.mock.calls[0][0].mark).toBe("check");
   });
 
-  it("clicking an already-checked checkbox unchecks it", () => {
-    const op = checkboxOp({ checked: true });
+  it("a placed check mark can be dragged like any other overlay", () => {
+    const op: EditOperation = {
+      id: "mark-1", type: "form-mark", mark: "check", pageIndex: 0,
+      rect: { x: 100, y: 400, width: 16, height: 16 }, createdAt: 1, color: "#111827",
+    };
     const onOperationUpdate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
       activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
     });
     stageRef.current = stage;
-    const overlay = container.querySelector(".operation--form-checkbox") as HTMLElement;
-    fireEvent.pointerDown(overlay, { clientX: 100, clientY: 400, pointerId: 1 });
-    fireEvent.pointerUp(stage);
-    expect(onOperationUpdate).toHaveBeenCalledWith(op.id, { checked: false });
-  });
-
-  it("dragging a checkbox moves it without toggling checked", () => {
-    const op = checkboxOp({ checked: false });
-    const onOperationUpdate = vi.fn();
-    const stageRef = { current: null } as Props["stageRef"];
-    const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
-    });
-    stageRef.current = stage;
-    const overlay = container.querySelector(".operation--form-checkbox") as HTMLElement;
+    const overlay = container.querySelector(".operation--form-mark") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 400, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 450 });
     fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
-    expect(onOperationUpdate.mock.calls.every(([, patch]) => !("checked" in (patch as object)))).toBe(true);
+    expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
   });
 });
 
@@ -1211,7 +1181,7 @@ describe("PdfCanvas - resizable type branches", () => {
     ["note annotation", { id: "a2", type: "annotation", kind: "note", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 40 }, createdAt: 1, color: "#00f", text: "n" }, true],
     ["strikeout annotation (not resizable)", { id: "a3", type: "annotation", kind: "strikeout", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 18 }, createdAt: 1, color: "#f00" }, false],
     ["link (not resizable)", { id: "l1", type: "link", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 20 }, createdAt: 1, href: "https://x.com" }, false],
-    ["form-mark (not resizable)", { id: "fm1", type: "form-mark", pageIndex: 0, rect: { x: 50, y: 500, width: 20, height: 20 }, createdAt: 1, mark: "check", color: "#000" }, false],
+    ["form-mark (resizable, to fit whatever box size the PDF has)", { id: "fm1", type: "form-mark", pageIndex: 0, rect: { x: 50, y: 500, width: 20, height: 20 }, createdAt: 1, mark: "check", color: "#000" }, true],
     ["shape line (not resizable)", { id: "s9", type: "shape", kind: "line", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 4 }, createdAt: 1, stroke: "#000", strokeWidth: 2 }, false],
   ])("%s -> resize handles present=%s", (_label, op, expected) => {
     const { container } = renderCanvas({ operations: [op as EditOperation], selectedId: (op as EditOperation).id });

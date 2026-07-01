@@ -2036,6 +2036,12 @@ select:disabled {
   border-radius: 999px;
 }
 
+.operation--form-mark {
+  place-items: center;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .operation--table-region {
   border: 1px dashed var(--color-accent);
   background: color-mix(in oklch, var(--color-accent-soft) 45%, transparent);

@@ -90,7 +90,7 @@ function isResizableOperation(operation: EditOperation) {
   if (operation.type === "text") return false;
   if (operation.type === "shape") return operation.kind === "rectangle" || operation.kind === "ellipse";
   if (operation.type === "annotation") return operation.kind === "highlight" || operation.kind === "note";
-  if (operation.type === "ink" || operation.type === "link" || operation.type === "form-mark") return false;
+  if (operation.type === "ink" || operation.type === "link") return false;
   return true;
 }
 
@@ -822,9 +822,7 @@ export function PdfCanvas({
             // overlay/tool combination means, instead of leaving the gesture inert.
             if (drag && !dragMoved.current) {
               const pressedOperation = operations.find((operation) => operation.id === drag.id);
-              if (pressedOperation?.type === "form-field" && pressedOperation.kind === "checkbox") {
-                onOperationUpdate(pressedOperation.id, { checked: !pressedOperation.checked } as Partial<EditOperation>);
-              } else if (activeTool === "text" && pressedOperation?.type === "text" && editingTextId !== pressedOperation.id) {
+              if (activeTool === "text" && pressedOperation?.type === "text" && editingTextId !== pressedOperation.id) {
                 // Reference-style click-to-edit: only fires when the click didn't drag.
                 setEditingTextId(pressedOperation.id);
               }

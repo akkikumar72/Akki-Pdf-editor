@@ -365,14 +365,6 @@ describe("operation factory", () => {
     if (radio.type !== "form-field") throw new Error("Expected form-field");
     expect(radio.checked).toBe(false);
 
-    const checkbox = createOperationsForTool({
-      ...baseInput,
-      activeTool: "form-checkbox",
-      prompt: () => "c",
-    })[0];
-    if (checkbox.type !== "form-field") throw new Error("Expected form-field");
-    expect(checkbox.checked).toBe(false);
-
     const signature = createOperationsForTool({
       ...baseInput,
       activeTool: "form-signature",
@@ -381,6 +373,17 @@ describe("operation factory", () => {
     if (signature.type !== "form-field") throw new Error("Expected form-field");
     expect(signature.kind).toBe("signature");
     expect(signature.value).toBe("Signature");
+  });
+
+  it("creates a check mark centered on the click point, not top-left anchored", () => {
+    const [mark] = createOperationsForTool({ ...baseInput, activeTool: "mark-check" });
+    if (mark.type !== "form-mark") throw new Error("Expected form-mark");
+    expect(mark.mark).toBe("check");
+    // baseInput's viewportRect click is left:50,top:50 against pageHeight 792 at
+    // scale 1, so the click's PDF-space point is (50, 742) — the mark must be
+    // centered there (a 16pt square), not anchored with that point as its corner.
+    expect(mark.rect).toEqual({ x: 42, y: 734, width: 16, height: 16 });
+    expect(mark.opacity).toBe(1);
   });
 
   it("uses the default field name and counts existing form fields", () => {

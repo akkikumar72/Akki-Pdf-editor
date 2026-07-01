@@ -205,37 +205,37 @@ describe("Inspector", () => {
     });
   });
 
-  describe("form-field checkbox operation", () => {
-    function checkbox(overrides: Partial<EditOperation> = {}): EditOperation {
+  describe("form-mark operation", () => {
+    function mark(overrides: Partial<EditOperation> = {}): EditOperation {
       return {
-        id: "cb-1",
-        type: "form-field",
-        kind: "checkbox",
+        id: "fm-1",
+        type: "form-mark",
+        mark: "check",
         pageIndex: 0,
         rect,
         createdAt: 1,
-        name: "Agree",
-        checked: false,
+        color: "#111827",
         ...overrides,
       } as EditOperation;
     }
 
-    it("renders an unchecked toggle and fires an update on click", () => {
-      const { onUpdate } = renderInspector(checkbox({ checked: false }));
-      const toggle = screen.getByLabelText("Checked") as HTMLInputElement;
-      expect(toggle.checked).toBe(false);
-      fireEvent.click(toggle);
-      expect(onUpdate).toHaveBeenCalledWith("cb-1", { checked: true });
+    it("renders a mark-style segmented control and fires an update when switching styles", () => {
+      const { onUpdate } = renderInspector(mark({ mark: "check" }));
+      const seg = screen.getByLabelText("Mark style");
+      const buttons = within(seg).getAllByRole("button");
+      expect(buttons).toHaveLength(3);
+      buttons.forEach((b) => fireEvent.click(b));
+      expect(onUpdate).toHaveBeenCalledWith("fm-1", { mark: "check" });
+      expect(onUpdate).toHaveBeenCalledWith("fm-1", { mark: "cross" });
+      expect(onUpdate).toHaveBeenCalledWith("fm-1", { mark: "dot" });
     });
 
-    it("reflects an already-checked state", () => {
-      renderInspector(checkbox({ checked: true }));
-      expect((screen.getByLabelText("Checked") as HTMLInputElement).checked).toBe(true);
-    });
-
-    it("does not render the checked toggle for a non-checkbox form field", () => {
-      renderInspector(checkbox({ kind: "text" }));
-      expect(screen.queryByLabelText("Checked")).not.toBeInTheDocument();
+    it("renders a color picker and fires an update on change", () => {
+      const { onUpdate } = renderInspector(mark({ color: "#111827" }));
+      const color = screen.getByLabelText("Color") as HTMLInputElement;
+      expect(color.value).toBe("#111827");
+      fireEvent.change(color, { target: { value: "#ff0000" } });
+      expect(onUpdate).toHaveBeenCalledWith("fm-1", { color: "#ff0000" });
     });
   });
 

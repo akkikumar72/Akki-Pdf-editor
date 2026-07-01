@@ -332,9 +332,20 @@ export function OperationOverlay({
     );
   }
 
+  if (operation.type === "form-mark") {
+    const glyph = operation.mark === "check" ? "\u2713" : operation.mark === "cross" ? "\u2717" : "\u25CF";
+    return (
+      <div
+        className={className}
+        style={{ ...style, color: operation.color, fontSize: Math.max(8, rect.height * 0.85) }}
+        onPointerDown={onPointerDown}
+      >
+        <span aria-hidden="true">{glyph}</span>
+      </div>
+    );
+  }
+
   return (
-    <div className={className} style={style} onPointerDown={onPointerDown}>
-      {operation.type === "form-mark" ? operation.mark : null}
-    </div>
+    <div className={className} style={style} onPointerDown={onPointerDown} />
   );
 }

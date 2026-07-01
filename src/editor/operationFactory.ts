@@ -36,9 +36,11 @@ const FORM_KIND_BY_TOOL = {
   "form-multiline": "multiline",
   "form-dropdown": "dropdown",
   "form-radio": "radio",
-  "form-checkbox": "checkbox",
   "form-signature": "signature",
 } as const;
+
+/** Square size (PDF pt) for a freshly placed check mark, before the user resizes it. */
+const CHECK_MARK_SIZE = 16;
 
 function estimateSingleLineTextWidth(text: string, fontSize: number, fontWeight?: number) {
   const uppercaseCount = [...text].filter((char) => /[A-Z]/.test(char)).length;
@@ -313,6 +315,33 @@ export function createOperationsForTool({
     ];
   }
 
+  if (activeTool === "mark-check") {
+    // Center the mark on the actual click point rather than anchoring its top-left
+    // there — an existing printed checkbox is usually small, so centering on the
+    // click makes it much easier to land the mark inside it. `rect.x` is exactly the
+    // click's PDF-space X (unaffected by the placeholder box's width); `rect.y +
+    // rect.height` is the click's PDF-space Y (unaffected by the placeholder height).
+    const clickX = rect.x;
+    const clickY = rect.y + rect.height;
+    return [
+      {
+        id: createId("mark"),
+        type: "form-mark",
+        mark: "check",
+        pageIndex,
+        rect: {
+          x: clickX - CHECK_MARK_SIZE / 2,
+          y: clickY - CHECK_MARK_SIZE / 2,
+          width: CHECK_MARK_SIZE,
+          height: CHECK_MARK_SIZE,
+        },
+        color: DEFAULT_COLORS.ink,
+        opacity: 1,
+        createdAt: now,
+      },
+    ];
+  }
+
   if (activeTool in FORM_KIND_BY_TOOL) {
     const index = operations.filter((operation) => operation.type === "form-field").length + 1;
     const name = prompt("Field name", `${toolLabel(activeTool).replace(/\s+/g, "_").toLowerCase()}_${index}`);
@@ -338,7 +367,7 @@ export function createOperationsForTool({
         name,
         value: activeTool === "form-signature" ? "Signature" : undefined,
         options,
-        checked: activeTool === "form-checkbox" || activeTool === "form-radio" ? false : undefined,
+        checked: activeTool === "form-radio" ? false : undefined,
         opacity: 1,
         createdAt: now,
       },
