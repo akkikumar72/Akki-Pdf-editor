@@ -1,7 +1,26 @@
 import { strToU8, zipSync } from "fflate";
-import type { DocumentFonts, EditOperation, ExportFormat, TextItem } from "../types/editor";
+import type { DocumentFonts, EditOperation, ExportFormat, PdfRect, TextItem } from "../types/editor";
 import { downloadBlob, safeBaseName } from "../utils/download";
 import { PdfEngine, pdfEngine as defaultPdfEngine } from "./pdfEngine";
+
+function rectOverlapArea(a: PdfRect, b: PdfRect) {
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.width, b.x + b.width);
+  const y2 = Math.min(a.y + a.height, b.y + b.height);
+  return Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+}
+
+/**
+ * An original PDF text run counts as replaced once a cover rect (a `whiteout`
+ * op, or a replacement `text` op's `sourceCoverRect`) overlaps at least half
+ * its area -- matching how `savePdf` paints over it.
+ */
+function isSignificantlyCovered(itemRect: PdfRect, coverRect: PdfRect) {
+  const itemArea = itemRect.width * itemRect.height;
+  if (itemArea <= 0) return false;
+  return rectOverlapArea(itemRect, coverRect) / itemArea >= 0.5;
+}
 
 export type ExportContext = {
   filename: string;
@@ -23,7 +42,10 @@ export class ExportPipeline {
         return;
       }
       case "txt": {
-        downloadBlob(new Blob([this.toText(context.textItems)], { type: "text/plain;charset=utf-8" }), `${base}.txt`);
+        downloadBlob(
+          new Blob([this.toText(context.textItems, context.operations)], { type: "text/plain;charset=utf-8" }),
+          `${base}.txt`,
+        );
         return;
       }
       case "csv": {
@@ -46,8 +68,8 @@ export class ExportPipeline {
     }
   }
 
-  toText(textItems: TextItem[]) {
-    return this.groupRows(textItems)
+  toText(textItems: TextItem[], operations: EditOperation[] = []) {
+    return this.groupRows(this.effectiveTextItems(textItems, operations))
       .map((row) => row.map((item) => item.str).join(" "))
       .join("\n");
   }
@@ -64,10 +86,41 @@ export class ExportPipeline {
     return createWorkbookZip(rows.length ? rows : [["No table-like text detected"]]);
   }
 
+  /**
+   * Merges the original PDF text extraction with in-editor edits so data
+   * exports (txt/csv/xlsx) reflect what the user sees, not stale source
+   * text: drops original runs a `whiteout` or replacement `text` op covers,
+   * and appends every `text` op (replacement or newly added) as a
+   * synthetic run positioned by its own rect.
+   */
+  private effectiveTextItems(textItems: TextItem[], operations: EditOperation[]): TextItem[] {
+    const coverRects: Array<{ pageIndex: number; rect: PdfRect }> = [];
+    const additions: TextItem[] = [];
+
+    for (const operation of operations) {
+      if (operation.type === "whiteout") {
+        coverRects.push({ pageIndex: operation.pageIndex, rect: operation.rect });
+      } else if (operation.type === "text") {
+        if (operation.sourceCoverRect) {
+          coverRects.push({ pageIndex: operation.pageIndex, rect: operation.sourceCoverRect });
+        }
+        additions.push({ str: operation.text, pageIndex: operation.pageIndex, rect: operation.rect });
+      }
+    }
+
+    const remaining = textItems.filter(
+      (item) =>
+        !coverRects.some((cover) => cover.pageIndex === item.pageIndex && isSignificantlyCovered(item.rect, cover.rect)),
+    );
+
+    return [...remaining, ...additions];
+  }
+
   private tableRows(textItems: TextItem[], operations: EditOperation[]) {
+    const merged = this.effectiveTextItems(textItems, operations);
     const tableRegions = operations.filter((operation) => operation.type === "table-region");
     const source = tableRegions.length
-      ? textItems.filter((item) =>
+      ? merged.filter((item) =>
           tableRegions.some((region) =>
             region.pageIndex === item.pageIndex &&
             item.rect.x >= region.rect.x &&
@@ -76,7 +129,7 @@ export class ExportPipeline {
             item.rect.y <= region.rect.y + region.rect.height,
           ),
         )
-      : textItems;
+      : merged;
 
     return this.groupRows(source).map((row) => row.map((item) => item.str));
   }
