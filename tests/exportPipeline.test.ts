@@ -202,6 +202,23 @@ describe("export pipeline – edit-aware data export", () => {
     expect(sheet).toContain("$50");
     expect(sheet).not.toContain("$42");
   });
+
+  it("keeps a zero-area text item instead of treating it as covered (avoids a divide-by-zero)", () => {
+    const zeroArea: TextItem[] = [
+      { str: "Ghost", pageIndex: 0, rect: { x: 10, y: 700, width: 0, height: 0 } },
+    ];
+    const csv = new ExportPipeline().toCsv(zeroArea, [
+      {
+        id: "hide_everything",
+        type: "whiteout",
+        pageIndex: 0,
+        rect: { x: 0, y: 0, width: 1000, height: 1000 },
+        color: "#ffffff",
+        createdAt: 1,
+      },
+    ]);
+    expect(csv).toContain("Ghost");
+  });
 });
 
 describe("export pipeline – export() dispatch", () => {

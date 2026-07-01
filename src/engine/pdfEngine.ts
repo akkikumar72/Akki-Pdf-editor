@@ -360,6 +360,7 @@ export class PdfEngine {
           // Intentionally not drawn — a table-region is a non-exported
           // organizational marker that renders only as an overlay label.
           break;
+        /* v8 ignore next 4 -- exhaustiveness guard: the EditOperation union has no member left unhandled above, so this branch is unreachable at runtime and only guards against a future variant being missed at compile time */
         default: {
           const exhaustive: never = operation;
           void exhaustive;

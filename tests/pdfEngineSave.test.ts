@@ -792,6 +792,14 @@ describe("PdfEngine.savePdf – export validity (writer registry regression)", (
         href: "https://example.com",
         createdAt: 6,
       },
+      {
+        id: "table_region_1",
+        type: "table-region",
+        label: "Table 1",
+        pageIndex: 1,
+        rect: { x: 72, y: 300, width: 200, height: 80 },
+        createdAt: 7,
+      },
     ];
     const out = await pdfEngine.savePdf(original, operations);
     const reloaded = await PDFDocument.load(out);
