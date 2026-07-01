@@ -224,7 +224,7 @@ export function FloatingOperationToolbar({
   return (
     <div
       ref={toolbarRef}
-      className="absolute z-40 flex items-center gap-0.5 rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+      className="floating-toolbar pointer-events-auto absolute z-40 flex items-center gap-0.5 rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
       data-placement={toolbarPlacement.placement}
       aria-label="Inline edit tools"
       role="toolbar"
