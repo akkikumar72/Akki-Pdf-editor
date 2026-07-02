@@ -176,6 +176,42 @@ describe("storage", () => {
     ]);
   });
 
+  it("normalizes legacy { href } link operations everywhere on session load", async () => {
+    const rect = { x: 1, y: 2, width: 10, height: 5 };
+    const legacyUrl = { id: "l1", type: "link", pageIndex: 0, rect, createdAt: 1, href: "https://x.dev" };
+    const legacyMail = { id: "l2", type: "link", pageIndex: 0, rect, createdAt: 2, href: "mailto:a@b.dev" };
+    await putRaw({
+      id: "legacy-links",
+      name: "Legacy",
+      updatedAt: 99,
+      bytes: new Uint8Array([1]),
+      operations: [legacyUrl],
+      editState: {
+        operations: [legacyUrl, legacyMail],
+        past: [{ id: "h1", label: "add", timestamp: 1, operations: [legacyUrl] }],
+        future: [{ id: "h2", label: "redo", timestamp: 2, operations: [legacyMail] }],
+      },
+    });
+    const got = await getSession("legacy-links");
+    const ops = got!.editState!.operations as Array<{ target?: unknown; href?: unknown }>;
+    expect(ops[0].target).toEqual({ kind: "url", href: "https://x.dev" });
+    expect(ops[1].target).toEqual({ kind: "email", href: "mailto:a@b.dev" });
+    expect(ops[0].href).toBeUndefined();
+    expect((got!.operations![0] as { target?: unknown }).target).toEqual({ kind: "url", href: "https://x.dev" });
+    expect((got!.editState!.past[0].operations[0] as { target?: unknown }).target).toEqual({ kind: "url", href: "https://x.dev" });
+    expect((got!.editState!.future[0].operations[0] as { target?: unknown }).target).toEqual({ kind: "email", href: "mailto:a@b.dev" });
+
+    const latest = await getLatestSession();
+    expect((latest!.editState!.operations[0] as { target?: unknown }).target).toEqual({ kind: "url", href: "https://x.dev" });
+  });
+
+  it("normalizes sessions missing operations or editState without inventing them", async () => {
+    await putRaw({ id: "bare", name: "Bare", updatedAt: 5, bytes: new Uint8Array([1]) });
+    const got = await getSession("bare");
+    expect(got?.operations).toBeUndefined();
+    expect(got?.editState).toBeUndefined();
+  });
+
   it("saveSession overwrites an existing id (put semantics)", async () => {
     await saveSession(makeInput({ id: "dup", name: "first", updatedAt: 1 }));
     await saveSession(makeInput({ id: "dup", name: "second", updatedAt: 2 }));

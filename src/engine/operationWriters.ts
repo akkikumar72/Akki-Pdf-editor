@@ -13,7 +13,7 @@ import type {
   TextOperation,
 } from "../types/editor";
 import { dataUrlToBytes } from "../utils/download";
-import { sanitizeUrl } from "../utils/url";
+import { sanitizeLinkTarget } from "../utils/url";
 import { textBaselineDrawY } from "../utils/textMetrics";
 
 function hexToRgb(color: string) {
@@ -427,20 +427,31 @@ export async function writeFormField(page: PDFPage, operation: FormFieldOperatio
 }
 
 export function writeLink(pdf: PDFDocument, page: PDFPage, operation: LinkOperation) {
-  const safeHref = sanitizeUrl(operation.href);
-  if (!safeHref) return;
+  const target = sanitizeLinkTarget(operation.target);
+  if (!target) return;
+  // sanitizeLinkTarget already rejects negative page indexes; the upper bound
+  // can only be validated here, against the document being written.
+  if (target.kind === "page" && target.pageIndex >= pdf.getPageCount()) return;
 
   const rect = operation.rect;
+  const action =
+    target.kind === "page"
+      ? {
+          Type: "Action",
+          S: "GoTo",
+          D: [pdf.getPage(target.pageIndex).ref, PDFName.of("XYZ"), null, null, null],
+        }
+      : {
+          Type: "Action",
+          S: "URI",
+          URI: PDFString.of(target.href),
+        };
   const annotation = pdf.context.obj({
     Type: "Annot",
     Subtype: "Link",
     Rect: [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height],
     Border: [0, 0, 0],
-    A: {
-      Type: "Action",
-      S: "URI",
-      URI: PDFString.of(safeHref),
-    },
+    A: action,
   });
   const annotations = page.node.Annots();
   if (annotations) {
@@ -448,6 +459,9 @@ export function writeLink(pdf: PDFDocument, page: PDFPage, operation: LinkOperat
   } else {
     page.node.set(PDFName.of("Annots"), pdf.context.obj([annotation]));
   }
+  // Imported links re-emit the original (invisible) annotation; painting the
+  // editor's blue frame onto them would deface the source document.
+  if (operation.imported) return;
   page.drawRectangle({
     x: rect.x,
     y: rect.y,

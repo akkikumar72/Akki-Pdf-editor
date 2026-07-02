@@ -248,8 +248,17 @@ describe("export pipeline – export() dispatch", () => {
 
   it("routes to savePdf and downloads a pdf", async () => {
     await makePipeline().export("pdf", context);
-    expect(fakeEngine.savePdf).toHaveBeenCalledWith(context.bytes, context.operations, undefined);
+    expect(fakeEngine.savePdf).toHaveBeenCalledWith(context.bytes, context.operations, undefined, {
+      suppressLinkAnnotationIds: undefined,
+    });
     expect(downloadSpy).toHaveBeenCalledWith(expect.any(Blob), "My-Report-edited.pdf");
+  });
+
+  it("forwards imported-link suppression ids to savePdf", async () => {
+    await makePipeline().export("pdf", { ...context, suppressLinkAnnotationIds: ["7R"] });
+    expect(fakeEngine.savePdf).toHaveBeenCalledWith(context.bytes, context.operations, undefined, {
+      suppressLinkAnnotationIds: ["7R"],
+    });
   });
 
   it("downloads txt, csv and xlsx with safe base names", async () => {

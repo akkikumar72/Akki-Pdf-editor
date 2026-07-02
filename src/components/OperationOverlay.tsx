@@ -1,6 +1,7 @@
 import type { DocumentFonts, EditOperation } from "../types/editor";
 import { resolveFont } from "../engine/fontResolver";
 import { SIGNATURE_FONTS } from "../editor/signatureFonts";
+import { describeLinkTarget } from "../editor/linkTarget";
 import { cssFamilyForFontKey, ensureEmbeddedFontLoaded } from "../engine/fontRegistry";
 import { NEW_TEXT_PLACEHOLDER } from "../editor/operationFactory";
 import { pdfRectToViewport } from "../utils/coordinates";
@@ -340,9 +341,16 @@ function OperationOverlayComponent({
     }
 
     case "link":
+      // Imported PDF links stay visually quiet (dashed outline only) so the
+      // original page content shows through; user-created links keep their
+      // kind-aware label (URL host, address, number, "Page N").
       return (
-        <div className={className} style={style} onPointerDown={handlePointerDown}>
-          <span>{operation.href}</span>
+        <div
+          className={`${className}${operation.imported ? " operation--link-imported" : ""}`}
+          style={style}
+          onPointerDown={handlePointerDown}
+        >
+          {operation.imported ? null : <span>{describeLinkTarget(operation.target)}</span>}
         </div>
       );
 

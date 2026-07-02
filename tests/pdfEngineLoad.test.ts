@@ -91,9 +91,15 @@ function makePage(opts: {
   styles?: Record<string, Record<string, unknown>>;
   operatorListThrows?: boolean;
   commonObjs?: unknown;
+  annotations?: ItemSpec[];
+  annotationsThrow?: boolean;
 }) {
   return {
     getTextContent: async () => ({ items: opts.items, styles: opts.styles ?? {} }),
+    getAnnotations: async () => {
+      if (opts.annotationsThrow) throw new Error("annotations unavailable");
+      return opts.annotations ?? [];
+    },
     getOperatorList: async () => {
       if (opts.operatorListThrows) throw new Error("no op list");
       return {};
@@ -102,11 +108,19 @@ function makePage(opts: {
   };
 }
 
-function makePdf(pages: ReturnType<typeof makePage>[]) {
+function makePdf(
+  pages: ReturnType<typeof makePage>[],
+  opts: {
+    getDestination?: (name: string) => Promise<unknown>;
+    getPageIndex?: (ref: unknown) => Promise<number>;
+  } = {},
+) {
   return {
     numPages: pages.length,
     destroy: vi.fn(async () => undefined),
     getPage: async (n: number) => pages[n - 1],
+    getDestination: opts.getDestination ?? (async () => null),
+    getPageIndex: opts.getPageIndex ?? (async () => 0),
   };
 }
 
@@ -346,5 +360,114 @@ describe("PdfEngine.extractTextAndFonts", () => {
     state.getDocument.mockReturnValue({ promise: Promise.resolve(pdf) });
     const { items } = await engine.extractTextAndFonts(new Uint8Array([1]));
     expect(items).toHaveLength(1);
+  });
+});
+
+describe("PdfEngine.extractTextAndFonts – link annotation import", () => {
+  let engine: PdfEngine;
+  beforeEach(() => {
+    engine = new PdfEngine();
+  });
+
+  it("imports URI /Link annotations classified by scheme, skipping unsafe and malformed ones", async () => {
+    const page = makePage({
+      items: [],
+      annotations: [
+        { subtype: "Link", id: "13R", rect: [10, 20, 110, 50], url: "https://example.com" },
+        { subtype: "Link", id: "14R", rect: [10, 60, 110, 90], url: "MAILTO:a@b.dev" },
+        { subtype: "Link", id: "15R", rect: [10, 100, 110, 130], url: "tel:+1 234-567" },
+        // Unnormalized rect corners + non-string id -> ref undefined.
+        { subtype: "Link", id: 7, rect: [110, 150, 10, 120], url: "https://swapped.example" },
+        // Skipped: wrong subtype, missing/short rect, unsafe or invalid values.
+        { subtype: "Widget", rect: [0, 0, 1, 1], url: "https://widget.example" },
+        { subtype: "Link", url: "https://norect.example" },
+        { subtype: "Link", rect: [0, 0], url: "https://shortrect.example" },
+        { subtype: "Link", rect: [0, 0, 1, 1], url: "javascript:alert(1)" },
+        { subtype: "Link", rect: [0, 0, 1, 1], url: "mailto:not-an-email" },
+        { subtype: "Link", rect: [0, 0, 1, 1], url: "tel:abc" },
+      ],
+    });
+    state.getDocument.mockReturnValue({ promise: Promise.resolve(makePdf([page])) });
+    const { links } = await engine.extractTextAndFonts(new Uint8Array([1]));
+    expect(links).toEqual([
+      {
+        pageIndex: 0,
+        rect: { x: 10, y: 20, width: 100, height: 30 },
+        target: { kind: "url", href: "https://example.com/" },
+        annotationRef: "13R",
+      },
+      {
+        pageIndex: 0,
+        rect: { x: 10, y: 60, width: 100, height: 30 },
+        target: { kind: "email", href: "mailto:a@b.dev" },
+        annotationRef: "14R",
+      },
+      {
+        pageIndex: 0,
+        rect: { x: 10, y: 100, width: 100, height: 30 },
+        target: { kind: "phone", href: "tel:+1234567" },
+        annotationRef: "15R",
+      },
+      {
+        pageIndex: 0,
+        rect: { x: 10, y: 120, width: 100, height: 30 },
+        target: { kind: "url", href: "https://swapped.example/" },
+        annotationRef: undefined,
+      },
+    ]);
+  });
+
+  it("imports GoTo destinations from inline arrays and named destinations", async () => {
+    const refA = { num: 3, gen: 0 };
+    const refB = { num: 5, gen: 0 };
+    const page = makePage({
+      items: [],
+      annotations: [
+        { subtype: "Link", id: "1R", rect: [0, 0, 10, 10], dest: [refA, { name: "XYZ" }, null, null, null] },
+        { subtype: "Link", id: "2R", rect: [0, 20, 10, 30], dest: "namedDest" },
+        // Skipped: named dest that does not resolve, missing dest, dest[0] null.
+        { subtype: "Link", rect: [0, 40, 10, 50], dest: "missingDest" },
+        { subtype: "Link", rect: [0, 60, 10, 70] },
+        { subtype: "Link", rect: [0, 80, 10, 90], dest: [null] },
+      ],
+    });
+    const getDestination = vi.fn(async (name: string) => (name === "namedDest" ? [refB] : null));
+    const getPageIndex = vi.fn(async (ref: unknown) => (ref === refA ? 1 : 2));
+    state.getDocument.mockReturnValue({ promise: Promise.resolve(makePdf([page], { getDestination, getPageIndex })) });
+    const { links } = await engine.extractTextAndFonts(new Uint8Array([1]));
+    expect(links.map((link) => link.target)).toEqual([
+      { kind: "page", pageIndex: 1 },
+      { kind: "page", pageIndex: 2 },
+    ]);
+  });
+
+  it("skips GoTo links whose page index cannot be resolved or is bogus", async () => {
+    const page = makePage({
+      items: [],
+      annotations: [
+        { subtype: "Link", rect: [0, 0, 10, 10], dest: [{ num: 1, gen: 0 }] },
+        { subtype: "Link", rect: [0, 20, 10, 30], dest: [{ num: 2, gen: 0 }] },
+        { subtype: "Link", rect: [0, 40, 10, 50], dest: [{ num: 3, gen: 0 }] },
+      ],
+    });
+    const getPageIndex = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("unresolvable"))
+      .mockResolvedValueOnce(-1)
+      .mockResolvedValueOnce(1.5);
+    state.getDocument.mockReturnValue({ promise: Promise.resolve(makePdf([page], { getPageIndex })) });
+    const { links } = await engine.extractTextAndFonts(new Uint8Array([1]));
+    expect(links).toEqual([]);
+  });
+
+  it("continues text extraction when getAnnotations rejects", async () => {
+    const page = makePage({
+      items: [{ str: "Still here", transform: [10, 0, 0, 10, 0, 0], fontName: "a" }],
+      annotationsThrow: true,
+    });
+    state.getDocument.mockReturnValue({ promise: Promise.resolve(makePdf([page])) });
+    const { items, links } = await engine.extractTextAndFonts(new Uint8Array([1]));
+    expect(items).toHaveLength(1);
+    expect(links).toEqual([]);
   });
 });

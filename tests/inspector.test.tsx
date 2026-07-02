@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Inspector } from "../src/components/Inspector";
-import type { EditOperation, TextItem, TextOperation } from "../src/types/editor";
+import type { EditOperation, LinkOperation, TextItem, TextOperation } from "../src/types/editor";
 
 const rect = { x: 10, y: 20, width: 100, height: 40 };
 
@@ -25,7 +25,7 @@ function baseText(overrides: Partial<TextOperation> = {}): TextOperation {
 
 function renderInspector(
   operation?: EditOperation,
-  opts: Partial<{ operationCount: number; pageTextItems: TextItem[]; selectedCount: number }> = {},
+  opts: Partial<{ operationCount: number; pageCount: number; pageTextItems: TextItem[]; selectedCount: number }> = {},
 ) {
   const onDuplicateSelected = vi.fn();
   const onExport = vi.fn();
@@ -35,6 +35,7 @@ function renderInspector(
     <Inspector
       operation={operation}
       operationCount={opts.operationCount ?? 2}
+      pageCount={opts.pageCount}
       pageTextItems={opts.pageTextItems ?? []}
       selectedCount={opts.selectedCount ?? (operation ? 1 : 0)}
       onDuplicateSelected={onDuplicateSelected}
@@ -359,36 +360,69 @@ describe("Inspector", () => {
   });
 
   describe("link operation", () => {
+    function linkOp(target: LinkOperation["target"], id = "l1"): EditOperation {
+      return { id, type: "link", pageIndex: 0, rect, createdAt: 1, target };
+    }
+
     it("renders the URL field, fires onChange, and sanitizes a safe URL on blur", () => {
-      const link: EditOperation = {
-        id: "l1",
-        type: "link",
-        pageIndex: 0,
-        rect,
-        createdAt: 1,
-        href: "example.com",
-      };
-      const { onUpdate } = renderInspector(link);
+      const { onUpdate } = renderInspector(linkOp({ kind: "url", href: "https://example.com" }));
       const url = screen.getByLabelText("URL");
       fireEvent.change(url, { target: { value: "https://safe.test/path" } });
-      expect(onUpdate).toHaveBeenCalledWith("l1", { href: "https://safe.test/path" });
+      expect(onUpdate).toHaveBeenCalledWith("l1", { target: { kind: "url", href: "https://safe.test/path" } });
 
       fireEvent.blur(url, { target: { value: "https://safe.test/path" } });
-      expect(onUpdate).toHaveBeenCalledWith("l1", { href: "https://safe.test/path" });
+      expect(onUpdate).toHaveBeenCalledWith("l1", { target: { kind: "url", href: "https://safe.test/path" } });
     });
 
     it("clears the field on blur for an unsafe URL", () => {
-      const link: EditOperation = {
-        id: "l2",
-        type: "link",
-        pageIndex: 0,
-        rect,
-        createdAt: 1,
-        href: "javascript:alert(1)",
-      };
-      const { onUpdate } = renderInspector(link);
+      const { onUpdate } = renderInspector(linkOp({ kind: "url", href: "javascript:alert(1)" }, "l2"));
       fireEvent.blur(screen.getByLabelText("URL"), { target: { value: "javascript:alert(1)" } });
-      expect(onUpdate).toHaveBeenCalledWith("l2", { href: "" });
+      expect(onUpdate).toHaveBeenCalledWith("l2", { target: { kind: "url", href: "" } });
+    });
+
+    it("switches the link kind, defaulting page targets to page 1 and href kinds to empty", () => {
+      const { onUpdate } = renderInspector(linkOp({ kind: "url", href: "https://example.com" }));
+      const kind = screen.getByLabelText("Link type");
+      fireEvent.change(kind, { target: { value: "page" } });
+      expect(onUpdate).toHaveBeenCalledWith("l1", { target: { kind: "page", pageIndex: 0 } });
+      fireEvent.change(kind, { target: { value: "email" } });
+      expect(onUpdate).toHaveBeenCalledWith("l1", { target: { kind: "email", href: "" } });
+    });
+
+    it("edits an email target and normalizes to mailto on blur, clearing invalid addresses", () => {
+      const { onUpdate } = renderInspector(linkOp({ kind: "email", href: "mailto:old@example.com" }, "l3"));
+      const email = screen.getByLabelText("Email");
+      expect(email).toHaveValue("old@example.com");
+      fireEvent.change(email, { target: { value: "new@example.com" } });
+      expect(onUpdate).toHaveBeenCalledWith("l3", { target: { kind: "email", href: "new@example.com" } });
+      fireEvent.blur(email, { target: { value: "new@example.com" } });
+      expect(onUpdate).toHaveBeenCalledWith("l3", { target: { kind: "email", href: "mailto:new@example.com" } });
+      fireEvent.blur(email, { target: { value: "not-an-email" } });
+      expect(onUpdate).toHaveBeenCalledWith("l3", { target: { kind: "email", href: "" } });
+    });
+
+    it("edits a phone target and normalizes to tel on blur, clearing invalid numbers", () => {
+      const { onUpdate } = renderInspector(linkOp({ kind: "phone", href: "tel:+123456789" }, "l4"));
+      const phone = screen.getByLabelText("Phone");
+      expect(phone).toHaveValue("+123456789");
+      fireEvent.change(phone, { target: { value: "+1 (555) 000-1234" } });
+      expect(onUpdate).toHaveBeenCalledWith("l4", { target: { kind: "phone", href: "+1 (555) 000-1234" } });
+      fireEvent.blur(phone, { target: { value: "+1 (555) 000-1234" } });
+      expect(onUpdate).toHaveBeenCalledWith("l4", { target: { kind: "phone", href: "tel:+15550001234" } });
+      fireEvent.blur(phone, { target: { value: "abc" } });
+      expect(onUpdate).toHaveBeenCalledWith("l4", { target: { kind: "phone", href: "" } });
+    });
+
+    it("edits a page target clamped to the document's page count", () => {
+      const { onUpdate } = renderInspector(linkOp({ kind: "page", pageIndex: 1 }, "l5"), { pageCount: 3 });
+      const page = screen.getByLabelText("Page");
+      expect(page).toHaveValue(2);
+      fireEvent.change(page, { target: { value: "3" } });
+      expect(onUpdate).toHaveBeenCalledWith("l5", { target: { kind: "page", pageIndex: 2 } });
+      fireEvent.change(page, { target: { value: "9" } });
+      expect(onUpdate).toHaveBeenCalledWith("l5", { target: { kind: "page", pageIndex: 2 } });
+      fireEvent.change(page, { target: { value: "" } });
+      expect(onUpdate).toHaveBeenCalledWith("l5", { target: { kind: "page", pageIndex: 0 } });
     });
   });
 

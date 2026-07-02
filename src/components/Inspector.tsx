@@ -1,11 +1,12 @@
 import { AlignCenter, AlignLeft, AlignRight, Check, Circle, Copy, FileSpreadsheet, FileText, SlidersHorizontal, Trash2, X } from "lucide-react";
-import type { EditOperation, ExportFormat, FormMarkOperation, TextAlign, TextItem } from "../types/editor";
+import type { EditOperation, ExportFormat, FormMarkOperation, LinkTarget, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
-import { sanitizeUrl } from "../utils/url";
+import { sanitizeEmailToMailto, sanitizeTel, sanitizeUrl } from "../utils/url";
 
 type InspectorProps = {
   operation?: EditOperation;
   operationCount: number;
+  pageCount?: number;
   pageTextItems: TextItem[];
   /** How many operations are selected; >1 swaps the per-field editor for group actions. */
   selectedCount: number;
@@ -18,6 +19,7 @@ type InspectorProps = {
 export function Inspector({
   operation,
   operationCount,
+  pageCount = 1,
   pageTextItems,
   selectedCount,
   onDuplicateSelected,
@@ -198,19 +200,80 @@ export function Inspector({
           ) : null}
 
           {operation.type === "link" ? (
-            <label>
-              URL
-              <input
-                value={operation.href}
-                onChange={(event) => update({ href: event.currentTarget.value } as Partial<EditOperation>)}
-                onBlur={(event) => {
-                  // Never leave an unsafe URL in the edit model. sanitizeUrl returns the
-                  // safe form (http/https/mailto) or null; on null, clear the field rather
-                  // than keeping the raw value the onChange already wrote.
-                  update({ href: sanitizeUrl(event.currentTarget.value) ?? "" } as Partial<EditOperation>);
-                }}
-              />
-            </label>
+            <>
+              <label>
+                Link type
+                <select
+                  value={operation.target.kind}
+                  onChange={(event) => {
+                    const kind = event.currentTarget.value as LinkTarget["kind"];
+                    update({
+                      target: kind === "page" ? { kind: "page", pageIndex: 0 } : { kind, href: "" },
+                    } as Partial<EditOperation>);
+                  }}
+                >
+                  <option value="url">External URL</option>
+                  <option value="email">Email address</option>
+                  <option value="phone">Phone number</option>
+                  <option value="page">Internal page</option>
+                </select>
+              </label>
+              {operation.target.kind === "url" ? (
+                <label>
+                  URL
+                  <input
+                    value={operation.target.href}
+                    onChange={(event) => update({ target: { kind: "url", href: event.currentTarget.value } } as Partial<EditOperation>)}
+                    onBlur={(event) => {
+                      // Never leave an unsafe URL in the edit model. sanitizeUrl returns the
+                      // safe form (http/https/mailto) or null; on null, clear the field rather
+                      // than keeping the raw value the onChange already wrote.
+                      update({ target: { kind: "url", href: sanitizeUrl(event.currentTarget.value) ?? "" } } as Partial<EditOperation>);
+                    }}
+                  />
+                </label>
+              ) : null}
+              {operation.target.kind === "email" ? (
+                <label>
+                  Email
+                  <input
+                    value={operation.target.href.replace(/^mailto:/i, "")}
+                    onChange={(event) => update({ target: { kind: "email", href: event.currentTarget.value } } as Partial<EditOperation>)}
+                    onBlur={(event) => {
+                      update({ target: { kind: "email", href: sanitizeEmailToMailto(event.currentTarget.value) ?? "" } } as Partial<EditOperation>);
+                    }}
+                  />
+                </label>
+              ) : null}
+              {operation.target.kind === "phone" ? (
+                <label>
+                  Phone
+                  <input
+                    value={operation.target.href.replace(/^tel:/i, "")}
+                    onChange={(event) => update({ target: { kind: "phone", href: event.currentTarget.value } } as Partial<EditOperation>)}
+                    onBlur={(event) => {
+                      update({ target: { kind: "phone", href: sanitizeTel(event.currentTarget.value) ?? "" } } as Partial<EditOperation>);
+                    }}
+                  />
+                </label>
+              ) : null}
+              {operation.target.kind === "page" ? (
+                <label>
+                  Page
+                  <input
+                    type="number"
+                    min={1}
+                    max={pageCount}
+                    value={operation.target.pageIndex + 1}
+                    onChange={(event) => {
+                      const parsed = Number.parseInt(event.currentTarget.value, 10);
+                      const clamped = Number.isInteger(parsed) ? Math.min(pageCount, Math.max(1, parsed)) : 1;
+                      update({ target: { kind: "page", pageIndex: clamped - 1 } } as Partial<EditOperation>);
+                    }}
+                  />
+                </label>
+              ) : null}
+            </>
           ) : null}
 
           {operation.type === "stamp" ? (
