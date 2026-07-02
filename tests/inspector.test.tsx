@@ -252,6 +252,80 @@ describe("Inspector", () => {
     });
   });
 
+  describe("stamp operation", () => {
+    function stamp(overrides: Partial<EditOperation> = {}): EditOperation {
+      return {
+        id: "st-1",
+        type: "stamp",
+        pageIndex: 0,
+        rect,
+        createdAt: 1,
+        label: "Approved",
+        color: "#b91c1c",
+        borderColor: "#b91c1c",
+        ...overrides,
+      } as EditOperation;
+    }
+
+    it("edits the subject, detail line, and color (border follows color)", () => {
+      const { onUpdate } = renderInspector(stamp({ subline: "By Akki at Feb 3, 2025" }));
+      fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "REVIEWED" } });
+      expect(onUpdate).toHaveBeenCalledWith("st-1", { label: "REVIEWED" });
+
+      fireEvent.change(screen.getByLabelText("Detail line"), { target: { value: "By Someone" } });
+      expect(onUpdate).toHaveBeenCalledWith("st-1", { subline: "By Someone" });
+
+      fireEvent.change(screen.getByLabelText("Color"), { target: { value: "#2b5329" } });
+      expect(onUpdate).toHaveBeenCalledWith("st-1", { color: "#2b5329", borderColor: "#2b5329" });
+    });
+
+    it("clears the subline when the detail line is emptied", () => {
+      const { onUpdate } = renderInspector(stamp({ subline: "By Akki" }));
+      fireEvent.change(screen.getByLabelText("Detail line"), { target: { value: "" } });
+      expect(onUpdate).toHaveBeenCalledWith("st-1", { subline: undefined });
+    });
+
+    it("shows an empty detail line when the stamp has no subline", () => {
+      renderInspector(stamp({ subline: undefined }));
+      expect((screen.getByLabelText("Detail line") as HTMLInputElement).value).toBe("");
+    });
+  });
+
+  describe("signature operation", () => {
+    it("offers a color control for a typed signature", () => {
+      const typed: EditOperation = {
+        id: "sig-1",
+        type: "signature",
+        mode: "typed",
+        pageIndex: 0,
+        rect,
+        createdAt: 1,
+        value: "Akki",
+        color: "#333333",
+        fontFamily: "Caveat",
+      };
+      const { onUpdate } = renderInspector(typed);
+      fireEvent.change(screen.getByLabelText("Color"), { target: { value: "#0000ff" } });
+      expect(onUpdate).toHaveBeenCalledWith("sig-1", { color: "#0000ff" });
+    });
+
+    it("hides the color control for an image signature (baked-in ink)", () => {
+      const image: EditOperation = {
+        id: "sig-2",
+        type: "signature",
+        mode: "image",
+        pageIndex: 0,
+        rect,
+        createdAt: 1,
+        value: "data:image/png;base64,AAAA",
+        color: "#333333",
+        fontFamily: "Caveat",
+      };
+      renderInspector(image);
+      expect(screen.queryByLabelText("Color")).not.toBeInTheDocument();
+    });
+  });
+
   describe("link operation", () => {
     it("renders the URL field, fires onChange, and sanitizes a safe URL on blur", () => {
       const link: EditOperation = {

@@ -92,6 +92,9 @@ export type SignatureOperation = BaseOperation & {
 export type StampOperation = BaseOperation & {
   type: "stamp";
   label: string;
+  // Optional second line ("By <author> at <date>"); `label` stays the subject so
+  // stamps in previously saved sessions keep rendering unchanged.
+  subline?: string;
   color: string;
   borderColor: string;
 };

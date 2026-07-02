@@ -1,15 +1,13 @@
 import type { DocumentFonts, EditOperation } from "../types/editor";
 import { resolveFont } from "../engine/fontResolver";
+import { SIGNATURE_FONTS } from "../editor/signatureFonts";
 import { cssFamilyForFontKey, ensureEmbeddedFontLoaded } from "../engine/fontRegistry";
 import { NEW_TEXT_PLACEHOLDER } from "../editor/operationFactory";
 import { pdfRectToViewport } from "../utils/coordinates";
 import { textBaselineTopPaddingPx } from "../utils/textMetrics";
 import { caretRangeFromClientPoint, getLastPointerDownPoint } from "../utils/caret";
 import { memo, useEffect, useRef, useState } from "react";
-
-function safeImageSrc(src: string | undefined): string | undefined {
-  return src && /^data:image\/(png|jpeg|jpg);base64,/i.test(src) ? src : undefined;
-}
+import { safeImageSrc } from "../utils/safeImage";
 
 type OperationOverlayProps = {
   operation: EditOperation;
@@ -206,20 +204,27 @@ function OperationOverlayComponent({
       return <div className={className} style={style} onPointerDown={handlePointerDown}>{src ? <img src={src} alt="" /> : null}</div>;
     }
 
-    case "signature":
+    case "signature": {
+      // Handwriting faces come from the signature studio's own catalog; a
+      // legacy family saved before the studio existed still resolves through
+      // the general font stack.
+      const signatureFamily =
+        SIGNATURE_FONTS.find((font) => font.label === operation.fontFamily)?.cssFamily ??
+        resolveFont(operation.fontFamily).cssFamily;
       return (
         <div
           className={className}
           style={{
             ...style,
             color: operation.color,
-            fontFamily: resolveFont(operation.fontFamily).cssFamily,
+            fontFamily: signatureFamily,
           }}
           onPointerDown={handlePointerDown}
         >
           {operation.mode === "image" ? (safeImageSrc(operation.value) ? <img src={safeImageSrc(operation.value)} alt="Signature" /> : null) : operation.value}
         </div>
       );
+    }
 
     case "stamp":
       return (
@@ -232,7 +237,8 @@ function OperationOverlayComponent({
           }}
           onPointerDown={handlePointerDown}
         >
-          {operation.label}
+          <span className="operation__stamp-label">{operation.label}</span>
+          {operation.subline ? <span className="operation__stamp-subline">{operation.subline}</span> : null}
         </div>
       );
 

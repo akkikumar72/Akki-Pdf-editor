@@ -66,7 +66,7 @@ export function InlineInputPopover({ request, pageWidth, scale }: InlineInputPop
     }
     if (event.key !== "Tab") return;
     /* v8 ignore next -- popoverRef is attached to the always-rendered root div, so the optional-chaining null branch never executes */
-    const focusable = Array.from(popoverRef.current?.querySelectorAll<HTMLElement>("input, textarea, button") ?? []);
+    const focusable = Array.from(popoverRef.current?.querySelectorAll<HTMLElement>("input, textarea, select, button") ?? []);
     /* v8 ignore next -- the popover always renders at least one field and the Cancel/Confirm buttons, so this guard never executes */
     if (focusable.length === 0) return;
     const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
@@ -94,7 +94,16 @@ export function InlineInputPopover({ request, pageWidth, scale }: InlineInputPop
         {request.fields.map((field, index) => (
           <label key={field.key}>
             <span>{field.label}</span>
-            {field.multiline ? (
+            {field.options ? (
+              <select
+                value={values[field.key]}
+                onChange={(event) => setFieldValue(field.key, event.currentTarget.value)}
+              >
+                {field.options.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            ) : field.multiline ? (
               <textarea
                 ref={index === 0 ? (node) => { firstFieldRef.current = node; } : undefined}
                 value={values[field.key]}

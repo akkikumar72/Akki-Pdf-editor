@@ -64,7 +64,29 @@ vi.mock("../src/utils/caret", () => ({
   caretRangeFromClientPoint: () => null,
 }));
 
+// storage: jsdom has no indexedDB; the signature-store calls are stubbed and
+// steered per test (saved signatures present / absent / failing).
+vi.mock("../src/utils/storage", () => ({
+  listSignatures: vi.fn(async () => []),
+  saveSignature: vi.fn(async () => undefined),
+  deleteSignature: vi.fn(async () => undefined),
+}));
+
+// Typed-signature rasterization needs a real canvas text pipeline; return a
+// deterministic PNG here (the real function is unit-tested separately).
+vi.mock("../src/utils/signatureRaster", () => ({
+  rasterizeTypedSignature: vi.fn(() => ({ dataUrl: "data:image/png;base64,AAAA", width: 200, height: 80 })),
+}));
+
+// jsdom never loads image resources, so natural dimensions are stubbed.
+vi.mock("../src/utils/imageSizing", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/utils/imageSizing")>();
+  return { ...actual, loadImageSize: vi.fn(async () => ({ width: 640, height: 480 })) };
+});
+
 import { PdfCanvas } from "../src/components/PdfCanvas";
+import { deleteSignature, listSignatures, saveSignature, type SavedSignature } from "../src/utils/storage";
+import { loadImageSize } from "../src/utils/imageSizing";
 
 const PAGE = { width: 612, height: 792 };
 
@@ -325,53 +347,98 @@ describe("PdfCanvas - creating operations by clicking", () => {
 });
 
 describe("PdfCanvas - image tool", () => {
-  it("opens the file picker on click and adds an image operation for a valid file", async () => {
+  const PNG_FILE = () =>
+    new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "x.png", { type: "image/png" });
+
+  async function pickImage(stage: HTMLElement, container: HTMLElement, file: File = PNG_FILE()) {
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.click(stage, { clientX: 20, clientY: 20 });
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  it("shows an aspect-correct placement ghost after picking, then commits on the next click", async () => {
     const onOperationAdd = vi.fn();
-    const { stage, container } = renderCanvas({ activeTool: "image", onOperationAdd });
+    const onOperationSelect = vi.fn();
+    const { stage, container } = renderCanvas({ activeTool: "image", onOperationAdd, onOperationSelect });
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const clickSpy = vi.spyOn(input, "click");
-    fireEvent.click(stage, { clientX: 20, clientY: 20 });
+    await pickImage(stage, container);
     expect(clickSpy).toHaveBeenCalled();
 
-    // PNG magic bytes
-    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "x.png", { type: "image/png" });
-    await act(async () => {
-      fireEvent.change(input, { target: { files: [png] } });
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
-    expect(onOperationAdd.mock.calls[0][0].type).toBe("image");
+    // No immediate drop: a semi-transparent ghost (real image, 640x480 scaled
+    // into the 320x240 max box) is anchored at the picker-opening click.
+    expect(onOperationAdd).not.toHaveBeenCalled();
+    await waitFor(() => expect(container.querySelector(".image-ghost")).toBeTruthy());
+    const ghost = container.querySelector(".image-ghost") as HTMLElement;
+    expect(ghost.querySelector("img")).toBeTruthy();
+    expect(ghost.style.width).toBe("320px");
+    expect(ghost.style.height).toBe("240px");
+
+    // The ghost follows the pointer.
+    fireEvent.pointerMove(stage, { clientX: 300, clientY: 300 });
+    expect((container.querySelector(".image-ghost") as HTMLElement).style.left).toBe(`${300 - 160}px`);
+
+    // Next click commits the operation centered on the click point.
+    fireEvent.click(stage, { clientX: 306, clientY: 396 });
+    expect(onOperationAdd).toHaveBeenCalledTimes(1);
+    const created = onOperationAdd.mock.calls[0][0];
+    expect(created.type).toBe("image");
+    expect(created.mimeType).toBe("image/png");
+    expect(created.rect.width).toBe(320);
+    expect(created.rect.height).toBe(240);
+    expect(onOperationSelect).toHaveBeenCalledWith(created.id);
+    expect(container.querySelector(".image-ghost")).toBeNull();
   });
 
-  it("adds a JPEG image operation with the jpeg mime type", async () => {
+  it("commits a JPEG image with the jpeg mime type", async () => {
     const onOperationAdd = vi.fn();
     const { stage, container } = renderCanvas({ activeTool: "image", onOperationAdd });
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.click(stage, { clientX: 20, clientY: 20 });
     const jpeg = new File([new Uint8Array([0xff, 0xd8, 0xff, 0, 0, 0, 0, 0])], "x.jpg", { type: "image/jpeg" });
-    await act(async () => {
-      fireEvent.change(input, { target: { files: [jpeg] } });
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
+    await pickImage(stage, container, jpeg);
+    await waitFor(() => expect(container.querySelector(".image-ghost")).toBeTruthy());
+    fireEvent.click(stage, { clientX: 300, clientY: 300 });
     expect(onOperationAdd.mock.calls[0][0].mimeType).toBe("image/jpeg");
   });
 
-  it("rejects an invalid image file with a notice", async () => {
+  it("falls back to the default box when natural dimensions cannot be read", async () => {
+    vi.mocked(loadImageSize).mockResolvedValueOnce(null);
+    const onOperationAdd = vi.fn();
+    const { stage, container } = renderCanvas({ activeTool: "image", onOperationAdd });
+    await pickImage(stage, container);
+    await waitFor(() => expect(container.querySelector(".image-ghost")).toBeTruthy());
+    const ghost = container.querySelector(".image-ghost") as HTMLElement;
+    expect(ghost.style.width).toBe("180px");
+    expect(ghost.style.height).toBe("120px");
+  });
+
+  it("cancels a pending placement on Escape without adding", async () => {
+    const onOperationAdd = vi.fn();
+    const { stage, container } = renderCanvas({ activeTool: "image", onOperationAdd });
+    await pickImage(stage, container);
+    await waitFor(() => expect(container.querySelector(".image-ghost")).toBeTruthy());
+    // A non-Escape key leaves the pending placement alive.
+    fireEvent.keyDown(window, { key: "a" });
+    expect(container.querySelector(".image-ghost")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(container.querySelector(".image-ghost")).toBeNull();
+    fireEvent.click(stage, { clientX: 300, clientY: 300 });
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid image file with a notice and no ghost", async () => {
     const onOperationAdd = vi.fn();
     const onNotice = vi.fn();
     const { stage, container } = renderCanvas({ activeTool: "image", onOperationAdd, onNotice });
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.click(stage, { clientX: 20, clientY: 20 });
     const bad = new File([new Uint8Array([1, 2, 3, 4])], "x.txt", { type: "text/plain" });
-    await act(async () => {
-      fireEvent.change(input, { target: { files: [bad] } });
-      await Promise.resolve();
-    });
+    await pickImage(stage, container, bad);
     await waitFor(() => expect(onNotice).toHaveBeenCalled());
     expect(onOperationAdd).not.toHaveBeenCalled();
+    expect(container.querySelector(".image-ghost")).toBeNull();
   });
 
   it("does nothing when the input change has no file", () => {
@@ -382,31 +449,252 @@ describe("PdfCanvas - image tool", () => {
     expect(onOperationAdd).not.toHaveBeenCalled();
   });
 
+  it("renders an empty ghost when a spoofed MIME type produces a non-image data url", async () => {
+    const { stage, container } = renderCanvas({ activeTool: "image" });
+    // Real PNG magic bytes but a lying MIME type: validation passes, yet the
+    // FileReader data URL header is not image/*, so the ghost <img> is dropped.
+    const spoofed = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "x.png", {
+      type: "text/plain",
+    });
+    await pickImage(stage, container, spoofed);
+    await waitFor(() => expect(container.querySelector(".image-ghost")).toBeTruthy());
+    expect(container.querySelector(".image-ghost img")).toBeNull();
+  });
+
   it("notices a read failure when FileReader throws", async () => {
     const onNotice = vi.fn();
     const { stage, container } = renderCanvas({ activeTool: "image", onNotice });
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.click(stage, { clientX: 5, clientY: 5 });
-    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "x.png", { type: "image/png" });
     const original = FileReader.prototype.readAsDataURL;
     FileReader.prototype.readAsDataURL = function (this: FileReader) {
       this.onerror?.(new ProgressEvent("error") as ProgressEvent<FileReader>);
     };
-    await act(async () => {
-      fireEvent.change(input, { target: { files: [png] } });
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await pickImage(stage, container);
     await waitFor(() => expect(onNotice).toHaveBeenCalledWith("Could not read that image file."));
     FileReader.prototype.readAsDataURL = original;
   });
 
-  it("opens the file picker via the floating Image button", () => {
-    const { container } = renderCanvas({ activeTool: "image" });
+  it("supports the floating Image button (no prior click): ghost appears on first pointer move", async () => {
+    const onOperationAdd = vi.fn();
+    const { stage, container } = renderCanvas({ activeTool: "image", onOperationAdd });
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const clickSpy = vi.spyOn(input, "click");
     fireEvent.click(container.querySelector(".floating-image") as HTMLButtonElement);
     expect(clickSpy).toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [PNG_FILE()] } });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // No opening click -> no anchor yet, ghost hidden until the pointer moves.
+    expect(container.querySelector(".image-ghost")).toBeNull();
+    await waitFor(() => {
+      fireEvent.pointerMove(stage, { clientX: 250, clientY: 250 });
+      expect(container.querySelector(".image-ghost")).toBeTruthy();
+    });
+    fireEvent.click(stage, { clientX: 250, clientY: 250 });
+    expect(onOperationAdd).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PdfCanvas - signature flow", () => {
+  const savedTyped: SavedSignature = {
+    id: "saved-1", createdAt: 2, mode: "typed", value: "Akki", color: "#000000", fontFamily: "Caveat",
+  };
+  const savedImage: SavedSignature = {
+    id: "saved-2", createdAt: 1, mode: "image", value: "data:image/png;base64,AAAA", color: "#000000",
+  };
+
+  it("opens the signature studio when there are no saved signatures", async () => {
+    const { stage, getByRole } = renderCanvas({ activeTool: "signature" });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 200, clientY: 300 });
+      await Promise.resolve();
+    });
+    expect(getByRole("dialog", { name: "Create signature" })).toBeTruthy();
+  });
+
+  it("opens the studio even when listing saved signatures fails", async () => {
+    vi.mocked(listSignatures).mockRejectedValueOnce(new Error("idb down"));
+    const { stage, getByRole } = renderCanvas({ activeTool: "signature" });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 200, clientY: 300 });
+      await Promise.resolve();
+    });
+    expect(getByRole("dialog", { name: "Create signature" })).toBeTruthy();
+  });
+
+  it("saves + places a typed signature from the studio (rasterized to an image op)", async () => {
+    const onOperationAdd = vi.fn();
+    const onOperationSelect = vi.fn();
+    const { stage, getByRole, getByLabelText, queryByRole } = renderCanvas({
+      activeTool: "signature", onOperationAdd, onOperationSelect,
+    });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 200, clientY: 300 });
+      await Promise.resolve();
+    });
+    const dialog = getByRole("dialog", { name: "Create signature" });
+    const saveButton = within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+    fireEvent.change(getByLabelText("Full name"), { target: { value: "Akki Pathak" } });
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(saveButton);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(queryByRole("dialog", { name: "Create signature" })).toBeNull();
+    expect(saveSignature).toHaveBeenCalledWith(expect.objectContaining({ mode: "typed", value: "Akki Pathak" }));
+    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
+    const created = onOperationAdd.mock.calls[0][0];
+    expect(created.type).toBe("signature");
+    expect(created.mode).toBe("image");
+    expect(created.value).toBe("data:image/png;base64,AAAA");
+    expect(onOperationSelect).toHaveBeenCalledWith(created.id);
+  });
+
+  it("does not persist when the save-for-reuse checkbox is unchecked, and notices a failing save", async () => {
+    const onNotice = vi.fn();
+    const { stage, getByRole, getByLabelText } = renderCanvas({ activeTool: "signature", onNotice });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 100, clientY: 100 });
+      await Promise.resolve();
+    });
+    fireEvent.change(getByLabelText("Full name"), { target: { value: "Akki" } });
+    fireEvent.click(getByLabelText("Save signature for reuse"));
+    await act(async () => {
+      fireEvent.click(within(getByRole("dialog", { name: "Create signature" })).getByRole("button", { name: "Save signature" }));
+      await Promise.resolve();
+    });
+    expect(saveSignature).not.toHaveBeenCalled();
+
+    // Second run: keep the checkbox on but make persistence fail.
+    vi.mocked(saveSignature).mockRejectedValueOnce(new Error("full"));
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 100, clientY: 100 });
+      await Promise.resolve();
+    });
+    fireEvent.change(getByLabelText("Full name"), { target: { value: "Akki" } });
+    await act(async () => {
+      fireEvent.click(within(getByRole("dialog", { name: "Create signature" })).getByRole("button", { name: "Save signature" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(onNotice).toHaveBeenCalledWith("Could not save the signature for reuse."));
+  });
+
+  it("cancelling the studio leaves the document untouched", async () => {
+    const onOperationAdd = vi.fn();
+    const { stage, getByRole, queryByRole } = renderCanvas({ activeTool: "signature", onOperationAdd });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 100, clientY: 100 });
+      await Promise.resolve();
+    });
+    fireEvent.click(within(getByRole("dialog", { name: "Create signature" })).getByRole("button", { name: "Cancel" }));
+    expect(queryByRole("dialog", { name: "Create signature" })).toBeNull();
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("shows the saved-signature picker and places a chosen signature at the click point", async () => {
+    vi.mocked(listSignatures).mockResolvedValueOnce([savedTyped, savedImage]);
+    const onOperationAdd = vi.fn();
+    const { stage, getByRole, queryByRole } = renderCanvas({ activeTool: "signature", onOperationAdd });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 200, clientY: 300 });
+      await Promise.resolve();
+    });
+    const picker = getByRole("dialog", { name: "Place signature" });
+    await act(async () => {
+      fireEvent.click(within(picker).getByRole("button", { name: "Place signature Akki" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(queryByRole("dialog", { name: "Place signature" })).toBeNull();
+    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
+    expect(onOperationAdd.mock.calls[0][0].type).toBe("signature");
+  });
+
+  it("places a saved image signature (natural-size lookup path)", async () => {
+    vi.mocked(listSignatures).mockResolvedValueOnce([savedImage]);
+    const onOperationAdd = vi.fn();
+    const { stage, getByRole } = renderCanvas({ activeTool: "signature", onOperationAdd });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 200, clientY: 300 });
+      await Promise.resolve();
+    });
+    const picker = getByRole("dialog", { name: "Place signature" });
+    await act(async () => {
+      fireEvent.click(within(picker).getByRole("button", { name: "Place signature image" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
+    const created = onOperationAdd.mock.calls[0][0];
+    expect(created.mode).toBe("image");
+    // 640x480 natural, fit into the 260x110 signature box -> 147x110.
+    expect(Math.round(created.rect.height)).toBe(110);
+  });
+
+  it("deletes a saved signature from the picker, noticing a failing delete", async () => {
+    vi.mocked(listSignatures).mockResolvedValueOnce([savedTyped, savedImage]);
+    const onNotice = vi.fn();
+    const { stage, getByRole } = renderCanvas({ activeTool: "signature", onNotice });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 200, clientY: 300 });
+      await Promise.resolve();
+    });
+    const picker = getByRole("dialog", { name: "Place signature" });
+    const deleteButtons = within(picker).getAllByRole("button", { name: "Delete saved signature" });
+    expect(deleteButtons).toHaveLength(2);
+    await act(async () => {
+      fireEvent.click(deleteButtons[0]);
+      await Promise.resolve();
+    });
+    expect(deleteSignature).toHaveBeenCalledWith("saved-1");
+    expect(within(picker).getAllByRole("button", { name: "Delete saved signature" })).toHaveLength(1);
+
+    vi.mocked(deleteSignature).mockRejectedValueOnce(new Error("idb down"));
+    await act(async () => {
+      fireEvent.click(within(picker).getAllByRole("button", { name: "Delete saved signature" })[0]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(onNotice).toHaveBeenCalledWith("Could not delete that saved signature."));
+  });
+
+  it("routes from the picker to the studio via New signature, and cancels on Escape", async () => {
+    vi.mocked(listSignatures).mockResolvedValueOnce([savedTyped]);
+    const { stage, getByRole, queryByRole } = renderCanvas({ activeTool: "signature" });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 200, clientY: 300 });
+      await Promise.resolve();
+    });
+    const picker = getByRole("dialog", { name: "Place signature" });
+    // A non-Escape key leaves the picker open.
+    fireEvent.keyDown(picker, { key: "a" });
+    expect(queryByRole("dialog", { name: "Place signature" })).toBeTruthy();
+    fireEvent.click(within(picker).getByRole("button", { name: "New signature" }));
+    expect(getByRole("dialog", { name: "Create signature" })).toBeTruthy();
+  });
+
+  it("closes the picker via Escape and via Cancel", async () => {
+    vi.mocked(listSignatures).mockResolvedValueOnce([savedTyped]);
+    const { stage, getByRole, queryByRole } = renderCanvas({ activeTool: "signature" });
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 200, clientY: 300 });
+      await Promise.resolve();
+    });
+    fireEvent.keyDown(getByRole("dialog", { name: "Place signature" }), { key: "Escape" });
+    expect(queryByRole("dialog", { name: "Place signature" })).toBeNull();
+
+    vi.mocked(listSignatures).mockResolvedValueOnce([savedTyped]);
+    await act(async () => {
+      fireEvent.click(stage, { clientX: 200, clientY: 300 });
+      await Promise.resolve();
+    });
+    fireEvent.click(within(getByRole("dialog", { name: "Place signature" })).getByRole("button", { name: "Cancel" }));
+    expect(queryByRole("dialog", { name: "Place signature" })).toBeNull();
   });
 });
 
@@ -736,11 +1024,14 @@ describe("PdfCanvas - drag-to-draw region tools", () => {
     const { getByRole, stage } = renderCanvas({ activeTool: "stamp", onOperationAdd });
     fireEvent.click(stage, { clientX: 100, clientY: 200 });
     const popover = getByRole("dialog", { name: "Add stamp" });
-    fireEvent.change(within(popover).getByLabelText("Stamp label"), { target: { value: "REVIEWED" } });
+    fireEvent.change(within(popover).getByLabelText("Subject"), { target: { value: "REVIEWED" } });
+    fireEvent.change(within(popover).getByLabelText("Author"), { target: { value: "Akki" } });
+    fireEvent.change(within(popover).getByLabelText("Date"), { target: { value: "mdy" } });
     fireEvent.click(within(popover).getByRole("button", { name: "Add stamp" }));
     expect(onOperationAdd).toHaveBeenCalled();
     expect(onOperationAdd.mock.calls[0][0].type).toBe("stamp");
     expect(onOperationAdd.mock.calls[0][0].label).toBe("REVIEWED");
+    expect(onOperationAdd.mock.calls[0][0].subline).toMatch(/^By Akki at /);
   });
 
   it("creates nothing and selects nothing when the popover is confirmed with an empty field", () => {
@@ -749,7 +1040,7 @@ describe("PdfCanvas - drag-to-draw region tools", () => {
     const { getByRole, stage } = renderCanvas({ activeTool: "stamp", onOperationAdd, onOperationSelect });
     fireEvent.click(stage, { clientX: 100, clientY: 200 });
     const popover = getByRole("dialog", { name: "Add stamp" });
-    fireEvent.change(within(popover).getByLabelText("Stamp label"), { target: { value: "" } });
+    fireEvent.change(within(popover).getByLabelText("Subject"), { target: { value: "" } });
     fireEvent.click(within(popover).getByRole("button", { name: "Add stamp" }));
     expect(onOperationAdd).not.toHaveBeenCalled();
     expect(onOperationSelect).not.toHaveBeenCalled();

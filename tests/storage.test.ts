@@ -3,11 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSessions,
   deleteSession,
+  deleteSignature,
   getLatestSession,
   getSession,
   listSessions,
+  listSignatures,
   saveSession,
+  saveSignature,
   type SavedSession,
+  type SavedSignature,
   type SessionSaveInput,
 } from "../src/utils/storage";
 
@@ -30,11 +34,14 @@ function makeInput(overrides: Partial<SessionSaveInput> = {}): SessionSaveInput 
 // directly (e.g. with only `operations`, or with neither) without touching src.
 function putRaw(record: Record<string, unknown>): Promise<void> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("akki-pdf-editor", 1);
+    const request = indexedDB.open("akki-pdf-editor", 2);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains("sessions")) {
         db.createObjectStore("sessions", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("signatures")) {
+        db.createObjectStore("signatures", { keyPath: "id" });
       }
     };
     request.onerror = () => reject(request.error);
@@ -179,6 +186,44 @@ describe("storage", () => {
   });
 });
 
+describe("signature store", () => {
+  function makeSignature(overrides: Partial<SavedSignature> = {}): SavedSignature {
+    return {
+      id: "sig-1",
+      createdAt: 100,
+      mode: "typed",
+      value: "Akki",
+      color: "#000000",
+      fontFamily: "Caveat",
+      ...overrides,
+    };
+  }
+
+  beforeEach(async () => {
+    for (const signature of await listSignatures()) {
+      await deleteSignature(signature.id);
+    }
+  });
+
+  it("saves, lists (newest first), and deletes signatures", async () => {
+    await saveSignature(makeSignature({ id: "old", createdAt: 100 }));
+    await saveSignature(makeSignature({ id: "new", createdAt: 300, mode: "image", value: "data:image/png;base64,AAAA", fontFamily: undefined }));
+    const list = await listSignatures();
+    expect(list.map((signature) => signature.id)).toEqual(["new", "old"]);
+    expect(list[0].mode).toBe("image");
+    await deleteSignature("new");
+    expect((await listSignatures()).map((signature) => signature.id)).toEqual(["old"]);
+  });
+
+  it("saveSignature overwrites an existing id (put semantics)", async () => {
+    await saveSignature(makeSignature({ id: "dup", value: "first" }));
+    await saveSignature(makeSignature({ id: "dup", value: "second" }));
+    const list = await listSignatures();
+    expect(list).toHaveLength(1);
+    expect(list[0].value).toBe("second");
+  });
+});
+
 describe("storage error and edge branches", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -310,5 +355,41 @@ describe("storage error and edge branches", () => {
       return tx;
     });
     await expect(getSession("nope")).rejects.toThrow("get failed");
+  });
+
+  it("saveSignature rejects on transaction error", async () => {
+    stubDb(() => {
+      const tx: Record<string, unknown> = {
+        error: new Error("tx sig put failed"),
+        objectStore: () => ({ put: vi.fn() }),
+      };
+      queueMicrotask(() => (tx.onerror as () => void)());
+      return tx;
+    });
+    await expect(
+      saveSignature({ id: "s", createdAt: 1, mode: "typed", value: "x", color: "#000" }),
+    ).rejects.toThrow("tx sig put failed");
+  });
+
+  it("deleteSignature rejects on transaction error", async () => {
+    stubDb(() => {
+      const tx: Record<string, unknown> = {
+        error: new Error("tx sig delete failed"),
+        objectStore: () => ({ delete: vi.fn() }),
+      };
+      queueMicrotask(() => (tx.onerror as () => void)());
+      return tx;
+    });
+    await expect(deleteSignature("s")).rejects.toThrow("tx sig delete failed");
+  });
+
+  it("listSignatures rejects when getAll request errors", async () => {
+    stubDb(() => {
+      const req: Record<string, unknown> = { error: new Error("sig getAll failed") };
+      const tx: Record<string, unknown> = { objectStore: () => ({ getAll: () => req }) };
+      queueMicrotask(() => (req.onerror as () => void)());
+      return tx;
+    });
+    await expect(listSignatures()).rejects.toThrow("sig getAll failed");
   });
 });

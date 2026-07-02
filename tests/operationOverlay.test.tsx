@@ -464,6 +464,16 @@ describe("OperationOverlay - non-text branches", () => {
     expect(el.textContent).toBe("Akash");
   });
 
+  it("renders a typed signature with a signature-studio handwriting face", () => {
+    const op: SignatureOperation = {
+      id: "sig4", type: "signature", pageIndex: 0, rect: RECT, createdAt: 1,
+      mode: "typed", value: "Akash", color: "#123456", fontFamily: "Caveat",
+    };
+    const { container } = renderOverlay(op);
+    const el = container.querySelector(".operation--signature") as HTMLDivElement;
+    expect(el.style.fontFamily).toContain("Caveat");
+  });
+
   it("renders a stamp with label and colors", () => {
     const op: StampOperation = {
       id: "stamp", type: "stamp", pageIndex: 0, rect: RECT, createdAt: 1,
@@ -472,6 +482,17 @@ describe("OperationOverlay - non-text branches", () => {
     const { container } = renderOverlay(op);
     const el = container.querySelector(".operation--stamp") as HTMLDivElement;
     expect(el.textContent).toBe("APPROVED");
+    expect(container.querySelector(".operation__stamp-subline")).toBeNull();
+  });
+
+  it("renders a stamp subline as a second smaller line", () => {
+    const op: StampOperation = {
+      id: "stamp-sub", type: "stamp", pageIndex: 0, rect: RECT, createdAt: 1,
+      label: "Approved", subline: "By Akki at Feb 3, 2025", color: "#111", borderColor: "#222",
+    };
+    const { container } = renderOverlay(op);
+    expect((container.querySelector(".operation__stamp-label") as HTMLElement).textContent).toBe("Approved");
+    expect((container.querySelector(".operation__stamp-subline") as HTMLElement).textContent).toBe("By Akki at Feb 3, 2025");
   });
 
   it("renders a shape with a solid fill", () => {
