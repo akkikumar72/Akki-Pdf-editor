@@ -185,6 +185,50 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
             </label>
           ) : null}
 
+          {operation.type === "stamp" ? (
+            <>
+              <label>
+                Subject
+                <input
+                  value={operation.label}
+                  onChange={(event) => update({ label: event.currentTarget.value } as Partial<EditOperation>)}
+                />
+              </label>
+              <label>
+                Detail line
+                <input
+                  value={operation.subline ?? ""}
+                  placeholder="By Author at date"
+                  onChange={(event) =>
+                    update({ subline: event.currentTarget.value || undefined } as Partial<EditOperation>)}
+                />
+              </label>
+              <label>
+                Color
+                <input
+                  type="color"
+                  value={operation.color}
+                  onChange={(event) =>
+                    update({
+                      color: event.currentTarget.value,
+                      borderColor: event.currentTarget.value,
+                    } as Partial<EditOperation>)}
+                />
+              </label>
+            </>
+          ) : null}
+
+          {operation.type === "signature" && operation.mode === "typed" ? (
+            <label>
+              Color
+              <input
+                type="color"
+                value={operation.color}
+                onChange={(event) => update({ color: event.currentTarget.value } as Partial<EditOperation>)}
+              />
+            </label>
+          ) : null}
+
           {operation.type === "form-mark" ? (
             <>
               <div className="segmented" aria-label="Mark style">

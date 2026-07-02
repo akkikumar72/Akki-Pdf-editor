@@ -45,6 +45,33 @@ describe("InlineInputPopover", () => {
     expect(onConfirm).toHaveBeenCalledWith({ href: "https://example.com" });
   });
 
+  it("renders a select for a field with options and confirms the chosen value", () => {
+    const onConfirm = vi.fn();
+    const request = makeRequest({
+      onConfirm,
+      confirmLabel: "Add stamp",
+      fields: [
+        { key: "label", label: "Subject", defaultValue: "Approved" },
+        {
+          key: "dateStyle",
+          label: "Date",
+          defaultValue: "none",
+          options: [
+            { value: "none", label: "No date" },
+            { value: "mdy", label: "Feb 3, 2025" },
+          ],
+        },
+      ],
+    });
+    const { getByRole, getByLabelText } = render(<InlineInputPopover request={request} pageWidth={612} scale={1} />);
+    const select = getByLabelText("Date") as HTMLSelectElement;
+    expect(select.tagName).toBe("SELECT");
+    expect(select.value).toBe("none");
+    fireEvent.change(select, { target: { value: "mdy" } });
+    fireEvent.click(getByRole("button", { name: "Add stamp" }));
+    expect(onConfirm).toHaveBeenCalledWith({ label: "Approved", dateStyle: "mdy" });
+  });
+
   it("cancels on the Cancel button click", () => {
     const onCancel = vi.fn();
     const request = makeRequest({ onCancel });

@@ -564,6 +564,28 @@ describe("PdfEngine.savePdf – images, signatures and stamps", () => {
     ];
     await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
   });
+
+  it("draws a two-line stamp when a subline is present", async () => {
+    const original = await blankPdfBytes();
+    const operations: EditOperation[] = [
+      {
+        id: "stamp_sub",
+        type: "stamp",
+        pageIndex: 0,
+        rect: { ...baseRect, y: 400, width: 180, height: 58 },
+        label: "Approved",
+        subline: "By Akki at 1:15PM, Feb 3, 2025",
+        color: "#2b5329",
+        borderColor: "#2b5329",
+        createdAt: 1,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    expect(content).toContain(Buffer.from("APPROVED", "latin1").toString("hex").toUpperCase());
+    expect(content).toContain(Buffer.from("By Akki at 1:15PM, Feb 3, 2025", "latin1").toString("hex").toUpperCase());
+  });
 });
 
 describe("PdfEngine.savePdf – form marks and fields", () => {

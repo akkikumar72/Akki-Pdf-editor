@@ -2070,14 +2070,28 @@ select:disabled {
 }
 
 .operation--stamp {
-  place-items: center;
+  align-content: center;
+  justify-items: center;
   border-width: 2px;
   border-style: solid;
+  /* Reference parity (Sejda): stamp frames are rounded (rx 20 on a 500 viewBox). */
+  border-radius: var(--radius-sm);
   background: color-mix(in oklch, var(--color-paper) 88%, transparent);
   font-size: var(--text-md);
   font-weight: 850;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.operation__stamp-label {
+  line-height: 1.1;
+}
+
+.operation__stamp-subline {
+  font-size: 0.62em;
+  font-weight: 550;
+  line-height: 1.1;
+  text-transform: none;
 }
 
 .operation--annotation {
@@ -2160,6 +2174,221 @@ select:disabled {
   padding: 0 var(--space-sm);
   background: var(--color-paper);
   box-shadow: var(--shadow-soft);
+}
+
+/* Semi-transparent preview of a picked image that follows the pointer until
+   the placing click; pointer-events none so clicks fall through to the stage. */
+.image-ghost {
+  position: absolute;
+  z-index: 12;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.image-ghost img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* --- Signature studio (modal) + saved-signature picker ------------------- */
+
+.signature-modal__backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding: 4.5rem var(--space-md) var(--space-md);
+  background: color-mix(in oklch, var(--color-ink) 28%, transparent);
+  pointer-events: auto;
+}
+
+.signature-modal {
+  display: grid;
+  gap: var(--space-sm);
+  width: min(31rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 6rem);
+  overflow: auto;
+  padding: var(--space-md);
+  border: var(--rule-hair) solid var(--color-rule-2);
+  border-radius: var(--radius-md);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-soft);
+}
+
+.signature-modal__head {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.signature-modal__head h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-md);
+  line-height: 1.15;
+}
+
+.signature-modal__swatches {
+  display: flex;
+  gap: var(--space-2xs);
+}
+
+.signature-modal__swatch {
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.signature-modal__swatch[aria-pressed="true"] {
+  border-color: var(--color-paper);
+  box-shadow: 0 0 0 2px var(--color-accent-edge);
+}
+
+.signature-modal__swatch:hover {
+  transform: translateY(-1px);
+}
+
+.signature-modal__fonts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2xs);
+  max-height: 15rem;
+  overflow: auto;
+}
+
+.signature-modal__font {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  overflow: hidden;
+  padding: var(--space-2xs) var(--space-xs);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: 1.5rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.signature-modal__font:hover {
+  border-color: var(--color-rule-2);
+}
+
+.signature-modal__font[aria-pressed="true"] {
+  border-color: var(--color-accent-edge);
+  box-shadow: 0 0 0 1px var(--color-accent-edge);
+}
+
+.signature-modal__canvas {
+  width: 100%;
+  border: 1px dashed var(--color-rule-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.signature-modal__canvas-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-2xs);
+}
+
+.signature-modal__preview {
+  display: grid;
+  place-items: center;
+  max-height: 10rem;
+  padding: var(--space-xs);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.signature-modal__preview img {
+  max-width: 100%;
+  max-height: 9rem;
+  object-fit: contain;
+}
+
+.signature-modal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  padding-top: var(--space-sm);
+}
+
+.signature-modal__actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.signature-picker__list {
+  display: grid;
+  gap: var(--space-2xs);
+  max-height: 12rem;
+  overflow: auto;
+}
+
+.signature-picker__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2xs);
+  align-items: center;
+}
+
+.signature-picker__choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.6rem;
+  overflow: hidden;
+  padding: var(--space-2xs) var(--space-xs);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: 1.35rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.signature-picker__choice:hover {
+  border-color: var(--color-accent-edge);
+}
+
+.signature-picker__choice img {
+  max-width: 100%;
+  max-height: 2.2rem;
+  object-fit: contain;
+}
+
+.signature-picker__delete {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: var(--radius-sm);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+
+.signature-picker__delete:hover {
+  color: var(--color-error);
+  background: color-mix(in oklch, var(--color-error) 10%, transparent);
+}
+
+.signature-picker__delete svg {
+  width: 0.95rem;
+  height: 0.95rem;
 }
 
 .empty-panel,

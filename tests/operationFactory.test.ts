@@ -322,14 +322,49 @@ describe("operation factory", () => {
     const [stamp] = createOperationsForTool({ ...baseInput, activeTool: "stamp", resolvedFields: { label: "PAID" } });
     if (stamp.type !== "stamp") throw new Error("Expected stamp");
     expect(stamp.label).toBe("PAID");
+    expect(stamp.subline).toBeUndefined();
+    expect(stamp.rect.height).toBe(46);
     expect(createOperationsForTool({ ...baseInput, activeTool: "stamp" })).toEqual([]);
   });
 
-  it("creates a typed signature when provided, and bails when empty", () => {
-    const [sig] = createOperationsForTool({ ...baseInput, activeTool: "signature", resolvedFields: { value: "Akki" } });
-    if (sig.type !== "signature") throw new Error("Expected signature");
-    expect(sig.value).toBe("Akki");
-    expect(sig.mode).toBe("typed");
+  it("computes the stamp subline from author and date style", () => {
+    const both = createOperationsForTool({
+      ...baseInput,
+      activeTool: "stamp",
+      resolvedFields: { label: "Approved", author: "Akki", dateStyle: "mdy" },
+    })[0];
+    if (both.type !== "stamp") throw new Error("Expected stamp");
+    expect(both.subline).toMatch(/^By Akki at [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+    // A subline makes the default box taller so both lines fit.
+    expect(both.rect.height).toBe(58);
+
+    const authorOnly = createOperationsForTool({
+      ...baseInput,
+      activeTool: "stamp",
+      resolvedFields: { label: "Approved", author: "Akki", dateStyle: "none" },
+    })[0];
+    if (authorOnly.type !== "stamp") throw new Error("Expected stamp");
+    expect(authorOnly.subline).toBe("By Akki");
+
+    const dateOnly = createOperationsForTool({
+      ...baseInput,
+      activeTool: "stamp",
+      resolvedFields: { label: "Approved", dateStyle: "dmy" },
+    })[0];
+    if (dateOnly.type !== "stamp") throw new Error("Expected stamp");
+    expect(dateOnly.subline).toMatch(/^\d{1,2} [A-Z][a-z]{2}, \d{4}$/);
+
+    const neither = createOperationsForTool({
+      ...baseInput,
+      activeTool: "stamp",
+      resolvedFields: { label: "Approved" },
+    })[0];
+    if (neither.type !== "stamp") throw new Error("Expected stamp");
+    expect(neither.subline).toBeUndefined();
+  });
+
+  it("no longer creates signatures through the generic factory (studio flow owns them)", () => {
+    expect(createOperationsForTool({ ...baseInput, activeTool: "signature", resolvedFields: { value: "Akki" } })).toEqual([]);
     expect(createOperationsForTool({ ...baseInput, activeTool: "signature" })).toEqual([]);
   });
 
@@ -412,7 +447,7 @@ describe("operation factory", () => {
 });
 
 describe("describeInlineInput", () => {
-  it("describes a single-field popover for annotate-text, link, stamp, and signature", () => {
+  it("describes popovers for annotate-text, link, and stamp", () => {
     expect(describeInlineInput("annotate-text", [])).toEqual({
       title: "Annotation note",
       confirmLabel: "Add note",
@@ -423,16 +458,21 @@ describe("describeInlineInput", () => {
       confirmLabel: "Add link",
       fields: [{ key: "href", label: "Link URL", defaultValue: "https://" }],
     });
-    expect(describeInlineInput("stamp", [])).toEqual({
-      title: "Add stamp",
-      confirmLabel: "Add stamp",
-      fields: [{ key: "label", label: "Stamp label", defaultValue: "APPROVED" }],
-    });
-    expect(describeInlineInput("signature", [])).toEqual({
-      title: "Add signature",
-      confirmLabel: "Add signature",
-      fields: [{ key: "value", label: "Signature text", defaultValue: "Akki Pathak" }],
-    });
+    const stamp = describeInlineInput("stamp", []);
+    expect(stamp?.title).toBe("Add stamp");
+    expect(stamp?.fields.map((field) => field.key)).toEqual(["label", "author", "dateStyle"]);
+    expect(stamp?.fields[0].defaultValue).toBe("Approved");
+    expect(stamp?.fields[2].options?.map((option) => option.value)).toEqual([
+      "none",
+      "mdy",
+      "time-mdy",
+      "dmy",
+      "time-dmy",
+    ]);
+  });
+
+  it("returns null for the signature tool (handled by the signature studio modal)", () => {
+    expect(describeInlineInput("signature", [])).toBeNull();
   });
 
   it("describes a single field for non-dropdown form tools, with an incrementing default name", () => {

@@ -3,16 +3,18 @@ import type { EditOperation, EditorTool, TextItem, ViewportRect } from "../types
 import { viewportRectToPdf } from "../utils/coordinates";
 import { padReplacementCoverRect } from "../utils/textMetrics";
 import { createId } from "../utils/ids";
+import { formatStampDate, stampDateStyleOptions, type StampDateStyle } from "../utils/stampDate";
 import { sanitizeUrl } from "../utils/url";
 import { toolLabel } from "./toolRegistry";
 
-/** A single text/textarea field to collect through an inline input popover before creating an operation. */
+/** A single text/textarea/select field to collect through an inline input popover before creating an operation. */
 export type InlineInputField = {
   key: string;
   label: string;
   defaultValue: string;
   placeholder?: string;
   multiline?: boolean;
+  options?: Array<{ value: string; label: string }>;
 };
 
 /** Describes the inline popover (if any) `activeTool` needs filled in before `createOperationsForTool` can produce an operation. */
@@ -43,7 +45,6 @@ const DEFAULT_COLORS = {
   highlight: "#ffe066",
   link: "#2563eb",
   whiteout: "#ffffff",
-  signature: "#111827",
 };
 
 const FORM_KIND_BY_TOOL = {
@@ -94,16 +95,15 @@ export function describeInlineInput(activeTool: EditorTool, operations: EditOper
     return {
       title: "Add stamp",
       confirmLabel: "Add stamp",
-      fields: [{ key: "label", label: "Stamp label", defaultValue: "APPROVED" }],
+      fields: [
+        { key: "label", label: "Subject", defaultValue: "Approved" },
+        { key: "author", label: "Author", defaultValue: "", placeholder: "Optional" },
+        { key: "dateStyle", label: "Date", defaultValue: "none", options: stampDateStyleOptions() },
+      ],
     };
   }
-  if (activeTool === "signature") {
-    return {
-      title: "Add signature",
-      confirmLabel: "Add signature",
-      fields: [{ key: "value", label: "Signature text", defaultValue: "Akki Pathak" }],
-    };
-  }
+  // The signature tool routes through the signature studio modal (see
+  // PdfCanvas/SignatureModal), not the generic inline popover.
   if (activeTool in FORM_KIND_BY_TOOL) {
     const index = operations.filter((operation) => operation.type === "form-field").length + 1;
     const nameField: InlineInputField = {
@@ -357,35 +357,20 @@ export function createOperationsForTool({
   if (activeTool === "stamp") {
     const label = resolvedFields?.label?.trim();
     if (!label) return [];
+    const author = resolvedFields?.author?.trim();
+    const formattedDate = formatStampDate((resolvedFields?.dateStyle ?? "none") as StampDateStyle);
+    const subline = author && formattedDate ? `By ${author} at ${formattedDate}` : author ? `By ${author}` : formattedDate || undefined;
     return [
       {
         id: createId("stamp"),
         type: "stamp",
         pageIndex,
-        rect: { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, 46) },
+        rect: { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, subline ? 58 : 46) },
         label,
+        subline,
         color: "#b91c1c",
         borderColor: "#b91c1c",
         opacity: 0.9,
-        createdAt: now,
-      },
-    ];
-  }
-
-  if (activeTool === "signature") {
-    const value = resolvedFields?.value?.trim();
-    if (!value) return [];
-    return [
-      {
-        id: createId("signature"),
-        type: "signature",
-        mode: "typed",
-        pageIndex,
-        rect: { ...rect, width: Math.max(rect.width, 180), height: Math.max(rect.height, 54) },
-        value,
-        color: DEFAULT_COLORS.signature,
-        fontFamily: "EB Garamond",
-        opacity: 1,
         createdAt: now,
       },
     ];
