@@ -15,6 +15,7 @@ export function EditorRoute() {
   const [restoreChecked, setRestoreChecked] = useState(false);
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const [searchHighlight, setSearchHighlight] = useState<SearchHighlight | null>(null);
+  const [movingCount, setMovingCount] = useState(0);
   const { document, isBusy, restoreLatestSession } = editor;
 
   const closeFindReplace = useCallback(() => {
@@ -87,7 +88,7 @@ export function EditorRoute() {
           onZoomIn={() => editor.setScale((value) => Math.min(2.4, value + 0.1))}
           onZoomOut={() => editor.setScale((value) => Math.max(0.45, value - 0.1))}
           scale={editor.scale}
-          selectedId={editState.selectedId}
+          selectedIds={editState.selectedIds}
         />
       )}
       rail={(
@@ -103,7 +104,10 @@ export function EditorRoute() {
           operation={editor.selectedOperation}
           operationCount={editState.operations.length}
           pageTextItems={editor.pageTextItems}
+          selectedCount={editState.selectedIds.length}
+          onDuplicateSelected={editor.duplicateSelected}
           onExport={editor.runExport}
+          onRemoveSelected={editor.removeSelected}
           onUpdate={editor.updateOperation}
         />
       )}
@@ -111,10 +115,12 @@ export function EditorRoute() {
         <StatusBar
           documentName={document.name}
           isBusy={isBusy}
+          movingCount={movingCount}
           operationCount={editState.operations.length}
           pageIndex={editor.pageIndex}
           pageCount={document.pageCount}
           scale={editor.scale}
+          selectedCount={editState.selectedIds.length}
           status={editor.status}
         />
       )}
@@ -123,11 +129,14 @@ export function EditorRoute() {
         activeTool={editor.activeTool}
         document={document}
         documentFonts={editor.documentFonts}
+        onDraggingChange={setMovingCount}
         onNotice={editor.setStatus}
         onOperationAdd={editor.addOperation}
         onOperationsAdd={editor.addOperations}
         onOperationRemove={editor.removeOperation}
-        onOperationSelect={(id) => editor.dispatch({ type: "select", id })}
+        onOperationsRemove={editor.removeOperations}
+        onOperationSelect={(ids, additive) => editor.dispatch({ type: "select", ids, additive })}
+        onOperationsTranslate={editor.translateOperations}
         onOperationUpdate={editor.updateOperation}
         operations={editor.visibleOperations}
         pageIndex={editor.pageIndex}
@@ -135,7 +144,7 @@ export function EditorRoute() {
         rotation={editor.rotation}
         scale={editor.scale}
         searchHighlight={searchHighlight}
-        selectedId={editState.selectedId}
+        selectedIds={editState.selectedIds}
         stageRef={editor.pageStageRef}
         textItems={editor.pageTextItems}
       />

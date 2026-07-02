@@ -1,4 +1,4 @@
-import { AlignCenter, AlignLeft, AlignRight, Check, Circle, FileSpreadsheet, FileText, SlidersHorizontal, X } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, Check, Circle, Copy, FileSpreadsheet, FileText, SlidersHorizontal, Trash2, X } from "lucide-react";
 import type { EditOperation, ExportFormat, FormMarkOperation, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeUrl } from "../utils/url";
@@ -7,11 +7,24 @@ type InspectorProps = {
   operation?: EditOperation;
   operationCount: number;
   pageTextItems: TextItem[];
+  /** How many operations are selected; >1 swaps the per-field editor for group actions. */
+  selectedCount: number;
+  onDuplicateSelected: () => void;
   onExport: (format: ExportFormat) => void;
+  onRemoveSelected: () => void;
   onUpdate: (id: string, patch: Partial<EditOperation>) => void;
 };
 
-export function Inspector({ operation, operationCount, pageTextItems, onExport, onUpdate }: InspectorProps) {
+export function Inspector({
+  operation,
+  operationCount,
+  pageTextItems,
+  selectedCount,
+  onDuplicateSelected,
+  onExport,
+  onRemoveSelected,
+  onUpdate,
+}: InspectorProps) {
   const update = (patch: Partial<EditOperation>) => {
     /* v8 ignore next -- every `update` caller renders only inside the `operation`-present block, so the guard's false branch is unreachable */
     if (operation) onUpdate(operation.id, patch);
@@ -24,7 +37,22 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
         <SlidersHorizontal aria-hidden="true" />
       </div>
 
-      {!operation ? (
+      {selectedCount > 1 ? (
+        <div className="field-stack">
+          <div className="inspector-summary">
+            <span>Multi-select</span>
+            <strong>Selected {selectedCount} objects</strong>
+          </div>
+          <div className="group-actions">
+            <button onClick={onDuplicateSelected}>
+              <Copy aria-hidden="true" /> Duplicate all
+            </button>
+            <button onClick={onRemoveSelected}>
+              <Trash2 aria-hidden="true" /> Delete all
+            </button>
+          </div>
+        </div>
+      ) : !operation ? (
         <div className="empty-panel">
           <strong>No selection</strong>
           <p>Select an overlay or choose a tool, then click the page to add an edit.</p>
