@@ -64,11 +64,15 @@ type PdfCanvasStubProps = {
   activeTool: EditorTool;
   pageIndex: number;
   searchHighlight?: { pageIndex: number; rect: { x: number; y: number; width: number; height: number } } | null;
+  selectedIds: string[];
+  onDraggingChange: (count: number) => void;
   onNotice: (message: string) => void;
   onOperationAdd: (operation: Partial<EditOperation>) => void;
   onOperationsAdd: (operations: Partial<EditOperation>[]) => void;
   onOperationRemove: (id: string) => void;
-  onOperationSelect: (id: string) => void;
+  onOperationsRemove: (ids: string[]) => void;
+  onOperationSelect: (ids: string[], additive?: boolean) => void;
+  onOperationsTranslate: (ids: string[], dx: number, dy: number) => void;
   onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
 };
 
@@ -165,7 +169,10 @@ vi.mock("../src/components/PdfCanvas", () => ({
       <button onClick={() => props.onOperationAdd({ id: "o" })}>canvas-add</button>
       <button onClick={() => props.onOperationsAdd([{ id: "o1" }, { id: "o2" }])}>canvas-add-many</button>
       <button onClick={() => props.onOperationRemove("o")}>canvas-remove</button>
-      <button onClick={() => props.onOperationSelect("o")}>canvas-select</button>
+      <button onClick={() => props.onOperationsRemove(["o1", "o2"])}>canvas-remove-many</button>
+      <button onClick={() => props.onOperationSelect(["o"], true)}>canvas-select</button>
+      <button onClick={() => props.onOperationsTranslate(["o1", "o2"], 4, 5)}>canvas-translate</button>
+      <button onClick={() => props.onDraggingChange(2)}>canvas-dragging</button>
       <button onClick={() => props.onOperationUpdate("o", { text: "y" })}>canvas-update</button>
     </div>
   ),
@@ -205,7 +212,7 @@ function makeController(overrides: Partial<EditorController> = {}): EditorContro
     selectedOperation: undefined,
     visibleOperations: [],
     pageStageRef: { current: null },
-    editState: { past: [], future: [], operations: [], selectedId: undefined },
+    editState: { past: [], future: [], operations: [], selectedIds: [] },
     dispatch: vi.fn(),
     runExport: vi.fn(),
     returnHome: vi.fn(async () => undefined),
@@ -222,6 +229,10 @@ function makeController(overrides: Partial<EditorController> = {}): EditorContro
     addOperation: vi.fn(),
     addOperations: vi.fn(),
     removeOperation: vi.fn(),
+    removeOperations: vi.fn(),
+    translateOperations: vi.fn(),
+    duplicateSelected: vi.fn(),
+    selectedOperations: [],
     updateOperation: vi.fn(),
     ...overrides,
   } as unknown as EditorController;
@@ -307,7 +318,7 @@ describe("EditorRoute - with document", () => {
         past: [{ id: "p" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
         future: [{ id: "f" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
         operations: [],
-        selectedId: undefined,
+        selectedIds: [],
       } satisfies EditState,
     }));
     expect(screen.getByTestId("canUndo").textContent).toBe("true");
@@ -381,10 +392,16 @@ describe("EditorRoute - with document", () => {
     expect(controller.addOperation).toHaveBeenCalledWith({ id: "o" });
     fireEvent.click(screen.getByText("canvas-remove"));
     expect(controller.removeOperation).toHaveBeenCalledWith("o");
+    fireEvent.click(screen.getByText("canvas-remove-many"));
+    expect(controller.removeOperations).toHaveBeenCalledWith(["o1", "o2"]);
     fireEvent.click(screen.getByText("canvas-select"));
-    expect(controller.dispatch).toHaveBeenCalledWith({ type: "select", id: "o" });
+    expect(controller.dispatch).toHaveBeenCalledWith({ type: "select", ids: ["o"], additive: true });
+    fireEvent.click(screen.getByText("canvas-translate"));
+    expect(controller.translateOperations).toHaveBeenCalledWith(["o1", "o2"], 4, 5);
     fireEvent.click(screen.getByText("canvas-update"));
     expect(controller.updateOperation).toHaveBeenCalledWith("o", { text: "y" });
+    // onDraggingChange feeds the StatusBar's movingCount state without crashing.
+    fireEvent.click(screen.getByText("canvas-dragging"));
   });
 
   it("wires the batch add-operations callback through to the controller", () => {

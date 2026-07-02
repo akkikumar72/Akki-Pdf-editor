@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { shiftOperationsForDeletedPage, shiftOperationsForInsertedPage } from "../editor/pageOperations";
+import { duplicateOperation } from "../editor/selectionModel";
 import { exportPipeline } from "../engine/exportPipeline";
 import { pdfEngine } from "../engine/pdfEngine";
-import { editReducer, getSelectedOperation, initialEditState } from "./editModel";
+import { editReducer, getSelectedOperation, getSelectedOperations, initialEditState } from "./editModel";
 import type { EditState } from "./editModel";
 import type { DocumentFonts, EditOperation, EditorTool, ExportFormat, LoadedPdf, TextItem } from "../types/editor";
 import { validatePdfFile } from "../utils/fileValidation";
@@ -25,6 +26,7 @@ export function useEditorController() {
   const pageStageRef = useRef<HTMLDivElement>(null);
 
   const selectedOperation = useMemo(() => getSelectedOperation(editState), [editState]);
+  const selectedOperations = useMemo(() => getSelectedOperations(editState), [editState]);
   const visibleOperations = useMemo(
     () => editState.operations.filter((operation) => operation.pageIndex === pageIndex),
     [editState.operations, pageIndex],
@@ -258,15 +260,36 @@ export function useEditorController() {
   }, []);
 
   const removeSelected = useCallback(() => {
-    if (!editState.selectedId) return;
-    dispatch({ type: "remove", id: editState.selectedId });
-    setStatus("Selection removed");
-  }, [editState.selectedId]);
+    if (editState.selectedIds.length === 0) return;
+    dispatch({ type: "remove-many", ids: editState.selectedIds });
+    setStatus(
+      editState.selectedIds.length === 1
+        ? "Selection removed"
+        : `${editState.selectedIds.length} objects removed`,
+    );
+  }, [editState.selectedIds]);
 
   const removeOperation = useCallback((id: string) => {
     dispatch({ type: "remove", id });
     setStatus("Selection removed");
   }, []);
+
+  const removeOperations = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    dispatch({ type: "remove-many", ids });
+    setStatus(ids.length === 1 ? "Selection removed" : `${ids.length} objects removed`);
+  }, []);
+
+  const translateOperations = useCallback((ids: string[], dx: number, dy: number) => {
+    dispatch({ type: "translate", ids, dx, dy });
+  }, []);
+
+  const duplicateSelected = useCallback(() => {
+    const selected = getSelectedOperations(editState);
+    if (selected.length === 0) return;
+    dispatch({ type: "add-many", operations: selected.map(duplicateOperation) });
+    setStatus(selected.length === 1 ? "Duplicate added" : `${selected.length} duplicates added`);
+  }, [editState]);
 
   const updateDocumentBytes = useCallback(async (
     bytes: Uint8Array,
@@ -378,6 +401,7 @@ export function useEditorController() {
     recentSessions,
     editState,
     selectedOperation,
+    selectedOperations,
     visibleOperations,
     pageStageRef,
     dispatch,
@@ -399,6 +423,9 @@ export function useEditorController() {
     updateOperation,
     removeSelected,
     removeOperation,
+    removeOperations,
+    translateOperations,
+    duplicateSelected,
     insertPageAfter,
     deleteCurrentPage,
     rotateCurrentPage,

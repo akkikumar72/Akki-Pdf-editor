@@ -110,7 +110,7 @@ function makeProps(overrides: Partial<Props> = {}): Props {
     pageSize: PAGE,
     rotation: 0,
     scale: 1,
-    selectedId: undefined,
+    selectedIds: [],
     stageRef,
     textItems: [],
     onDocumentLoad: vi.fn(),
@@ -118,7 +118,9 @@ function makeProps(overrides: Partial<Props> = {}): Props {
     onOperationAdd: vi.fn(),
     onOperationsAdd: vi.fn(),
     onOperationRemove: vi.fn(),
+    onOperationsRemove: vi.fn(),
     onOperationSelect: vi.fn(),
+    onOperationsTranslate: vi.fn(),
     onOperationUpdate: vi.fn(),
     ...overrides,
   };
@@ -257,19 +259,23 @@ describe("PdfCanvas - render + load callbacks", () => {
 });
 
 describe("PdfCanvas - empty-area click/pointer behaviour", () => {
-  it("deselects on empty pointer down in select tool", () => {
+  it("deselects on an empty-area click (press + release without a drag) in select tool", () => {
     const onOperationSelect = vi.fn();
     const { stage } = renderCanvas({ activeTool: "select", onOperationSelect });
-    fireEvent.pointerDown(stage, { clientX: 5, clientY: 5 });
-    expect(onOperationSelect).toHaveBeenCalledWith(undefined);
+    fireEvent.pointerDown(stage, { clientX: 5, clientY: 5, pointerId: 1 });
+    // Deselection is resolved on pointer up so a marquee drag can begin instead.
+    expect(onOperationSelect).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage, { clientX: 5, clientY: 5 });
+    expect(onOperationSelect).toHaveBeenCalledWith([]);
   });
 
-  it("deselects on canvas pointer down (canvas counts as empty area)", () => {
+  it("deselects on a canvas click (canvas counts as empty area)", () => {
     const onOperationSelect = vi.fn();
-    const { container } = renderCanvas({ activeTool: "select", onOperationSelect });
+    const { container, stage } = renderCanvas({ activeTool: "select", onOperationSelect });
     const canvas = container.querySelector(".react-pdf__Page__canvas") as HTMLCanvasElement;
-    fireEvent.pointerDown(canvas, { clientX: 5, clientY: 5 });
-    expect(onOperationSelect).toHaveBeenCalledWith(undefined);
+    fireEvent.pointerDown(canvas, { clientX: 5, clientY: 5, pointerId: 1 });
+    fireEvent.pointerUp(stage, { clientX: 5, clientY: 5 });
+    expect(onOperationSelect).toHaveBeenCalledWith([]);
   });
 
   it("does not deselect on empty pointer down with a non-select tool", () => {
@@ -341,7 +347,7 @@ describe("PdfCanvas - creating operations by clicking", () => {
     expect(onOperationAdd).toHaveBeenCalled();
     const created = onOperationAdd.mock.calls[0][0] as TextOperation;
     expect(created.type).toBe("text");
-    expect(onOperationSelect).toHaveBeenCalledWith(created.id);
+    expect(onOperationSelect).toHaveBeenCalledWith([created.id]);
     rafSpy.mockRestore();
   });
 });
@@ -391,7 +397,7 @@ describe("PdfCanvas - image tool", () => {
     expect(created.mimeType).toBe("image/png");
     expect(created.rect.width).toBe(320);
     expect(created.rect.height).toBe(240);
-    expect(onOperationSelect).toHaveBeenCalledWith(created.id);
+    expect(onOperationSelect).toHaveBeenCalledWith([created.id]);
     expect(container.querySelector(".image-ghost")).toBeNull();
   });
 
@@ -551,7 +557,7 @@ describe("PdfCanvas - signature flow", () => {
     expect(created.type).toBe("signature");
     expect(created.mode).toBe("image");
     expect(created.value).toBe("data:image/png;base64,AAAA");
-    expect(onOperationSelect).toHaveBeenCalledWith(created.id);
+    expect(onOperationSelect).toHaveBeenCalledWith([created.id]);
   });
 
   it("does not persist when the save-for-reuse checkbox is unchecked, and notices a failing save", async () => {
@@ -758,14 +764,14 @@ describe("PdfCanvas - operation overlays and selection", () => {
 
   it("renders the floating toolbar and resize handles for a selected shape", () => {
     const op = shapeOp();
-    const { container } = renderCanvas({ operations: [op], selectedId: op.id });
+    const { container } = renderCanvas({ operations: [op], selectedIds: [op.id] });
     expect(container.querySelector(".floating-toolbar")).toBeTruthy();
     expect(container.querySelector(".resize-frame")).toBeTruthy();
   });
 
   it("does not render resize handles for a non-resizable (text) operation", () => {
     const op = textOp();
-    const { container } = renderCanvas({ operations: [op], selectedId: op.id });
+    const { container } = renderCanvas({ operations: [op], selectedIds: [op.id] });
     expect(container.querySelector(".resize-frame")).toBeNull();
   });
 
@@ -773,7 +779,7 @@ describe("PdfCanvas - operation overlays and selection", () => {
     const op = shapeOp();
     const onOperationRemove = vi.fn();
     const onOperationAdd = vi.fn();
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedId: op.id, onOperationRemove, onOperationAdd });
+    const { getByLabelText } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationRemove, onOperationAdd });
     fireEvent.click(getByLabelText("Delete"));
     expect(onOperationRemove).toHaveBeenCalledWith(op.id);
     fireEvent.click(getByLabelText("Duplicate"));
@@ -782,7 +788,7 @@ describe("PdfCanvas - operation overlays and selection", () => {
 
   it("toggles move mode from the toolbar", () => {
     const op = shapeOp();
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedId: op.id });
+    const { getByLabelText } = renderCanvas({ operations: [op], selectedIds: [op.id] });
     const moveBtn = getByLabelText("Move");
     fireEvent.click(moveBtn);
     expect(moveBtn.getAttribute("aria-pressed")).toBe("true");
@@ -795,7 +801,7 @@ describe("PdfCanvas - link inline popover", () => {
   it("adds a link operation to a non-link op via the toolbar popover", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
-    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
     const popover = getByRole("dialog", { name: "Add link" });
     fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "https://example.com" } });
@@ -807,7 +813,7 @@ describe("PdfCanvas - link inline popover", () => {
   it("does nothing when the link popover is cancelled", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
-    const { getByLabelText, getByRole, queryByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
+    const { getByLabelText, getByRole, queryByRole } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
     const popover = getByRole("dialog", { name: "Add link" });
     fireEvent.click(within(popover).getByText("Cancel"));
@@ -819,7 +825,7 @@ describe("PdfCanvas - link inline popover", () => {
     const op = shapeOp();
     const onNotice = vi.fn();
     const onOperationAdd = vi.fn();
-    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd, onNotice });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationAdd, onNotice });
     fireEvent.click(getByLabelText("Add link"));
     const popover = getByRole("dialog", { name: "Add link" });
     fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "javascript:alert(1)" } });
@@ -834,7 +840,7 @@ describe("PdfCanvas - link inline popover", () => {
       createdAt: 1, href: "https://old.com", opacity: 1,
     };
     const onOperationUpdate = vi.fn();
-    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationUpdate });
     fireEvent.click(getByLabelText("Add link"));
     const popover = getByRole("dialog", { name: "Edit link" });
     const input = within(popover).getByLabelText("Link URL") as HTMLInputElement;
@@ -850,7 +856,7 @@ describe("PdfCanvas - link inline popover", () => {
       createdAt: 1, href: "https://old.com", opacity: 1,
     };
     const onOperationUpdate = vi.fn();
-    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationUpdate });
     fireEvent.click(getByLabelText("Add link"));
     const popover = getByRole("dialog", { name: "Edit link" });
     fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "" } });
@@ -865,7 +871,7 @@ describe("PdfCanvas - link inline popover", () => {
     };
     const onNotice = vi.fn();
     const onOperationUpdate = vi.fn();
-    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate, onNotice });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationUpdate, onNotice });
     fireEvent.click(getByLabelText("Add link"));
     const popover = getByRole("dialog", { name: "Edit link" });
     fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "javascript:bad" } });
@@ -877,7 +883,7 @@ describe("PdfCanvas - link inline popover", () => {
   it("dismisses the popover on Escape without changing anything", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
-    const { getByLabelText, getByRole, queryByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
+    const { getByLabelText, getByRole, queryByRole } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
     const popover = getByRole("dialog", { name: "Add link" });
     fireEvent.keyDown(popover, { key: "Escape" });
@@ -888,7 +894,7 @@ describe("PdfCanvas - link inline popover", () => {
   it("confirms via Enter on the single-line field", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
-    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
     const popover = getByRole("dialog", { name: "Add link" });
     const input = within(popover).getByLabelText("Link URL");
@@ -920,7 +926,7 @@ describe("PdfCanvas - drag-to-draw region tools", () => {
     await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
     const created = onOperationAdd.mock.calls[0][0];
     expect(created.type).toBe("shape");
-    expect(onOperationSelect).toHaveBeenLastCalledWith(created.id);
+    expect(onOperationSelect).toHaveBeenLastCalledWith([created.id]);
     expect(container.querySelector(".draw-marquee")).toBeNull();
   });
 
@@ -1016,7 +1022,7 @@ describe("PdfCanvas - drag-to-draw region tools", () => {
     const created = onOperationAdd.mock.calls[0][0];
     expect(created.type).toBe("link");
     expect(created.href).toBe("https://region.example/");
-    expect(onOperationSelect).toHaveBeenLastCalledWith(created.id);
+    expect(onOperationSelect).toHaveBeenLastCalledWith([created.id]);
   });
 
   it("creates a stamp operation from a single point-click once its inline popover is confirmed", () => {
@@ -1053,117 +1059,209 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     return stage;
   }
 
-  it("selecting an overlay and dragging it in select tool updates its rect", () => {
+  it("dragging an already-selected overlay keeps the selection and commits one translate", () => {
     const op = shapeOp();
     const onOperationSelect = vi.fn();
-    const onOperationUpdate = vi.fn();
+    const onOperationsTranslate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef,
-      onOperationSelect, onOperationUpdate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef,
+      onOperationSelect, onOperationsTranslate,
     });
     stageRef.current = stage;
     setupStageRef(stage);
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
-    expect(onOperationSelect).toHaveBeenCalledWith(op.id);
+    // Already a selection member: pressing it must not rebuild the selection.
+    expect(onOperationSelect).not.toHaveBeenCalled();
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
     // The commit is deferred until the gesture ends, not fired on every pointermove.
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
     fireEvent.pointerUp(stage);
-    expect(onOperationUpdate).toHaveBeenCalled();
-    expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
+    expect(onOperationsTranslate).toHaveBeenCalledTimes(1);
+    expect(onOperationsTranslate).toHaveBeenCalledWith([op.id], expect.any(Number), expect.any(Number));
   });
 
-  it("dragging an ink operation translates its points", () => {
+  it("pressing an unselected overlay selects it before the drag begins", () => {
+    const op = shapeOp();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: [op], selectedIds: [], stageRef, onOperationSelect,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
+    expect(onOperationSelect).toHaveBeenCalledWith([op.id]);
+    fireEvent.pointerUp(stage);
+  });
+
+  it("shift-click toggles the pressed overlay into the selection without dragging", () => {
+    const first = shapeOp();
+    const second = shapeOp({ id: "shape-2", rect: { x: 300, y: 200, width: 60, height: 40 } });
+    const onOperationSelect = vi.fn();
+    const onOperationsTranslate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: [first, second], selectedIds: [first.id], stageRef,
+      onOperationSelect, onOperationsTranslate,
+    });
+    stageRef.current = stage;
+    const overlays = container.querySelectorAll(".operation--shape-rectangle");
+    fireEvent.pointerDown(overlays[1], { clientX: 310, clientY: 160, pointerId: 1, shiftKey: true });
+    expect(onOperationSelect).toHaveBeenCalledWith(["shape-2"], true);
+    // No drag starts from an additive toggle press.
+    fireEvent.pointerMove(stage, { clientX: 350, clientY: 200 });
+    fireEvent.pointerUp(stage);
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
+  });
+
+  it("cmd/meta-click also toggles additively", () => {
+    const op = shapeOp();
+    const onOperationSelect = vi.fn();
+    const { container } = renderCanvas({
+      activeTool: "select", operations: [op], selectedIds: [], onOperationSelect,
+    });
+    const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 110, clientY: 110, pointerId: 1, metaKey: true });
+    expect(onOperationSelect).toHaveBeenCalledWith([op.id], true);
+  });
+
+  it("dragging a member of a multi-selection moves the whole group with one translate", () => {
+    const first = shapeOp();
+    const second = shapeOp({ id: "shape-2", rect: { x: 300, y: 200, width: 60, height: 40 } });
+    const onOperationsTranslate = vi.fn();
+    const onDraggingChange = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select",
+      operations: [first, second],
+      selectedIds: [first.id, second.id],
+      stageRef,
+      onOperationsTranslate,
+      onDraggingChange,
+    });
+    stageRef.current = stage;
+    const overlays = container.querySelectorAll(".operation--shape-rectangle");
+    const secondLeftBefore = (overlays[1] as HTMLElement).style.left;
+    fireEvent.pointerDown(overlays[0], { clientX: 110, clientY: 350, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 160, clientY: 400 });
+    // Live preview: BOTH members render at their dragged position mid-gesture.
+    const liveOverlays = container.querySelectorAll(".operation--shape-rectangle");
+    expect((liveOverlays[1] as HTMLElement).style.left).not.toBe(secondLeftBefore);
+    // Group toolbar hides while the drag is live.
+    expect(container.querySelector(".group-toolbar")).toBeNull();
+    expect(onDraggingChange).toHaveBeenLastCalledWith(2);
+    fireEvent.pointerUp(stage);
+    expect(onOperationsTranslate).toHaveBeenCalledTimes(1);
+    const [ids, dx, dy] = onOperationsTranslate.mock.calls[0];
+    expect(ids).toEqual([first.id, second.id]);
+    expect(typeof dx).toBe("number");
+    expect(typeof dy).toBe("number");
+    expect(onDraggingChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it("a group drag skips selection ids that are not on this page", () => {
+    const first = shapeOp();
+    const onOperationsTranslate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select",
+      operations: [first],
+      selectedIds: [first.id, "op-on-another-page"],
+      stageRef,
+      onOperationsTranslate,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 110, clientY: 350, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 160, clientY: 400 });
+    fireEvent.pointerUp(stage);
+    expect(onOperationsTranslate).toHaveBeenCalledWith([first.id], expect.any(Number), expect.any(Number));
+  });
+
+  it("dragging an ink operation commits through the same translate action", () => {
     const ink: InkOperation = {
       id: "ink-1", type: "ink", pageIndex: 0, rect: { x: 100, y: 400, width: 120, height: 48 },
       createdAt: 1, points: [{ x: 100, y: 410 }, { x: 150, y: 430 }], stroke: "#000", strokeWidth: 2,
     };
-    const onOperationUpdate = vi.fn();
+    const onOperationsTranslate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [ink], selectedId: ink.id, stageRef, onOperationUpdate,
+      activeTool: "select", operations: [ink], selectedIds: [ink.id], stageRef, onOperationsTranslate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--ink") ?? container.querySelector('[class*="operation--"]');
     fireEvent.pointerDown(overlay as HTMLElement, { clientX: 100, clientY: 400, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 120, clientY: 420 });
     fireEvent.pointerUp(stage);
-    const patch = onOperationUpdate.mock.calls.at(-1)?.[1];
-    expect(patch).toHaveProperty("points");
+    expect(onOperationsTranslate).toHaveBeenCalledWith(["ink-1"], expect.any(Number), expect.any(Number));
   });
 
   it("clicking a text overlay in the Text tool (no movement) enters edit mode instead of dragging", () => {
     const op = textOp();
-    const onOperationSelect = vi.fn();
-    const onOperationUpdate = vi.fn();
+    const onOperationsTranslate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "text", operations: [op], selectedId: op.id, stageRef,
-      onOperationSelect, onOperationUpdate,
+      activeTool: "text", operations: [op], selectedIds: [op.id], stageRef,
+      onOperationsTranslate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--text") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
-    expect(onOperationSelect).toHaveBeenCalledWith(op.id);
     // Released with no movement in between -> resolves to "enter edit mode", not a move.
     fireEvent.pointerUp(stage);
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
     expect(overlay.getAttribute("contenteditable")).toBe("true");
   });
 
   it("clicking a non-text overlay with no movement resolves to a no-op (not edit mode)", () => {
     const op = shapeOp();
-    const onOperationSelect = vi.fn();
-    const onOperationUpdate = vi.fn();
+    const onOperationsTranslate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef,
-      onOperationSelect, onOperationUpdate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef,
+      onOperationsTranslate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
-    expect(onOperationSelect).toHaveBeenCalledWith(op.id);
     fireEvent.pointerUp(stage);
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
   });
 
   it("dragging a text overlay in the Text tool moves it instead of entering edit mode", () => {
     const op = textOp();
-    const onOperationUpdate = vi.fn();
+    const onOperationsTranslate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "text", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+      activeTool: "text", operations: [op], selectedIds: [op.id], stageRef, onOperationsTranslate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--text") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 70, clientY: 620 });
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
     fireEvent.pointerUp(stage);
-    expect(onOperationUpdate).toHaveBeenCalled();
-    expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
+    expect(onOperationsTranslate).toHaveBeenCalledWith([op.id], expect.any(Number), expect.any(Number));
     // Since the gesture moved, it must not also resolve to "enter edit mode".
     expect(overlay.getAttribute("contenteditable")).toBe("false");
   });
 
   it("drag works on an overlay regardless of which tool is active", () => {
     const op = shapeOp();
-    const onOperationUpdate = vi.fn();
+    const onOperationsTranslate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "whiteout", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+      activeTool: "whiteout", operations: [op], selectedIds: [op.id], stageRef, onOperationsTranslate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
     fireEvent.pointerUp(stage);
-    expect(onOperationUpdate).toHaveBeenCalled();
-    expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
+    expect(onOperationsTranslate).toHaveBeenCalledWith([op.id], expect.any(Number), expect.any(Number));
   });
 
   it("suppresses the native click that follows a completed drag, so it doesn't add a stray operation", () => {
@@ -1175,14 +1273,13 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const onOperationUpdate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "text", operations: [op], selectedId: op.id, stageRef, onOperationAdd, onOperationUpdate,
+      activeTool: "text", operations: [op], selectedIds: [op.id], stageRef, onOperationAdd, onOperationUpdate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--text") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 160, clientY: 700 });
     fireEvent.pointerUp(stage);
-    expect(onOperationUpdate).toHaveBeenCalled();
     // The click's target is the stage itself (empty canvas), same as a real release.
     fireEvent.click(stage, { clientX: 160, clientY: 700 });
     expect(onOperationAdd).not.toHaveBeenCalled();
@@ -1193,7 +1290,7 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const onOperationAdd = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "text", operations: [op], selectedId: op.id, stageRef, onOperationAdd,
+      activeTool: "text", operations: [op], selectedIds: [op.id], stageRef, onOperationAdd,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
@@ -1210,7 +1307,7 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const op = shapeOp({ rect: { x: 100, y: 700, width: 80, height: 40 } });
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
@@ -1231,23 +1328,25 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
 
   it("pointer cancel and lost capture clear drag state", () => {
     const op = shapeOp();
-    const onOperationUpdate = vi.fn();
+    const onOperationsTranslate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationsTranslate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerCancel(stage);
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
 
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.lostPointerCapture(stage);
-    onOperationUpdate.mockClear();
+    onOperationsTranslate.mockClear();
     fireEvent.pointerMove(stage, { clientX: 160, clientY: 160 });
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
   });
 
   it("clicking with the Check mark tool places a mark centered on the click point", () => {
@@ -1264,18 +1363,139 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
       id: "mark-1", type: "form-mark", mark: "check", pageIndex: 0,
       rect: { x: 100, y: 400, width: 16, height: 16 }, createdAt: 1, color: "#111827",
     };
-    const onOperationUpdate = vi.fn();
+    const onOperationsTranslate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationsTranslate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--form-mark") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 400, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 450 });
     fireEvent.pointerUp(stage);
-    expect(onOperationUpdate).toHaveBeenCalled();
-    expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
+    expect(onOperationsTranslate).toHaveBeenCalledWith(["mark-1"], expect.any(Number), expect.any(Number));
+  });
+});
+
+describe("PdfCanvas - marquee multi-select (select tool)", () => {
+  const twoShapes = () => [
+    shapeOp({ id: "shape-1", rect: { x: 50, y: 600, width: 80, height: 40 } }),
+    shapeOp({ id: "shape-2", rect: { x: 200, y: 600, width: 80, height: 40 } }),
+  ];
+
+  it("renders the rubber-band while dragging and selects every intersected operation", () => {
+    // Viewport (scale 1, page 792): shape-1 top = 792-600-40 = 152, spans x 50..130.
+    const ops = twoShapes();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: ops, selectedIds: [], stageRef, onOperationSelect,
+    });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 30, clientY: 140, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 300, clientY: 210 });
+    expect(container.querySelector(".select-marquee")).toBeTruthy();
+    fireEvent.pointerUp(stage, { clientX: 300, clientY: 210 });
+    expect(onOperationSelect).toHaveBeenCalledWith(["shape-1", "shape-2"]);
+    expect(container.querySelector(".select-marquee")).toBeNull();
+  });
+
+  it("a marquee over empty space selects nothing", () => {
+    const ops = twoShapes();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({
+      activeTool: "select", operations: ops, selectedIds: [], stageRef, onOperationSelect,
+    });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 400, clientY: 400, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 500, clientY: 500 });
+    fireEvent.pointerUp(stage, { clientX: 500, clientY: 500 });
+    expect(onOperationSelect).toHaveBeenCalledWith([]);
+  });
+
+  it("shift at marquee end unions the hits with the existing selection (no toggling)", () => {
+    const ops = twoShapes();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({
+      activeTool: "select", operations: ops, selectedIds: ["shape-1"], stageRef, onOperationSelect,
+    });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 30, clientY: 140, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 300, clientY: 210 });
+    fireEvent.pointerUp(stage, { clientX: 300, clientY: 210, shiftKey: true });
+    // shape-1 is already selected, so only shape-2 is toggled in — a union, not a toggle-out.
+    expect(onOperationSelect).toHaveBeenCalledWith(["shape-2"], true);
+  });
+
+  it("Escape cancels an in-progress marquee without changing the selection", () => {
+    const ops = twoShapes();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: ops, selectedIds: [], stageRef, onOperationSelect,
+    });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 30, clientY: 140, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 300, clientY: 210 });
+    expect(container.querySelector(".select-marquee")).toBeTruthy();
+    // A non-Escape key leaves the marquee alive.
+    fireEvent.keyDown(window, { key: "a" });
+    expect(container.querySelector(".select-marquee")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(container.querySelector(".select-marquee")).toBeNull();
+    fireEvent.pointerUp(stage, { clientX: 300, clientY: 210 });
+    expect(onOperationSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe("PdfCanvas - multi-selection group chrome", () => {
+  const groupOps = () => [
+    shapeOp({ id: "shape-1", rect: { x: 50, y: 600, width: 80, height: 40 } }),
+    shapeOp({ id: "shape-2", rect: { x: 200, y: 500, width: 80, height: 40 } }),
+  ];
+
+  it("renders the group outline spanning the members and no single-op chrome", () => {
+    const ops = groupOps();
+    const { container } = renderCanvas({ operations: ops, selectedIds: ["shape-1", "shape-2"] });
+    const outline = container.querySelector(".group-selection-outline") as HTMLElement;
+    expect(outline).toBeTruthy();
+    // min left = 50; top = min(792-600-40, 792-500-40) = min(152, 252) = 152;
+    // right = max(130, 280) = 280 -> width 230; bottom = max(192, 292) -> height 140.
+    expect(outline.style.left).toBe("50px");
+    expect(outline.style.top).toBe("152px");
+    expect(outline.style.width).toBe("230px");
+    expect(outline.style.height).toBe("140px");
+    // Exactly-one-selected chrome must not render for a group.
+    expect(container.querySelector(".floating-toolbar")).toBeNull();
+    expect(container.querySelector(".resize-frame")).toBeNull();
+  });
+
+  it("shows the Selected N objects count and fires group duplicate/delete", () => {
+    const ops = groupOps();
+    const onOperationsAdd = vi.fn();
+    const onOperationsRemove = vi.fn();
+    const { container, getByLabelText } = renderCanvas({
+      operations: ops, selectedIds: ["shape-1", "shape-2"], onOperationsAdd, onOperationsRemove,
+    });
+    expect(container.querySelector(".group-toolbar__count")?.textContent).toBe("Selected 2 objects");
+    fireEvent.click(getByLabelText("Duplicate selected"));
+    expect(onOperationsAdd).toHaveBeenCalledTimes(1);
+    const clones = onOperationsAdd.mock.calls[0][0] as EditOperation[];
+    expect(clones).toHaveLength(2);
+    expect(clones.every((clone) => clone.id !== "shape-1" && clone.id !== "shape-2")).toBe(true);
+    fireEvent.click(getByLabelText("Delete selected"));
+    expect(onOperationsRemove).toHaveBeenCalledWith(["shape-1", "shape-2"]);
+  });
+
+  it("renders no group chrome when fewer than two selected members are on the page", () => {
+    const ops = groupOps();
+    const { container } = renderCanvas({
+      operations: [ops[0]], selectedIds: ["shape-1", "op-from-another-page"],
+    });
+    expect(container.querySelector(".group-selection-outline")).toBeNull();
+    expect(container.querySelector(".group-toolbar")).toBeNull();
   });
 });
 
@@ -1309,7 +1529,7 @@ describe("PdfCanvas - text-snapped annotations", () => {
     expect(created.every((op) => op.type === "annotation")).toBe(true);
     // Clipped horizontally to the marquee (pdf x 60..200), full run line vertically.
     expect(created[0].rect).toMatchObject({ x: 60, width: 140, height: 14 });
-    expect(onOperationSelect).toHaveBeenLastCalledWith(created[1].id);
+    expect(onOperationSelect).toHaveBeenLastCalledWith([created[1].id]);
     expect(onOperationAdd).not.toHaveBeenCalled();
   });
 
@@ -1372,7 +1592,7 @@ describe("PdfCanvas - resize interactions", () => {
     const onOperationUpdate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationUpdate,
     });
     stageRef.current = stage;
     const handles = container.querySelectorAll(".resize-handle");
@@ -1390,7 +1610,7 @@ describe("PdfCanvas - resize interactions", () => {
     const onOperationUpdate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationUpdate,
     });
     stageRef.current = stage;
     const handles = container.querySelectorAll(".resize-handle");
@@ -1407,7 +1627,7 @@ describe("PdfCanvas - resize interactions", () => {
     const onOperationUpdate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationUpdate,
     });
     // leave stageRef.current null
     const handles = container.querySelectorAll(".resize-handle");
@@ -1419,45 +1639,46 @@ describe("PdfCanvas - resize interactions", () => {
 describe("PdfCanvas - keyboard delete", () => {
   it("removes the selected operation on Delete", () => {
     const op = shapeOp();
-    const onOperationRemove = vi.fn();
-    renderCanvas({ operations: [op], selectedId: op.id, onOperationRemove });
+    const onOperationsRemove = vi.fn();
+    renderCanvas({ operations: [op], selectedIds: [op.id], onOperationsRemove });
     fireEvent.keyDown(window, { key: "Delete" });
-    expect(onOperationRemove).toHaveBeenCalledWith(op.id);
+    expect(onOperationsRemove).toHaveBeenCalledWith([op.id]);
   });
 
-  it("removes the selected operation on Backspace", () => {
-    const op = shapeOp();
-    const onOperationRemove = vi.fn();
-    renderCanvas({ operations: [op], selectedId: op.id, onOperationRemove });
+  it("removes every member of a multi-selection on Backspace", () => {
+    const first = shapeOp();
+    const second = shapeOp({ id: "shape-2", rect: { x: 300, y: 200, width: 60, height: 40 } });
+    const onOperationsRemove = vi.fn();
+    renderCanvas({ operations: [first, second], selectedIds: [first.id, second.id], onOperationsRemove });
     fireEvent.keyDown(window, { key: "Backspace" });
-    expect(onOperationRemove).toHaveBeenCalledWith(op.id);
+    expect(onOperationsRemove).toHaveBeenCalledWith([first.id, second.id]);
   });
 
   it("ignores other keys", () => {
     const op = shapeOp();
-    const onOperationRemove = vi.fn();
-    renderCanvas({ operations: [op], selectedId: op.id, onOperationRemove });
+    const onOperationsRemove = vi.fn();
+    renderCanvas({ operations: [op], selectedIds: [op.id], onOperationsRemove });
     fireEvent.keyDown(window, { key: "a" });
-    expect(onOperationRemove).not.toHaveBeenCalled();
+    expect(onOperationsRemove).not.toHaveBeenCalled();
   });
 
   it("does not delete when focus is in an editable field", () => {
     const op = shapeOp();
-    const onOperationRemove = vi.fn();
-    renderCanvas({ operations: [op], selectedId: op.id, onOperationRemove });
+    const onOperationsRemove = vi.fn();
+    renderCanvas({ operations: [op], selectedIds: [op.id], onOperationsRemove });
     const input = window.document.createElement("input");
     window.document.body.appendChild(input);
     input.focus();
     fireEvent.keyDown(window, { key: "Delete" });
-    expect(onOperationRemove).not.toHaveBeenCalled();
+    expect(onOperationsRemove).not.toHaveBeenCalled();
     window.document.body.removeChild(input);
   });
 
   it("does not register the handler when nothing is selected", () => {
-    const onOperationRemove = vi.fn();
-    renderCanvas({ selectedId: undefined, onOperationRemove });
+    const onOperationsRemove = vi.fn();
+    renderCanvas({ selectedIds: [], onOperationsRemove });
     fireEvent.keyDown(window, { key: "Delete" });
-    expect(onOperationRemove).not.toHaveBeenCalled();
+    expect(onOperationsRemove).not.toHaveBeenCalled();
   });
 });
 
@@ -1549,7 +1770,7 @@ describe("PdfCanvas - resizable image/signature handles", () => {
       id: "img-1", type: "image", pageIndex: 0, rect: { x: 100, y: 400, width: 80, height: 60 },
       createdAt: 1, dataUrl: "data:image/png;base64,AAAA", mimeType: "image/png", opacity: 1,
     };
-    const { container } = renderCanvas({ operations: [op], selectedId: op.id });
+    const { container } = renderCanvas({ operations: [op], selectedIds: [op.id] });
     expect(container.querySelector(".resize-frame")).toBeTruthy();
   });
 
@@ -1558,7 +1779,7 @@ describe("PdfCanvas - resizable image/signature handles", () => {
       id: "ink-x", type: "ink", pageIndex: 0, rect: { x: 100, y: 400, width: 80, height: 60 },
       createdAt: 1, points: [{ x: 0, y: 0 }], stroke: "#000", strokeWidth: 2,
     };
-    const { container } = renderCanvas({ operations: [ink], selectedId: ink.id });
+    const { container } = renderCanvas({ operations: [ink], selectedIds: [ink.id] });
     expect(container.querySelector(".resize-frame")).toBeNull();
   });
 });
@@ -1669,7 +1890,7 @@ describe("PdfCanvas - resizable type branches", () => {
     ["form-mark (resizable, to fit whatever box size the PDF has)", { id: "fm1", type: "form-mark", pageIndex: 0, rect: { x: 50, y: 500, width: 20, height: 20 }, createdAt: 1, mark: "check", color: "#000" }, true],
     ["shape line (not resizable)", { id: "s9", type: "shape", kind: "line", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 4 }, createdAt: 1, stroke: "#000", strokeWidth: 2 }, false],
   ])("%s -> resize handles present=%s", (_label, op, expected) => {
-    const { container } = renderCanvas({ operations: [op as EditOperation], selectedId: (op as EditOperation).id });
+    const { container } = renderCanvas({ operations: [op as EditOperation], selectedIds: [(op as EditOperation).id] });
     expect(Boolean(container.querySelector(".resize-frame"))).toBe(expected as boolean);
   });
 });
@@ -1800,13 +2021,13 @@ describe("PdfCanvas - OperationOverlay text edit callbacks", () => {
     const onOperationSelect = vi.fn();
     const onOperationUpdate = vi.fn();
     const { container } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id,
+      activeTool: "select", operations: [op], selectedIds: [op.id],
       onOperationSelect, onOperationUpdate,
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
     // double click -> onStartTextEdit -> select + set editing
     fireEvent.doubleClick(el);
-    expect(onOperationSelect).toHaveBeenCalledWith(op.id);
+    expect(onOperationSelect).toHaveBeenCalledWith([op.id]);
     // now editing: input fires onTextChange
     const editable = container.querySelector(".operation--text") as HTMLDivElement;
     editable.textContent = "changed";
@@ -1821,7 +2042,7 @@ describe("PdfCanvas - Sejda-style placeholder text UX", () => {
   it("selects the whole placeholder on edit start so typing replaces it", () => {
     const op = textOp({ text: "Type your text" });
     const { container } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id,
+      activeTool: "select", operations: [op], selectedIds: [op.id],
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
     fireEvent.doubleClick(el);
@@ -1832,7 +2053,7 @@ describe("PdfCanvas - Sejda-style placeholder text UX", () => {
   it("keeps caret behavior (no full selection) for boxes with real content", () => {
     const op = textOp({ text: "Real content" });
     const { container } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id,
+      activeTool: "select", operations: [op], selectedIds: [op.id],
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
     fireEvent.doubleClick(el);
@@ -1844,14 +2065,14 @@ describe("PdfCanvas - Sejda-style placeholder text UX", () => {
     const op = textOp({ text: "Type your text" });
     const onOperationRemove = vi.fn();
     const { container, stage, rerender, props } = renderCanvas({
-      activeTool: "text", operations: [op], selectedId: op.id, onOperationRemove,
+      activeTool: "text", operations: [op], selectedIds: [op.id], onOperationRemove,
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
     // Click resolves to edit mode with the Text tool.
     fireEvent.pointerDown(el, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerUp(stage);
     // End the session by deselecting (click-away path).
-    rerender(<PdfCanvas {...props} activeTool="text" operations={[op]} selectedId={undefined} onOperationRemove={onOperationRemove} />);
+    rerender(<PdfCanvas {...props} activeTool="text" operations={[op]} selectedIds={[]} onOperationRemove={onOperationRemove} />);
     await waitFor(() => expect(onOperationRemove).toHaveBeenCalledWith(op.id));
   });
 
@@ -1859,12 +2080,12 @@ describe("PdfCanvas - Sejda-style placeholder text UX", () => {
     const edited = textOp({ text: "My real words" });
     const onOperationRemove = vi.fn();
     const { container, stage, rerender, props } = renderCanvas({
-      activeTool: "text", operations: [edited], selectedId: edited.id, onOperationRemove,
+      activeTool: "text", operations: [edited], selectedIds: [edited.id], onOperationRemove,
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
     fireEvent.pointerDown(el, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerUp(stage);
-    rerender(<PdfCanvas {...props} activeTool="text" operations={[edited]} selectedId={undefined} onOperationRemove={onOperationRemove} />);
+    rerender(<PdfCanvas {...props} activeTool="text" operations={[edited]} selectedIds={[]} onOperationRemove={onOperationRemove} />);
     await waitFor(() => expect(container.querySelector(".operation--text.is-editing")).toBeNull());
     expect(onOperationRemove).not.toHaveBeenCalled();
   });
@@ -1877,12 +2098,12 @@ describe("PdfCanvas - Sejda-style placeholder text UX", () => {
     });
     const onOperationRemove = vi.fn();
     const { container, stage, rerender, props } = renderCanvas({
-      activeTool: "text", operations: [replacement], selectedId: replacement.id, onOperationRemove,
+      activeTool: "text", operations: [replacement], selectedIds: [replacement.id], onOperationRemove,
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
     fireEvent.pointerDown(el, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerUp(stage);
-    rerender(<PdfCanvas {...props} activeTool="text" operations={[replacement]} selectedId={undefined} onOperationRemove={onOperationRemove} />);
+    rerender(<PdfCanvas {...props} activeTool="text" operations={[replacement]} selectedIds={[]} onOperationRemove={onOperationRemove} />);
     await waitFor(() => expect(container.querySelector(".operation--text.is-editing")).toBeNull());
     expect(onOperationRemove).not.toHaveBeenCalled();
   });
@@ -1890,7 +2111,7 @@ describe("PdfCanvas - Sejda-style placeholder text UX", () => {
   it("does not end the edit session when focus moves into the inline toolbar", () => {
     const op = textOp({ text: "Type your text" });
     const { container } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id,
+      activeTool: "select", operations: [op], selectedIds: [op.id],
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
     fireEvent.doubleClick(el);
@@ -1908,14 +2129,14 @@ describe("PdfCanvas - editing-driven effects", () => {
     const op = textOp({ text: "edit me" });
     const other = shapeOp({ id: "shape-2" });
     const { container, stage, rerender, props } = renderCanvas({
-      activeTool: "text", operations: [op, other], selectedId: op.id,
+      activeTool: "text", operations: [op, other], selectedIds: [op.id],
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
     // A click (down + up, no movement) with the Text tool resolves to edit mode.
     fireEvent.pointerDown(el, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerUp(stage);
     // editing now active; change selection to the other op
-    rerender(<PdfCanvas {...props} activeTool="text" operations={[op, other]} selectedId="shape-2" />);
+    rerender(<PdfCanvas {...props} activeTool="text" operations={[op, other]} selectedIds={["shape-2"]} />);
     await waitFor(() => expect(container.querySelector(".operation--text.is-editing")).toBeNull());
   });
 
@@ -1924,7 +2145,7 @@ describe("PdfCanvas - editing-driven effects", () => {
     const onOperationUpdate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationUpdate,
     });
     stageRef.current = stage;
     const el = container.querySelector(".operation--text") as HTMLDivElement;
@@ -1939,7 +2160,7 @@ describe("PdfCanvas - editing-driven effects", () => {
   it("clears move mode when the moved op begins text editing", () => {
     const op = textOp({ text: "edit me" });
     const { container, getByLabelText } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id,
+      activeTool: "select", operations: [op], selectedIds: [op.id],
     });
     // turn move mode on for this op
     const moveBtn = getByLabelText("Move");
@@ -1955,7 +2176,7 @@ describe("PdfCanvas - editing-driven effects", () => {
     const op = textOp({ text: "edit me" });
     const onOperationRemove = vi.fn();
     const { container, stage } = renderCanvas({
-      activeTool: "text", operations: [op], selectedId: op.id, onOperationRemove,
+      activeTool: "text", operations: [op], selectedIds: [op.id], onOperationRemove,
     });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
     // A click (down + up, no movement) with the Text tool resolves to edit mode.
@@ -1970,13 +2191,13 @@ describe("PdfCanvas - editing-driven effects", () => {
     const onOperationUpdate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage, rerender, props } = renderCanvas({
-      activeTool: "select", operations: [op], selectedId: op.id, stageRef, onOperationUpdate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationUpdate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
     // remove the op while a drag is in progress
-    rerender(<PdfCanvas {...props} activeTool="select" operations={[]} selectedId={undefined} stageRef={stageRef} onOperationUpdate={onOperationUpdate} />);
+    rerender(<PdfCanvas {...props} activeTool="select" operations={[]} selectedIds={[]} stageRef={stageRef} onOperationUpdate={onOperationUpdate} />);
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
     expect(onOperationUpdate).not.toHaveBeenCalled();
   });
@@ -1986,7 +2207,7 @@ describe("PdfCanvas - editing-driven effects", () => {
 describe("PdfCanvas - text preview", () => {
   it("applies a font preview patch to the selected text overlay via the font menu", async () => {
     const op = textOp({ text: "Preview", fontFamily: "Inter" });
-    const { container } = renderCanvas({ operations: [op], selectedId: op.id });
+    const { container } = renderCanvas({ operations: [op], selectedIds: [op.id] });
     const control = container.querySelector(".floating-toolbar__font-control") as HTMLElement;
     expect(control).toBeTruthy();
     // Open the react-select menu; focusing an option fires onTextPreview(id, patch)
@@ -2020,7 +2241,7 @@ describe("PdfCanvas - text preview", () => {
   it("toggles bold on a selected text op through the toolbar (onUpdate path)", () => {
     const op = textOp({ text: "Preview", fontFamily: "Inter" });
     const onOperationUpdate = vi.fn();
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate });
+    const { getByLabelText } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationUpdate });
     fireEvent.click(getByLabelText("Bold"));
     expect(onOperationUpdate).toHaveBeenCalledWith(op.id, expect.objectContaining({ bold: true }));
   });

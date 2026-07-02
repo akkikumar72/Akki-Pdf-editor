@@ -23,19 +23,27 @@ function baseText(overrides: Partial<TextOperation> = {}): TextOperation {
   };
 }
 
-function renderInspector(operation?: EditOperation, opts: Partial<{ operationCount: number; pageTextItems: TextItem[] }> = {}) {
+function renderInspector(
+  operation?: EditOperation,
+  opts: Partial<{ operationCount: number; pageTextItems: TextItem[]; selectedCount: number }> = {},
+) {
+  const onDuplicateSelected = vi.fn();
   const onExport = vi.fn();
+  const onRemoveSelected = vi.fn();
   const onUpdate = vi.fn();
   render(
     <Inspector
       operation={operation}
       operationCount={opts.operationCount ?? 2}
       pageTextItems={opts.pageTextItems ?? []}
+      selectedCount={opts.selectedCount ?? (operation ? 1 : 0)}
+      onDuplicateSelected={onDuplicateSelected}
       onExport={onExport}
+      onRemoveSelected={onRemoveSelected}
       onUpdate={onUpdate}
     />,
   );
-  return { onExport, onUpdate };
+  return { onDuplicateSelected, onExport, onRemoveSelected, onUpdate };
 }
 
 describe("Inspector", () => {
@@ -45,6 +53,30 @@ describe("Inspector", () => {
     renderInspector(undefined);
     expect(screen.getByText("No selection")).toBeInTheDocument();
     expect(screen.getByText(/Select an overlay/)).toBeInTheDocument();
+  });
+
+  describe("multi-selection", () => {
+    it("shows the Selected N objects summary instead of per-field editors", () => {
+      renderInspector(baseText(), { selectedCount: 3 });
+      expect(screen.getByText("Selected 3 objects")).toBeInTheDocument();
+      // Per-field editors for the first op are suppressed.
+      expect(screen.queryByLabelText("Text")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Font")).not.toBeInTheDocument();
+    });
+
+    it("fires the group duplicate and delete actions", () => {
+      const { onDuplicateSelected, onRemoveSelected } = renderInspector(baseText(), { selectedCount: 2 });
+      fireEvent.click(screen.getByRole("button", { name: /Duplicate all/ }));
+      expect(onDuplicateSelected).toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: /Delete all/ }));
+      expect(onRemoveSelected).toHaveBeenCalled();
+    });
+
+    it("keeps the single-op editor when exactly one operation is selected", () => {
+      renderInspector(baseText(), { selectedCount: 1 });
+      expect(screen.getByLabelText("Text")).toBeInTheDocument();
+      expect(screen.queryByText(/Selected \d+ objects/)).not.toBeInTheDocument();
+    });
   });
 
   it("renders export buttons and fires every export format", () => {

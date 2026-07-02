@@ -19,7 +19,7 @@ function uniqueSorted(values: number[]) {
 }
 
 export function collectAlignmentLines({
-  movingId,
+  movingIds,
   operations,
   textItems,
   pageIndex,
@@ -27,7 +27,7 @@ export function collectAlignmentLines({
   pageHeight,
   scale,
 }: {
-  movingId: string;
+  movingIds: string[];
   operations: EditOperation[];
   textItems: TextItem[];
   pageIndex: number;
@@ -45,7 +45,7 @@ export function collectAlignmentLines({
   }
 
   for (const operation of operations) {
-    if (operation.id === movingId || operation.pageIndex !== pageIndex) continue;
+    if (movingIds.includes(operation.id) || operation.pageIndex !== pageIndex) continue;
     const rect = pdfRectToViewport(operation.rect, pageHeight, scale);
     horizontal.push(rect.top, rect.top + rect.height);
     vertical.push(rect.left, rect.left + rect.width);

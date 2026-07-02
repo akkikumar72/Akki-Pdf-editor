@@ -2044,6 +2044,68 @@ select:disabled {
   pointer-events: none;
 }
 
+/* Rubber-band multi-select (Select tool on empty page area). */
+.select-marquee {
+  position: absolute;
+  z-index: 8;
+  border: 1px dashed var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 8%, transparent);
+  pointer-events: none;
+}
+
+/* Multi-selection group bounding box, styled to match the selection ring tokens. */
+.group-selection-outline {
+  position: absolute;
+  z-index: 9;
+  border: 1.5px dashed var(--color-accent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--color-select-halo);
+  pointer-events: none;
+}
+
+.group-toolbar {
+  position: absolute;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-xs);
+  background: var(--color-paper);
+  box-shadow: 0 10px 24px -14px color-mix(in oklch, var(--color-accent) 34%, transparent);
+  color: var(--color-accent);
+  pointer-events: auto;
+}
+
+.group-toolbar__count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.group-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.group-toolbar button:hover {
+  background: color-mix(in oklch, var(--color-accent) 12%, transparent);
+}
+
+.group-toolbar button svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
 /* Current Find & Replace match flag (reference parity: pink fill + deep-pink hairline). */
 .search-match-highlight {
   position: absolute;
@@ -2597,6 +2659,30 @@ select:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-xs);
+}
+
+/* Inspector group actions for a multi-selection (Duplicate all / Delete all). */
+.group-actions {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.group-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 2.5rem;
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.group-actions button svg {
+  width: 0.95rem;
+  height: 0.95rem;
 }
 
 .export-grid button {
