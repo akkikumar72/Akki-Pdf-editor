@@ -12,16 +12,22 @@ import type {
   TextItem,
   ViewportRect,
 } from "../types/editor";
-import { createOperationsForTool, describeInlineInput, NEW_TEXT_PLACEHOLDER } from "../editor/operationFactory";
+import {
+  createOperationsForTool,
+  createSnappedAnnotationOperations,
+  describeInlineInput,
+  NEW_TEXT_PLACEHOLDER,
+} from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
 import { CanvasHintBanner } from "./CanvasHintBanner";
 import { InlineInputPopover, type PendingInputRequest } from "./InlineInputPopover";
-import { pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
+import { pdfRectToViewport, viewportPointToPdf, viewportRectToPdf } from "../utils/coordinates";
 import { sampleTextBackgroundColor, sampleTextColor, sampleTextFontWeight } from "../utils/canvasTextStyleSampling";
 import { validateImageFile } from "../utils/fileValidation";
 import { createId } from "../utils/ids";
 import { findNearbyTextRunForStyle, groupEditableTextRuns } from "../utils/textRunGrouping";
+import { annotationRectsForClick, annotationRectsForMarquee } from "../utils/textSelection";
 import { sanitizeUrl } from "../utils/url";
 import { viewportRectsOverlap } from "../utils/textMetrics";
 import { FloatingOperationToolbar } from "./FloatingOperationToolbar";
@@ -38,16 +44,24 @@ type PdfCanvasProps = {
   pageSize?: { width: number; height: number };
   rotation: number;
   scale: number;
+  /** Current Find & Replace match to flag on the page (pink rect), if any. */
+  searchHighlight?: { pageIndex: number; rect: PdfRect } | null;
   selectedId?: string;
   stageRef: MutableRefObject<HTMLDivElement | null>;
   textItems: TextItem[];
   onDocumentLoad?: (proxy: unknown) => void;
   onNotice?: (message: string) => void;
   onOperationAdd: (operation: EditOperation) => void;
+  /** Adds a batch of operations as a single undo entry (text-snapped annotations). */
+  onOperationsAdd: (operations: EditOperation[]) => void;
   onOperationRemove: (id: string) => void;
   onOperationSelect: (id?: string) => void;
   onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
 };
+
+function isTextAnnotationTool(tool: EditorTool): tool is "highlight" | "strikeout" | "underline" {
+  return tool === "highlight" || tool === "strikeout" || tool === "underline";
+}
 
 function isResizableOperation(operation: EditOperation) {
   if (operation.type === "text") return false;
@@ -83,12 +97,14 @@ export function PdfCanvas({
   pageSize,
   rotation,
   scale,
+  searchHighlight,
   selectedId,
   stageRef,
   textItems,
   onDocumentLoad,
   onNotice,
   onOperationAdd,
+  onOperationsAdd,
   onOperationRemove,
   onOperationSelect,
   onOperationUpdate,
@@ -107,6 +123,10 @@ export function PdfCanvas({
   const canPickExistingText = isPageRendered && (activeTool === "select" || activeTool === "text");
   const pdfFile = useMemo(() => ({ data: document.bytes.slice() }), [document.bytes]);
   const editableTextRuns = useMemo(() => groupEditableTextRuns(textItems), [textItems]);
+  const searchHighlightRect =
+    searchHighlight && searchHighlight.pageIndex === pageIndex
+      ? pdfRectToViewport(searchHighlight.rect, pageHeight, scale)
+      : undefined;
   const replacedSourceRects = useMemo(
     () =>
       operations
@@ -249,7 +269,22 @@ export function PdfCanvas({
     }
   };
 
-  const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem) => {
+  const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem, clickPoint?: { x: number; y: number }) => {
+    // Sejda-style text snapping: with an annotate tool armed, a marquee becomes
+    // one annotation per intersected text-run line (clipped to the marquee) and
+    // a plain click annotates the whole run under it. No text hit -> fall
+    // through to the existing free-rect behavior.
+    if (isTextAnnotationTool(activeTool)) {
+      const snappedRects = clickPoint
+        ? annotationRectsForClick(viewportPointToPdf(clickPoint, pageHeight, scale), editableTextRuns)
+        : annotationRectsForMarquee(viewportRectToPdf(viewportRect, pageHeight, scale), editableTextRuns);
+      if (snappedRects.length > 0) {
+        const created = createSnappedAnnotationOperations(activeTool, pageIndex, snappedRects);
+        onOperationsAdd(created);
+        onOperationSelect(created[created.length - 1].id);
+        return;
+      }
+    }
     const inheritStyleFromTextItem = sourceTextItem
       ? undefined
       : activeTool === "text"
@@ -486,6 +521,19 @@ export function PdfCanvas({
           </div>
 
           {draw ? <div className="draw-marquee" aria-hidden="true" style={marqueeRect(draw)} /> : null}
+
+          {searchHighlightRect ? (
+            <div
+              className="search-match-highlight"
+              aria-hidden="true"
+              style={{
+                left: searchHighlightRect.left,
+                top: searchHighlightRect.top,
+                width: searchHighlightRect.width,
+                height: searchHighlightRect.height,
+              }}
+            />
+          ) : null}
 
           <div className="operation-layer">
             {operations.map((operation) => {

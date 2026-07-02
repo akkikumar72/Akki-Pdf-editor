@@ -94,6 +94,7 @@ function makeProps(overrides: Partial<Props> = {}): Props {
     onDocumentLoad: vi.fn(),
     onNotice: vi.fn(),
     onOperationAdd: vi.fn(),
+    onOperationsAdd: vi.fn(),
     onOperationRemove: vi.fn(),
     onOperationSelect: vi.fn(),
     onOperationUpdate: vi.fn(),
@@ -984,6 +985,93 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
     expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
+  });
+});
+
+describe("PdfCanvas - text-snapped annotations", () => {
+  // Two distinct run lines at pdf y=700 (viewport 78..92) and y=680 (98..112).
+  const runItems: TextItem[] = [
+    { str: "First line of text", pageIndex: 0, rect: { x: 50, y: 700, width: 200, height: 14 }, fontSize: 12, fontName: "Arial" },
+    { str: "Second line of text", pageIndex: 0, rect: { x: 50, y: 680, width: 200, height: 14 }, fontSize: 12, fontName: "Arial" },
+  ];
+
+  function setup(activeTool: "highlight" | "strikeout" | "underline") {
+    const onOperationAdd = vi.fn();
+    const onOperationsAdd = vi.fn();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const rendered = renderCanvas({
+      activeTool, textItems: runItems, stageRef, onOperationAdd, onOperationsAdd, onOperationSelect,
+    });
+    stageRef.current = rendered.stage;
+    return { ...rendered, onOperationAdd, onOperationsAdd, onOperationSelect };
+  }
+
+  it("marquee across two run lines emits one annotation per line via the batch callback", async () => {
+    const { stage, onOperationAdd, onOperationsAdd, onOperationSelect } = setup("highlight");
+    fireEvent.pointerDown(stage, { clientX: 60, clientY: 80, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 200, clientY: 110 });
+    fireEvent.pointerUp(stage, { clientX: 200, clientY: 110 });
+    await waitFor(() => expect(onOperationsAdd).toHaveBeenCalled());
+    const created = onOperationsAdd.mock.calls[0][0] as EditOperation[];
+    expect(created).toHaveLength(2);
+    expect(created.every((op) => op.type === "annotation")).toBe(true);
+    // Clipped horizontally to the marquee (pdf x 60..200), full run line vertically.
+    expect(created[0].rect).toMatchObject({ x: 60, width: 140, height: 14 });
+    expect(onOperationSelect).toHaveBeenLastCalledWith(created[1].id);
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("a plain click on a run annotates the whole run (strikeout)", async () => {
+    const { stage, onOperationsAdd } = setup("strikeout");
+    fireEvent.pointerDown(stage, { clientX: 100, clientY: 85, pointerId: 1 });
+    fireEvent.pointerUp(stage, { clientX: 100, clientY: 85 });
+    await waitFor(() => expect(onOperationsAdd).toHaveBeenCalled());
+    const created = onOperationsAdd.mock.calls[0][0] as EditOperation[];
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ type: "annotation", kind: "strikeout" });
+    expect(created[0].rect).toEqual({ x: 50, y: 700, width: 200, height: 14 });
+  });
+
+  it("marquee over empty page area falls back to the free-rect annotation (underline)", async () => {
+    const { stage, onOperationAdd, onOperationsAdd } = setup("underline");
+    fireEvent.pointerDown(stage, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 420, clientY: 340 });
+    fireEvent.pointerUp(stage, { clientX: 420, clientY: 340 });
+    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
+    expect(onOperationAdd.mock.calls[0][0]).toMatchObject({ type: "annotation", kind: "underline" });
+    expect(onOperationsAdd).not.toHaveBeenCalled();
+  });
+
+  it("a plain click on empty page area falls back to the default-size annotation", async () => {
+    const { stage, onOperationAdd, onOperationsAdd } = setup("highlight");
+    fireEvent.pointerDown(stage, { clientX: 400, clientY: 400, pointerId: 1 });
+    fireEvent.pointerUp(stage, { clientX: 400, clientY: 400 });
+    await waitFor(() => expect(onOperationAdd).toHaveBeenCalled());
+    expect(onOperationAdd.mock.calls[0][0]).toMatchObject({ type: "annotation", kind: "highlight" });
+    expect(onOperationsAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe("PdfCanvas - search match highlight", () => {
+  it("renders the pink match flag when the highlight targets the current page", () => {
+    const { container } = renderCanvas({
+      searchHighlight: { pageIndex: 0, rect: { x: 100, y: 700, width: 50, height: 14 } },
+    });
+    const flag = container.querySelector(".search-match-highlight") as HTMLElement;
+    expect(flag).toBeTruthy();
+    // pdfRectToViewport at scale 1: top = 792 - 700 - 14 = 78
+    expect(flag.style.left).toBe("100px");
+    expect(flag.style.top).toBe("78px");
+    expect(flag.style.width).toBe("50px");
+    expect(flag.style.height).toBe("14px");
+  });
+
+  it("hides the flag when the highlight belongs to another page", () => {
+    const { container } = renderCanvas({
+      searchHighlight: { pageIndex: 2, rect: { x: 100, y: 700, width: 50, height: 14 } },
+    });
+    expect(container.querySelector(".search-match-highlight")).toBeNull();
   });
 });
 

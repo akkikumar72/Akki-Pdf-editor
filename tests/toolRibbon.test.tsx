@@ -15,6 +15,7 @@ function makeProps(overrides: Partial<React.ComponentProps<typeof ToolRibbon>> =
     selectedId: "sel-1",
     onExport: vi.fn(),
     onDeletePage: vi.fn(),
+    onFindReplace: vi.fn(),
     onHome: vi.fn(),
     onInsertPage: vi.fn(),
     onRedo: vi.fn(),
@@ -57,6 +58,13 @@ describe("ToolRibbon", () => {
     expect(props.onInsertPage).toHaveBeenCalled();
     fireEvent.click(screen.getByTitle("Delete current page"));
     expect(props.onDeletePage).toHaveBeenCalled();
+  });
+
+  it("fires onFindReplace from the Find & replace button", () => {
+    const props = makeProps();
+    render(<ToolRibbon {...props} />);
+    fireEvent.click(screen.getByTitle("Find & replace"));
+    expect(props.onFindReplace).toHaveBeenCalled();
   });
 
   it("fires undo/redo/remove when enabled", () => {

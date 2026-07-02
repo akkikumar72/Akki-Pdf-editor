@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { createOperationsForTool, describeInlineInput } from "../src/editor/operationFactory";
+import {
+  createOperationsForTool,
+  createReplacementOperation,
+  createSnappedAnnotationOperations,
+  createTextItemReplacementOperation,
+  describeInlineInput,
+} from "../src/editor/operationFactory";
 import type { EditOperation, TextItem } from "../src/types/editor";
+import type { TextMatch } from "../src/utils/textSearch";
 import { padReplacementCoverRect } from "../src/utils/textMetrics";
 
 const textItem: TextItem = {
@@ -103,6 +110,53 @@ describe("operation factory", () => {
     expect(operation.color).toBe("#ffffff");
     expect(operation.whiteout).toBe(false);
     expect(operation.whiteoutColor).toBeUndefined();
+  });
+
+  it("createTextItemReplacementOperation masks the whole item and carries the new text", () => {
+    const operation = createTextItemReplacementOperation(textItem, "Grand total", 792);
+    expect(operation.type).toBe("text");
+    expect(operation.text).toBe("Grand total");
+    expect(operation.pageIndex).toBe(0);
+    expect(operation.whiteout).toBe(true);
+    expect(operation.whiteoutColor).toBe("#ffffff");
+    expect(operation.fontSize).toBe(20);
+    expect(operation.sourceCoverRect).toEqual(padReplacementCoverRect(textItem.rect, 20));
+  });
+
+  it("createReplacementOperation substitutes only the matched occurrence within the item text", () => {
+    const match: TextMatch = {
+      pageIndex: 0,
+      item: textItem,
+      startIndex: 8,
+      endIndex: 13,
+      rect: { x: 139, y: 700, width: 43, height: 20 },
+    };
+    const operation = createReplacementOperation(match, "amount", 792);
+    expect(operation.text).toBe("Invoice amount");
+    expect(operation.whiteout).toBe(true);
+  });
+
+  it("createSnappedAnnotationOperations keeps rects verbatim and styles per tool", () => {
+    const rects = [
+      { x: 10, y: 700, width: 80, height: 12 },
+      { x: 10, y: 680, width: 60, height: 12 },
+    ];
+    const highlights = createSnappedAnnotationOperations("highlight", 1, rects);
+    expect(highlights).toHaveLength(2);
+    expect(highlights[0]).toMatchObject({
+      type: "annotation",
+      kind: "highlight",
+      pageIndex: 1,
+      rect: rects[0],
+      color: "#ffe066",
+      opacity: 0.36,
+    });
+
+    const [strikeout] = createSnappedAnnotationOperations("strikeout", 0, [rects[0]]);
+    expect(strikeout).toMatchObject({ kind: "strikeout", color: "#ef4444", opacity: 1 });
+
+    const [underline] = createSnappedAnnotationOperations("underline", 0, [rects[1]]);
+    expect(underline).toMatchObject({ kind: "underline", color: "#ef4444", opacity: 1, rect: rects[1] });
   });
 
   it("creates form fields through resolved inline input fields", () => {

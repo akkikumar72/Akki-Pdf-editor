@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { FindReplaceDialog, type SearchHighlight } from "../components/FindReplaceDialog";
 import { Inspector } from "../components/Inspector";
 import { PageRail } from "../components/PageRail";
 import { PdfCanvas } from "../components/PdfCanvas";
@@ -12,7 +13,24 @@ export function EditorRoute() {
   const editor = useEditor();
   const navigate = useNavigate();
   const [restoreChecked, setRestoreChecked] = useState(false);
+  const [findReplaceOpen, setFindReplaceOpen] = useState(false);
+  const [searchHighlight, setSearchHighlight] = useState<SearchHighlight | null>(null);
   const { document, isBusy, restoreLatestSession } = editor;
+
+  const closeFindReplace = useCallback(() => {
+    setFindReplaceOpen(false);
+    setSearchHighlight(null);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      setFindReplaceOpen(true);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => {
     if (document) return;
@@ -52,6 +70,7 @@ export function EditorRoute() {
           disabled={isBusy}
           historyEntries={editState.past}
           onExport={editor.runExport}
+          onFindReplace={() => setFindReplaceOpen(true)}
           onHome={() => {
             navigate("/");
             void editor.returnHome();
@@ -106,6 +125,7 @@ export function EditorRoute() {
         documentFonts={editor.documentFonts}
         onNotice={editor.setStatus}
         onOperationAdd={editor.addOperation}
+        onOperationsAdd={editor.addOperations}
         onOperationRemove={editor.removeOperation}
         onOperationSelect={(id) => editor.dispatch({ type: "select", id })}
         onOperationUpdate={editor.updateOperation}
@@ -114,10 +134,22 @@ export function EditorRoute() {
         pageSize={editor.pageSizes[editor.pageIndex]}
         rotation={editor.rotation}
         scale={editor.scale}
+        searchHighlight={searchHighlight}
         selectedId={editState.selectedId}
         stageRef={editor.pageStageRef}
         textItems={editor.pageTextItems}
       />
+      {findReplaceOpen ? (
+        <FindReplaceDialog
+          textItems={editor.textItems}
+          operations={editState.operations}
+          pageSizes={editor.pageSizes}
+          onAddOperations={editor.addOperations}
+          onHighlight={setSearchHighlight}
+          onPageChange={editor.setPageIndex}
+          onClose={closeFindReplace}
+        />
+      ) : null}
     </AppShell>
   );
 }

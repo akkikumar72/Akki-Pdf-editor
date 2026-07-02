@@ -80,8 +80,13 @@ type UseStagePointerGesturesArgs = {
   onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
   /** Records where to place a new image and opens the file picker; the image tool's placement flow lives in the component. */
   onImageToolClick: (point: { x: number; y: number }) => void;
-  /** Creates operation(s) for the active tool at a viewport rect (point click or completed drag-to-draw). */
-  addAt: (viewportRect: ViewportRect, sourceTextItem?: TextItem) => void;
+  /**
+   * Creates operation(s) for the active tool at a viewport rect (point click or
+   * completed drag-to-draw). `clickPoint` is set when a region-tool press
+   * resolved to a plain click, so tools that snap to text can target the run
+   * under the press instead of the fallback-sized rect.
+   */
+  addAt: (viewportRect: ViewportRect, sourceTextItem?: TextItem, clickPoint?: { x: number; y: number }) => void;
 };
 
 /**
@@ -285,7 +290,7 @@ export function useStagePointerGestures({
       const viewportRect = dragged
         ? rect
         : { left: draw.start.x, top: draw.start.y, ...DRAW_CLICK_FALLBACK };
-      addAt(viewportRect);
+      addAt(viewportRect, undefined, dragged ? undefined : draw.start);
     }
     // A press-and-release with no movement in between is a click, not a
     // completed (no-op) move — resolve it to whatever a plain click on this

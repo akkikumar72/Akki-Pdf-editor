@@ -547,6 +547,35 @@ describe("operation actions", () => {
     expect(result.current.status).toBe("text added");
   });
 
+  it("addOperations batches operations into one undo entry and sets a count status", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperations([textOp(), textOp({ id: "text_2" })]);
+    });
+    expect(result.current.editState.operations).toHaveLength(2);
+    expect(result.current.editState.past).toHaveLength(1);
+    expect(result.current.status).toBe("2 edits added");
+  });
+
+  it("addOperations with one operation uses the per-type status", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperations([textOp()]);
+    });
+    expect(result.current.editState.operations).toHaveLength(1);
+    expect(result.current.status).toBe("text added");
+  });
+
+  it("addOperations with an empty list is a no-op", async () => {
+    const { result } = renderHook(() => useEditorController());
+    const statusBefore = result.current.status;
+    await act(async () => {
+      result.current.addOperations([]);
+    });
+    expect(result.current.editState.operations).toHaveLength(0);
+    expect(result.current.status).toBe(statusBefore);
+  });
+
   it("updateOperation patches an operation", async () => {
     const { result } = renderHook(() => useEditorController());
     await act(async () => {

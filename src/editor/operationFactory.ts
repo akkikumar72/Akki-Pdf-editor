@@ -1,8 +1,17 @@
 import { buildDetectedCssFontFamily, resolveFont } from "../engine/fontResolver";
-import type { EditOperation, EditorTool, TextItem, ViewportRect } from "../types/editor";
-import { viewportRectToPdf } from "../utils/coordinates";
+import type {
+  AnnotationOperation,
+  EditOperation,
+  EditorTool,
+  PdfRect,
+  TextItem,
+  TextOperation,
+  ViewportRect,
+} from "../types/editor";
+import { pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
 import { padReplacementCoverRect } from "../utils/textMetrics";
 import { createId } from "../utils/ids";
+import type { TextMatch } from "../utils/textSearch";
 import { sanitizeUrl } from "../utils/url";
 import { toolLabel } from "./toolRegistry";
 
@@ -121,6 +130,57 @@ export function describeInlineInput(activeTool: EditorTool, operations: EditOper
     };
   }
   return null;
+}
+
+/**
+ * Builds a replacement `text` operation (whiteout mask + editable overlay) for an
+ * existing PDF text item whose content becomes `replacedText`. Reuses the
+ * factory's sourceTextItem branch so the mask/baseline/font math stays in one
+ * place; `scale: 1` makes the viewport round-trip lossless. Off-canvas callers
+ * (e.g. the Find & Replace dialog) have no style sampling, so the mask falls
+ * back to white and the item's detected font drives the styling.
+ */
+export function createTextItemReplacementOperation(item: TextItem, replacedText: string, pageHeight: number): TextOperation {
+  const [operation] = createOperationsForTool({
+    activeTool: "text",
+    viewportRect: pdfRectToViewport(item.rect, pageHeight, 1),
+    pageHeight,
+    pageIndex: item.pageIndex,
+    scale: 1,
+    operations: [],
+    sourceTextItem: { ...item, str: replacedText },
+  });
+  return operation as TextOperation;
+}
+
+/** Replacement operation for a single find match: the whole item's text with just that occurrence substituted. */
+export function createReplacementOperation(match: TextMatch, replacement: string, pageHeight: number): TextOperation {
+  const replacedText =
+    match.item.str.slice(0, match.startIndex) + replacement + match.item.str.slice(match.endIndex);
+  return createTextItemReplacementOperation(match.item, replacedText, pageHeight);
+}
+
+/**
+ * Annotation operations for text-snapped rects (one per intersected run line).
+ * Unlike the marquee branches in `createOperationsForTool`, these use the rects
+ * verbatim — snapped line rects must not be inflated to tool minimum sizes.
+ */
+export function createSnappedAnnotationOperations(
+  tool: "highlight" | "strikeout" | "underline",
+  pageIndex: number,
+  rects: PdfRect[],
+): AnnotationOperation[] {
+  const now = Date.now();
+  return rects.map((rect) => ({
+    id: createId("annotation"),
+    type: "annotation",
+    kind: tool,
+    pageIndex,
+    rect,
+    color: tool === "highlight" ? DEFAULT_COLORS.highlight : "#ef4444",
+    opacity: tool === "highlight" ? 0.36 : 1,
+    createdAt: now,
+  }));
 }
 
 export function createOperationsForTool({

@@ -243,6 +243,16 @@ export function useEditorController() {
     setStatus(`${operation.type.replace("-", " ")} added`);
   }, []);
 
+  const addOperations = useCallback((operations: EditOperation[]) => {
+    if (operations.length === 0) return;
+    dispatch({ type: "add-many", operations });
+    setStatus(
+      operations.length === 1
+        ? `${operations[0].type.replace("-", " ")} added`
+        : `${operations.length} edits added`,
+    );
+  }, []);
+
   const updateOperation = useCallback((id: string, patch: Partial<EditOperation>) => {
     dispatch({ type: "update", id, patch });
   }, []);
@@ -385,6 +395,7 @@ export function useEditorController() {
     clearSavedSessions,
     returnHome,
     addOperation,
+    addOperations,
     updateOperation,
     removeSelected,
     removeOperation,

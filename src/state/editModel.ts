@@ -21,6 +21,7 @@ export type EditState = {
 
 export type EditAction =
   | { type: "add"; operation: EditOperation }
+  | { type: "add-many"; operations: EditOperation[] }
   | { type: "update"; id: string; patch: Partial<EditOperation> }
   | { type: "remove"; id: string }
   | { type: "select"; id?: string }
@@ -95,6 +96,18 @@ export function editReducer(state: EditState, action: EditAction): EditState {
         action.operation.id,
         `${historyLabelForOperation(action.operation, "Add edit")} added`,
       );
+    case "add-many": {
+      const last = action.operations[action.operations.length - 1];
+      if (!last) return state;
+      return commit(
+        state,
+        [...state.operations, ...action.operations],
+        last.id,
+        action.operations.length === 1
+          ? `${historyLabelForOperation(last, "Add edit")} added`
+          : `${action.operations.length} edits added`,
+      );
+    }
     case "update":
       return commit(
         state,

@@ -134,6 +134,7 @@ select:disabled {
 }
 
 .canvas-region {
+  position: relative;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -2041,6 +2042,77 @@ select:disabled {
   border: 1px dashed var(--color-accent);
   background: color-mix(in oklch, var(--color-accent) 12%, transparent);
   pointer-events: none;
+}
+
+/* Current Find & Replace match flag (reference parity: pink fill + deep-pink hairline). */
+.search-match-highlight {
+  position: absolute;
+  z-index: 7;
+  border: 1px solid deeppink;
+  background: rgba(255, 192, 203, 0.45);
+  pointer-events: none;
+}
+
+.find-replace-dialog {
+  position: absolute;
+  z-index: 30;
+  top: var(--space-md);
+  left: var(--space-md);
+  display: grid;
+  gap: var(--space-xs);
+  width: min(22rem, calc(100vw - 2rem));
+  padding: var(--space-sm) var(--space-md);
+  border: var(--rule-hair) solid var(--color-rule-2);
+  border-radius: var(--radius-md);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-popover);
+}
+
+.find-replace-dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.find-replace-dialog__head h2 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-ink);
+}
+
+.find-replace-dialog__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-xs);
+}
+
+.find-replace-dialog__fields input {
+  min-height: 2.15rem;
+}
+
+.find-replace-dialog__option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.find-replace-dialog__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+.find-replace-dialog__status {
+  margin-right: auto;
+  color: var(--color-success);
+  font-size: var(--text-xs);
+  font-weight: 600;
 }
 
 .floating-toolbar__width {

@@ -197,6 +197,28 @@ describe("edit reducer", () => {
     expect(updated.past[0].label).toBe("Update edit");
   });
 
+  it("add-many appends all operations as a single undo entry and selects the last", () => {
+    const second: TextOperation = { ...operation, id: "text_2" };
+    const added = editReducer(initialEditState, { type: "add-many", operations: [operation, second] });
+    expect(added.operations.map((op) => op.id)).toEqual(["text_1", "text_2"]);
+    expect(added.selectedId).toBe("text_2");
+    expect(added.past).toHaveLength(1);
+    expect(added.past[0].label).toBe("2 edits added");
+
+    const undone = editReducer(added, { type: "undo" });
+    expect(undone.operations).toHaveLength(0);
+  });
+
+  it("add-many with a single operation reuses the per-type label", () => {
+    const added = editReducer(initialEditState, { type: "add-many", operations: [operation] });
+    expect(added.past[0].label).toBe("Text edit added");
+    expect(added.selectedId).toBe("text_1");
+  });
+
+  it("add-many with no operations is a no-op", () => {
+    expect(editReducer(initialEditState, { type: "add-many", operations: [] })).toBe(initialEditState);
+  });
+
   it("caps history at 80 entries", () => {
     let state: EditState = initialEditState;
     for (let i = 0; i < 100; i += 1) {

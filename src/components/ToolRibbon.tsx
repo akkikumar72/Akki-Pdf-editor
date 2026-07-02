@@ -9,6 +9,7 @@ import {
   Redo2,
   RotateCw,
   Save,
+  Search,
   Trash2,
   Undo2,
   X,
@@ -30,6 +31,7 @@ type ToolRibbonProps = {
   selectedId?: string;
   onExport: (format: ExportFormat) => void;
   onDeletePage: () => void;
+  onFindReplace: () => void;
   onHome: () => void;
   onInsertPage: () => void;
   onRedo: () => void;
@@ -139,6 +141,9 @@ export function ToolRibbon(props: ToolRibbonProps) {
         </button>
         <button className="icon-button" disabled={!props.selectedId || props.disabled} title="Remove selected" onClick={props.onRemove}>
           <Trash2 aria-hidden="true" />
+        </button>
+        <button className="icon-button" disabled={props.disabled} title="Find & replace" onClick={props.onFindReplace}>
+          <Search aria-hidden="true" />
         </button>
         <button className="icon-button" disabled={props.disabled} title="Insert blank page after current page" onClick={props.onInsertPage}>
           <FilePlus2 aria-hidden="true" />

@@ -26,6 +26,7 @@ type ToolRibbonStubProps = {
   disabled: boolean;
   activeTool: EditorTool;
   scale: number;
+  onFindReplace: () => void;
   onHome: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -62,11 +63,21 @@ type StatusBarStubProps = {
 type PdfCanvasStubProps = {
   activeTool: EditorTool;
   pageIndex: number;
+  searchHighlight?: { pageIndex: number; rect: { x: number; y: number; width: number; height: number } } | null;
   onNotice: (message: string) => void;
   onOperationAdd: (operation: Partial<EditOperation>) => void;
+  onOperationsAdd: (operations: Partial<EditOperation>[]) => void;
   onOperationRemove: (id: string) => void;
   onOperationSelect: (id: string) => void;
   onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
+};
+
+type FindReplaceDialogStubProps = {
+  textItems: TextItem[];
+  onAddOperations: (operations: Partial<EditOperation>[]) => void;
+  onHighlight: (highlight: { pageIndex: number; rect: { x: number; y: number; width: number; height: number } } | null) => void;
+  onPageChange: (pageIndex: number) => void;
+  onClose: () => void;
 };
 
 const navigateSpy = vi.fn();
@@ -109,6 +120,7 @@ vi.mock("../src/components/ToolRibbon", () => ({
       <button onClick={() => props.onExport("pdf")}>export</button>
       <button onClick={props.onZoomIn}>zoom-in</button>
       <button onClick={props.onZoomOut}>zoom-out</button>
+      <button onClick={props.onFindReplace}>find-replace</button>
     </div>
   ),
 }));
@@ -148,11 +160,25 @@ vi.mock("../src/components/PdfCanvas", () => ({
     <div data-testid="pdf-canvas">
       <span data-testid="canvas-tool">{props.activeTool}</span>
       <span data-testid="canvas-page">{props.pageIndex}</span>
+      <span data-testid="canvas-highlight">{props.searchHighlight ? String(props.searchHighlight.pageIndex) : "none"}</span>
       <button onClick={() => props.onNotice("hi")}>canvas-notice</button>
       <button onClick={() => props.onOperationAdd({ id: "o" })}>canvas-add</button>
+      <button onClick={() => props.onOperationsAdd([{ id: "o1" }, { id: "o2" }])}>canvas-add-many</button>
       <button onClick={() => props.onOperationRemove("o")}>canvas-remove</button>
       <button onClick={() => props.onOperationSelect("o")}>canvas-select</button>
       <button onClick={() => props.onOperationUpdate("o", { text: "y" })}>canvas-update</button>
+    </div>
+  ),
+}));
+
+vi.mock("../src/components/FindReplaceDialog", () => ({
+  FindReplaceDialog: (props: FindReplaceDialogStubProps) => (
+    <div data-testid="find-replace-dialog">
+      <span data-testid="find-text-count">{props.textItems.length}</span>
+      <button onClick={() => props.onAddOperations([{ id: "fr" }])}>fr-add</button>
+      <button onClick={() => props.onHighlight({ pageIndex: 1, rect: { x: 1, y: 2, width: 3, height: 4 } })}>fr-highlight</button>
+      <button onClick={() => props.onPageChange(2)}>fr-page</button>
+      <button onClick={props.onClose}>fr-close</button>
     </div>
   ),
 }));
@@ -194,6 +220,7 @@ function makeController(overrides: Partial<EditorController> = {}): EditorContro
     setPageIndex: vi.fn(),
     setStatus: vi.fn(),
     addOperation: vi.fn(),
+    addOperations: vi.fn(),
     removeOperation: vi.fn(),
     updateOperation: vi.fn(),
     ...overrides,
@@ -360,6 +387,13 @@ describe("EditorRoute - with document", () => {
     expect(controller.updateOperation).toHaveBeenCalledWith("o", { text: "y" });
   });
 
+  it("wires the batch add-operations callback through to the controller", () => {
+    const controller = makeController();
+    renderRoute(controller);
+    fireEvent.click(screen.getByText("canvas-add-many"));
+    expect(controller.addOperations).toHaveBeenCalledWith([{ id: "o1" }, { id: "o2" }]);
+  });
+
   it("forwards the controller's pageTextItems to canvas and inspector", () => {
     const controller = makeController({
       pageIndex: 1,
@@ -370,5 +404,59 @@ describe("EditorRoute - with document", () => {
     renderRoute(controller);
     expect(screen.getByTestId("page-text-count").textContent).toBe("1");
     expect(screen.getByTestId("canvas-page").textContent).toBe("1");
+  });
+});
+
+describe("EditorRoute - find & replace", () => {
+  it("opens the dialog from the ribbon button and closes it, clearing the flag", () => {
+    renderRoute(makeController());
+    expect(screen.queryByTestId("find-replace-dialog")).toBeNull();
+
+    fireEvent.click(screen.getByText("find-replace"));
+    expect(screen.getByTestId("find-replace-dialog")).toBeInTheDocument();
+
+    // Dialog reports a highlight -> forwarded to the canvas.
+    fireEvent.click(screen.getByText("fr-highlight"));
+    expect(screen.getByTestId("canvas-highlight").textContent).toBe("1");
+
+    fireEvent.click(screen.getByText("fr-close"));
+    expect(screen.queryByTestId("find-replace-dialog")).toBeNull();
+    expect(screen.getByTestId("canvas-highlight").textContent).toBe("none");
+  });
+
+  it("opens on Cmd+F and Ctrl+F, preventing the browser find", () => {
+    renderRoute(makeController());
+    const notPrevented = fireEvent.keyDown(window, { key: "f", metaKey: true });
+    // fireEvent returns false when preventDefault was called.
+    expect(notPrevented).toBe(false);
+    expect(screen.getByTestId("find-replace-dialog")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("fr-close"));
+    fireEvent.keyDown(window, { key: "F", ctrlKey: true });
+    expect(screen.getByTestId("find-replace-dialog")).toBeInTheDocument();
+  });
+
+  it("ignores plain keys and modified non-f keys", () => {
+    renderRoute(makeController());
+    fireEvent.keyDown(window, { key: "f" });
+    fireEvent.keyDown(window, { key: "g", metaKey: true });
+    expect(screen.queryByTestId("find-replace-dialog")).toBeNull();
+  });
+
+  it("wires the dialog callbacks to the controller", () => {
+    const controller = makeController({
+      textItems: [
+        { str: "a", pageIndex: 0, rect: { x: 0, y: 0, width: 1, height: 1 } },
+      ] satisfies TextItem[],
+    });
+    renderRoute(controller);
+    fireEvent.click(screen.getByText("find-replace"));
+    expect(screen.getByTestId("find-text-count").textContent).toBe("1");
+
+    fireEvent.click(screen.getByText("fr-add"));
+    expect(controller.addOperations).toHaveBeenCalledWith([{ id: "fr" }]);
+
+    fireEvent.click(screen.getByText("fr-page"));
+    expect(controller.setPageIndex).toHaveBeenCalledWith(2);
   });
 });
