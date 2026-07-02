@@ -1,6 +1,7 @@
 import type { DocumentFonts, EditOperation } from "../types/editor";
 import { resolveFont } from "../engine/fontResolver";
 import { cssFamilyForFontKey, ensureEmbeddedFontLoaded } from "../engine/fontRegistry";
+import { NEW_TEXT_PLACEHOLDER } from "../editor/operationFactory";
 import { pdfRectToViewport } from "../utils/coordinates";
 import { textBaselineTopPaddingPx } from "../utils/textMetrics";
 import { caretRangeFromClientPoint, getLastPointerDownPoint } from "../utils/caret";
@@ -93,6 +94,16 @@ export function OperationOverlay({
     element.focus({ preventScroll: true });
     const selection = window.getSelection();
     if (!selection) return;
+    // Reference parity (Sejda): a box still holding the untouched placeholder
+    // gets its whole content selected, so the very first keystroke replaces it —
+    // no manual select-and-delete before typing.
+    if (editingText.current === NEW_TEXT_PLACEHOLDER) {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
     // Reference parity: drop the caret where the user clicked. Fall back to the
     // start of the run when the click point can't be resolved inside this run.
     const point = getLastPointerDownPoint();
@@ -156,8 +167,14 @@ export function OperationOverlay({
           if (!editing) return;
           onTextChange?.(operation.id, event.currentTarget.textContent ?? "");
         }}
-        onBlur={() => {
-          if (editing) onTextCommit?.();
+        onBlur={(event) => {
+          if (!editing) return;
+          // Clicking the inline toolbar must not end the edit session —
+          // reference behavior: style controls (bold, size, font) apply to the
+          // still-active text box, and typing can resume right after.
+          const next = event.relatedTarget as HTMLElement | null;
+          if (next?.closest(".floating-toolbar")) return;
+          onTextCommit?.();
         }}
         onKeyDown={(event) => {
           if (!editing) return;

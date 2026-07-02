@@ -26,6 +26,12 @@
   --color-accent-ink: oklch(17% 0.035 142);
   --color-sky: oklch(89% 0.065 178);
   --color-focus: oklch(55% 0.16 146);
+  /* Canvas selection chrome (resize frame + handles). White seams keep the
+     accent ring readable over any page content: white paper, dark scans,
+     saturated shapes. */
+  --color-select-face: oklch(100% 0 0);
+  --color-select-halo: oklch(100% 0 0 / 0.9);
+  --shadow-handle: 0 1px 4px oklch(28% 0.02 126 / 0.4);
   --color-error: oklch(55% 0.2 28);
   --color-success: oklch(54% 0.15 150);
   --color-warning: oklch(80% 0.16 84);

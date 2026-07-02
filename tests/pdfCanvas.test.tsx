@@ -140,7 +140,7 @@ function shapeOp(overrides: Partial<ShapeOperation> = {}): ShapeOperation {
 }
 
 // ---- jsdom layout + canvas + pointer-capture stubs ----
-const BOUNDS = { left: 0, top: 0, right: 612, bottom: 792, width: 612, height: 792, x: 0, y: 0, toJSON() {} };
+const BOUNDS = { left: 0, top: 0, right: 612, bottom: 792, width: 612, height: 792, x: 0, y: 0, toJSON() { } };
 
 let imageDataAlpha = 255;
 let imageDataColor: [number, number, number] = [200, 200, 200];
@@ -196,9 +196,9 @@ beforeEach(() => {
   const globalWithRO = globalThis as { ResizeObserver?: typeof ResizeObserver };
   if (!globalWithRO.ResizeObserver) {
     globalWithRO.ResizeObserver = class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
+      observe() { }
+      unobserve() { }
+      disconnect() { }
     } as unknown as typeof ResizeObserver;
   }
   // jsdom lacks MutationObserver attribute filtering quirks? it has MutationObserver.
@@ -1007,12 +1007,12 @@ describe("PdfCanvas - effects", () => {
     await waitFor(() => expect(container.querySelector(".react-pdf__Page__canvas")).toBeTruthy());
     const span = container.querySelector(".react-pdf__Page__textContent span") as HTMLElement;
     // overlapping bounds -> effect suppresses it
-    let bounds = { left: 10, top: 100, right: 60, bottom: 150, width: 50, height: 50, x: 10, y: 100, toJSON() {} };
+    let bounds = { left: 10, top: 100, right: 60, bottom: 150, width: 50, height: 50, x: 10, y: 100, toJSON() { } };
     span.getBoundingClientRect = vi.fn(() => bounds) as typeof span.getBoundingClientRect;
     await waitFor(() => expect(span.getAttribute("data-akki-suppressed")).toBe("true"));
     // move the span out of the cover region, then trigger the style-attribute
     // MutationObserver so suppressReplacedTextLayer re-runs and un-suppresses it.
-    bounds = { left: 10, top: 700, right: 60, bottom: 740, width: 50, height: 40, x: 10, y: 700, toJSON() {} };
+    bounds = { left: 10, top: 700, right: 60, bottom: 740, width: 50, height: 40, x: 10, y: 700, toJSON() { } };
     await act(async () => {
       (container.querySelector(".react-pdf__Page__canvas") as HTMLElement).style.opacity = "0.99";
       await new Promise((r) => setTimeout(r, 0));
@@ -1048,9 +1048,11 @@ describe("PdfCanvas - effects", () => {
 
 describe("PdfCanvas - re-render resets", () => {
   it("resets page-rendered state when the document fingerprint changes", async () => {
-    const { container, rerender, props } = renderCanvas({ activeTool: "text", textItems: [
-      { str: "x", pageIndex: 0, rect: { x: 1, y: 1, width: 5, height: 5 } },
-    ] });
+    const { container, rerender, props } = renderCanvas({
+      activeTool: "text", textItems: [
+        { str: "x", pageIndex: 0, rect: { x: 1, y: 1, width: 5, height: 5 } },
+      ]
+    });
     await waitFor(() => expect(container.querySelector(".text-hit-layer.is-active")).toBeTruthy());
     rerender(<PdfCanvas {...props} document={{ ...DOC, fingerprint: "fp-2" }} />);
     // after fingerprint change isPageRendered resets; the mocked Page re-fires render success
@@ -1329,6 +1331,92 @@ describe("PdfCanvas - OperationOverlay text edit callbacks", () => {
     expect(onOperationUpdate).toHaveBeenCalledWith(op.id, { text: "changed" });
     // commit on Enter
     fireEvent.keyDown(editable, { key: "Enter" });
+  });
+});
+
+describe("PdfCanvas - Sejda-style placeholder text UX", () => {
+  it("selects the whole placeholder on edit start so typing replaces it", () => {
+    const op = textOp({ text: "Type your text" });
+    const { container } = renderCanvas({
+      activeTool: "select", operations: [op], selectedId: op.id,
+    });
+    const el = container.querySelector(".operation--text") as HTMLDivElement;
+    fireEvent.doubleClick(el);
+    const selection = window.getSelection();
+    expect(selection?.toString()).toBe("Type your text");
+  });
+
+  it("keeps caret behavior (no full selection) for boxes with real content", () => {
+    const op = textOp({ text: "Real content" });
+    const { container } = renderCanvas({
+      activeTool: "select", operations: [op], selectedId: op.id,
+    });
+    const el = container.querySelector(".operation--text") as HTMLDivElement;
+    fireEvent.doubleClick(el);
+    const selection = window.getSelection();
+    expect(selection?.toString()).toBe("");
+  });
+
+  it("discards an untouched placeholder box when the edit session ends", async () => {
+    const op = textOp({ text: "Type your text" });
+    const onOperationRemove = vi.fn();
+    const { container, stage, rerender, props } = renderCanvas({
+      activeTool: "text", operations: [op], selectedId: op.id, onOperationRemove,
+    });
+    const el = container.querySelector(".operation--text") as HTMLDivElement;
+    // Click resolves to edit mode with the Text tool.
+    fireEvent.pointerDown(el, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerUp(stage);
+    // End the session by deselecting (click-away path).
+    rerender(<PdfCanvas {...props} activeTool="text" operations={[op]} selectedId={undefined} onOperationRemove={onOperationRemove} />);
+    await waitFor(() => expect(onOperationRemove).toHaveBeenCalledWith(op.id));
+  });
+
+  it("keeps a box whose text was actually changed", async () => {
+    const edited = textOp({ text: "My real words" });
+    const onOperationRemove = vi.fn();
+    const { container, stage, rerender, props } = renderCanvas({
+      activeTool: "text", operations: [edited], selectedId: edited.id, onOperationRemove,
+    });
+    const el = container.querySelector(".operation--text") as HTMLDivElement;
+    fireEvent.pointerDown(el, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerUp(stage);
+    rerender(<PdfCanvas {...props} activeTool="text" operations={[edited]} selectedId={undefined} onOperationRemove={onOperationRemove} />);
+    await waitFor(() => expect(container.querySelector(".operation--text.is-editing")).toBeNull());
+    expect(onOperationRemove).not.toHaveBeenCalled();
+  });
+
+  it("never discards a replacement overlay, even when cleared to empty", async () => {
+    const replacement = textOp({
+      text: "",
+      whiteout: true,
+      sourceCoverRect: { x: 50, y: 600, width: 120, height: 30 },
+    });
+    const onOperationRemove = vi.fn();
+    const { container, stage, rerender, props } = renderCanvas({
+      activeTool: "text", operations: [replacement], selectedId: replacement.id, onOperationRemove,
+    });
+    const el = container.querySelector(".operation--text") as HTMLDivElement;
+    fireEvent.pointerDown(el, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerUp(stage);
+    rerender(<PdfCanvas {...props} activeTool="text" operations={[replacement]} selectedId={undefined} onOperationRemove={onOperationRemove} />);
+    await waitFor(() => expect(container.querySelector(".operation--text.is-editing")).toBeNull());
+    expect(onOperationRemove).not.toHaveBeenCalled();
+  });
+
+  it("does not end the edit session when focus moves into the inline toolbar", () => {
+    const op = textOp({ text: "Type your text" });
+    const { container } = renderCanvas({
+      activeTool: "select", operations: [op], selectedId: op.id,
+    });
+    const el = container.querySelector(".operation--text") as HTMLDivElement;
+    fireEvent.doubleClick(el);
+    expect(container.querySelector(".operation--text.is-editing")).not.toBeNull();
+    const boldButton = container.querySelector(".floating-toolbar button") as HTMLButtonElement;
+    expect(boldButton).not.toBeNull();
+    fireEvent.blur(el, { relatedTarget: boldButton });
+    // Editing persists: styling from the toolbar applies to the live session.
+    expect(container.querySelector(".operation--text.is-editing")).not.toBeNull();
   });
 });
 

@@ -13,7 +13,7 @@ import type {
   TextItem,
   ViewportRect,
 } from "../types/editor";
-import { createOperationsForTool } from "../editor/operationFactory";
+import { createOperationsForTool, NEW_TEXT_PLACEHOLDER } from "../editor/operationFactory";
 import { isRegionTool } from "../editor/toolRegistry";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation, translatePoints } from "../editor/selectionModel";
@@ -474,6 +474,23 @@ export function PdfCanvas({
     if (editingTextId && selectedId !== editingTextId) setEditingTextId(undefined);
   }, [editingTextId, selectedId]);
 
+  // Sejda-style unused-edit cleanup: whenever a text edit session ends (commit,
+  // Escape, click-away, selection change), a freshly placed box that is still
+  // empty or still holds the untouched placeholder is discarded — abandoned
+  // "Type your text" boxes never pollute the document or the export.
+  // Replacements (sourceCoverRect) are exempt: clearing an existing run to
+  // empty is the legitimate "delete this text" gesture.
+  const previousEditingTextId = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const previous = previousEditingTextId.current;
+    previousEditingTextId.current = editingTextId;
+    if (!previous || previous === editingTextId) return;
+    const edited = operations.find((operation) => operation.id === previous);
+    if (!edited || edited.type !== "text" || edited.sourceCoverRect) return;
+    const text = edited.text.trim();
+    if (text === "" || text === NEW_TEXT_PLACEHOLDER) onOperationRemove(edited.id);
+  }, [editingTextId, operations, onOperationRemove]);
+
   useEffect(() => {
     if (editingTextId && editingTextId === moveModeOperationId) setMoveModeOperationId(undefined);
   }, [editingTextId, moveModeOperationId]);
@@ -820,12 +837,20 @@ export function PdfCanvas({
             // A press-and-release with no movement in between is a click, not a
             // completed (no-op) move — resolve it to whatever a plain click on this
             // overlay/tool combination means, instead of leaving the gesture inert.
-            if (drag && !dragMoved.current) {
-              const pressedOperation = operations.find((operation) => operation.id === drag.id);
-              if (activeTool === "text" && pressedOperation?.type === "text" && editingTextId !== pressedOperation.id) {
-                // Reference-style click-to-edit: only fires when the click didn't drag.
-                setEditingTextId(pressedOperation.id);
+            if (drag) {
+              if (!dragMoved.current) {
+                const pressedOperation = operations.find((operation) => operation.id === drag.id);
+                if (activeTool === "text" && pressedOperation?.type === "text" && editingTextId !== pressedOperation.id) {
+                  // Reference-style click-to-edit: only fires when the click didn't drag.
+                  setEditingTextId(pressedOperation.id);
+                }
               }
+              // Consume the synthetic click that follows this pointerup. Pointer
+              // capture retargets it to the stage, so a press that started on an
+              // overlay would otherwise read as "click on empty canvas" and place
+              // a stray NEW operation at the release point (with the Text tool this
+              // dropped a second placeholder box on top of the one being edited).
+              dragMoved.current = true;
             }
             setDrag(null);
             setResize(null);
@@ -941,6 +966,7 @@ export function PdfCanvas({
             {selectedOperation && editingTextId !== selectedOperation.id && isResizableOperation(selectedOperation) ? (
               <ResizeHandles
                 rect={pdfRectToViewport(selectedOperation.rect, pageHeight, scale)}
+                interacting={Boolean(drag) || Boolean(resize)}
                 onResizeStart={(handle, event) => {
                   /* v8 ignore next -- onResizeStart only fires from handles rendered inside the mounted stage, so stageRef.current is always populated */
                   if (!stageRef.current) return;

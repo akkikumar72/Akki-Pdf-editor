@@ -40,6 +40,54 @@ describe("ResizeHandles", () => {
     ]);
   });
 
+  it("drops all midpoint handles on a small overlay so it stays visible (corners only)", () => {
+    const { container } = render(
+      <ResizeHandles
+        rect={{ left: 0, top: 0, width: 24, height: 24 }}
+        onResizeStart={vi.fn()}
+      />,
+    );
+    const keys = Array.from(container.querySelectorAll(".resize-handle")).map(
+      (handle) => handle.getAttribute("data-handle"),
+    );
+    expect(keys).toEqual(["nw", "ne", "se", "sw"]);
+    // Compact frames also push the corner grips fully outside via CSS.
+    expect((container.querySelector(".resize-frame") as HTMLElement).classList.contains("is-compact")).toBe(true);
+  });
+
+  it("drops only the midpoints of the too-short axis on a flat overlay", () => {
+    const { container } = render(
+      <ResizeHandles
+        rect={{ left: 0, top: 0, width: 200, height: 20 }}
+        onResizeStart={vi.fn()}
+      />,
+    );
+    const keys = Array.from(container.querySelectorAll(".resize-handle")).map(
+      (handle) => handle.getAttribute("data-handle"),
+    );
+    // Width has room for n/s midpoints; the 20px height hides e/w.
+    expect(keys).toEqual(["nw", "n", "ne", "se", "s", "sw"]);
+  });
+
+  it("marks the frame while interacting so CSS can hide the handles", () => {
+    const { container, rerender } = render(
+      <ResizeHandles
+        rect={{ left: 0, top: 0, width: 100, height: 100 }}
+        onResizeStart={vi.fn()}
+      />,
+    );
+    const frame = container.querySelector(".resize-frame") as HTMLElement;
+    expect(frame.classList.contains("is-interacting")).toBe(false);
+    rerender(
+      <ResizeHandles
+        rect={{ left: 0, top: 0, width: 100, height: 100 }}
+        interacting
+        onResizeStart={vi.fn()}
+      />,
+    );
+    expect(frame.classList.contains("is-interacting")).toBe(true);
+  });
+
   it("calls stopPropagation on the pointer event", () => {
     const onResizeStart = vi.fn();
     const { container } = render(

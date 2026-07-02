@@ -1756,8 +1756,12 @@ select:disabled {
 
 .operation.is-selected {
   z-index: 8;
-  border-color: color-mix(in oklch, var(--color-accent) 72%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 24%, transparent);
+  /* Full-strength accent edge + white seam: the old 72%/24% translucent accent
+     washed out over busy page content (the "borders not visible" complaint).
+     Non-resizable overlays (links, ink, lines) rely on this as their only
+     selection indicator; resizable ones additionally get the resize-frame ring. */
+  border-color: var(--color-accent-edge);
+  box-shadow: 0 0 0 1px var(--color-select-halo);
 }
 
 .operation--text.is-selected {
@@ -1780,6 +1784,16 @@ select:disabled {
   line-height: 1;
   white-space: pre;
   overflow: visible;
+}
+
+/* Reference parity (Sejda): hovering an editable text run shows a dashed
+   frame as the "click to edit" affordance; it disappears while editing so the
+   text reads clean under the caret. Outline (not border) so it never reflows. */
+@media (hover: hover) {
+  .operation--text:not(.is-editing):hover {
+    outline: 2px dashed color-mix(in oklch, var(--color-accent-edge) 80%, transparent);
+    outline-offset: 2px;
+  }
 }
 
 .operation--text.is-editing {
@@ -1820,19 +1834,78 @@ select:disabled {
   position: absolute;
   z-index: 9;
   pointer-events: none;
+  border-radius: 2px;
+  /* Reference-parity selection ring (Sejda uses a 2px saturated line): a 2px
+     accent ring sandwiched between white seams so the boundary stays readable
+     on white paper, dark scans, and saturated fills alike. Fixed CSS px, so it
+     never fades or thickens with zoom. */
+  box-shadow:
+    0 0 0 1px var(--color-select-halo),
+    0 0 0 3px var(--color-accent-edge),
+    0 0 0 4px var(--color-select-halo);
 }
 
 .resize-handle {
   position: absolute;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
-  border: 1px solid var(--color-accent);
-  border-radius: 2px;
-  background: var(--color-paper);
-  box-shadow: 0 1px 2px oklch(0% 0 0 / 0.22);
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--color-accent-edge);
+  border-radius: 3px;
+  background: var(--color-select-face);
+  box-shadow: 0 0 0 1px var(--color-select-halo), var(--shadow-handle);
   pointer-events: auto;
   touch-action: none;
+}
+
+/* Corner handles sit mostly OUTSIDE the frame (reference parity with Sejda's
+   -7px offsets): only ~3px overlaps the content, so even checkbox-sized
+   overlays stay visible instead of being buried under a 3x3 grid of grips. */
+.resize-handle[data-handle="nw"] {
+  transform: translate(-75%, -75%);
+}
+
+.resize-handle[data-handle="ne"] {
+  transform: translate(-25%, -75%);
+}
+
+.resize-handle[data-handle="se"] {
+  transform: translate(-25%, -25%);
+}
+
+.resize-handle[data-handle="sw"] {
+  transform: translate(-75%, -25%);
+}
+
+/* Checkbox-sized overlays: push the corner grips fully outside the ring so the
+   content stays completely unobscured while selected. */
+.resize-frame.is-compact .resize-handle[data-handle="nw"] {
+  transform: translate(-110%, -110%);
+}
+
+.resize-frame.is-compact .resize-handle[data-handle="ne"] {
+  transform: translate(10%, -110%);
+}
+
+.resize-frame.is-compact .resize-handle[data-handle="se"] {
+  transform: translate(10%, 10%);
+}
+
+.resize-frame.is-compact .resize-handle[data-handle="sw"] {
+  transform: translate(-110%, 10%);
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  border-color: var(--color-select-face);
+  background: var(--color-accent-edge);
+}
+
+/* While moving/resizing, hide the grab handles (reference behavior) so the
+   content being manipulated stays visible; the frame ring keeps tracking the
+   live bounds. */
+.resize-frame.is-interacting .resize-handle {
+  display: none;
 }
 
 .operation--image,

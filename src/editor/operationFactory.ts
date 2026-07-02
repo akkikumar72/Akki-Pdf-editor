@@ -42,6 +42,11 @@ const FORM_KIND_BY_TOOL = {
 /** Square size (PDF pt) for a freshly placed check mark, before the user resizes it. */
 const CHECK_MARK_SIZE = 16;
 
+/** Placeholder for a freshly placed text box (reference parity with Sejda's
+ *  "Type your text"). The canvas fully selects it on edit start so the first
+ *  keystroke replaces it, and discards the box if it is abandoned unchanged. */
+export const NEW_TEXT_PLACEHOLDER = "Type your text";
+
 function estimateSingleLineTextWidth(text: string, fontSize: number, fontWeight?: number) {
   const uppercaseCount = [...text].filter((char) => /[A-Z]/.test(char)).length;
   const uppercaseRatio = text.length ? uppercaseCount / text.length : 0;
@@ -84,7 +89,7 @@ export function createOperationsForTool({
         : detectedFontWeight;
     const italic = Boolean(styleTextItem?.italic);
     const fontSize = Math.max(1, Math.round(styleTextItem?.fontSize ?? 14));
-    const text = sourceTextItem?.str ?? "New text";
+    const text = sourceTextItem?.str ?? NEW_TEXT_PLACEHOLDER;
     const replacementWidth = isReplacement
       ? Math.max(rect.width, estimateSingleLineTextWidth(text, fontSize, fontWeight))
       : Math.max(rect.width, 130);
@@ -93,11 +98,14 @@ export function createOperationsForTool({
     // font's own line height instead of an arbitrary flat constant. `textBaselineTopPaddingPx`
     // pushes glyphs down by (boxHeight - 1.1*fontSize); a box far taller than one line
     // (e.g. the old flat 28px against a 40pt font, or 28px dwarfing a 14pt line inside a
-    // 42px click box) visibly drops the caret below the click point. PDF rects anchor at
-    // the bottom-left, so shrinking `height` alone would shift the box down — preserve the
-    // top edge (unaffected by height) instead of the click's original `y`.
+    // 42px click box) visibly drops the caret below the click point.
     const newTextHeight = Math.max(fontSize * 1.15, 16);
-    const newTextTopEdge = rect.y + rect.height;
+    // The incoming viewport rect anchors its TOP edge at the click, which would
+    // render the whole line below the cursor. Reference parity (Sejda measured
+    // live): the new box is centered vertically ON the click point, so the text
+    // originates where the cursor is. The click's PDF-space Y is the rect's top
+    // edge (rect.y + rect.height, since PDF rects anchor bottom-left).
+    const clickPdfY = rect.y + rect.height;
     return [
       {
         id: createId("text"),
@@ -115,7 +123,7 @@ export function createOperationsForTool({
               ...rect,
               width: Math.max(rect.width, 130),
               height: newTextHeight,
-              y: newTextTopEdge - newTextHeight,
+              y: clickPdfY - newTextHeight / 2,
             },
         text,
         fontFamily: styleTextItem ? fontChoice.label : resolveFont().label,
