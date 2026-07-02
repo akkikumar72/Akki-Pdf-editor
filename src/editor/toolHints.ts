@@ -34,9 +34,9 @@ const TOOL_HINTS: Partial<Record<EditorTool, ToolHint>> = {
   signature: { armed: "Click a location on the page to add signature" },
 
   "annotate-text": { armed: "Click a location on the page to add a note" },
-  highlight: { armed: "Select an area to highlight", drawing: "Click and drag to highlight" },
-  strikeout: { armed: "Select an area to strike out", drawing: "Click and drag to strike out" },
-  underline: { armed: "Select an area to underline", drawing: "Click and drag to underline" },
+  highlight: { armed: "Drag across text to highlight it, or select an area", drawing: "Click and drag to highlight" },
+  strikeout: { armed: "Drag across text to strike it out, or select an area", drawing: "Click and drag to strike out" },
+  underline: { armed: "Drag across text to underline it, or select an area", drawing: "Click and drag to underline" },
   draw: { armed: "Click and drag to draw freehand" },
   ink: { armed: "Click and drag to add a freehand stroke" },
 

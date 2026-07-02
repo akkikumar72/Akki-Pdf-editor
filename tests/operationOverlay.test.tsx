@@ -464,6 +464,16 @@ describe("OperationOverlay - non-text branches", () => {
     expect(el.textContent).toBe("Akash");
   });
 
+  it("renders a typed signature with a signature-studio handwriting face", () => {
+    const op: SignatureOperation = {
+      id: "sig4", type: "signature", pageIndex: 0, rect: RECT, createdAt: 1,
+      mode: "typed", value: "Akash", color: "#123456", fontFamily: "Caveat",
+    };
+    const { container } = renderOverlay(op);
+    const el = container.querySelector(".operation--signature") as HTMLDivElement;
+    expect(el.style.fontFamily).toContain("Caveat");
+  });
+
   it("renders a stamp with label and colors", () => {
     const op: StampOperation = {
       id: "stamp", type: "stamp", pageIndex: 0, rect: RECT, createdAt: 1,
@@ -472,6 +482,17 @@ describe("OperationOverlay - non-text branches", () => {
     const { container } = renderOverlay(op);
     const el = container.querySelector(".operation--stamp") as HTMLDivElement;
     expect(el.textContent).toBe("APPROVED");
+    expect(container.querySelector(".operation__stamp-subline")).toBeNull();
+  });
+
+  it("renders a stamp subline as a second smaller line", () => {
+    const op: StampOperation = {
+      id: "stamp-sub", type: "stamp", pageIndex: 0, rect: RECT, createdAt: 1,
+      label: "Approved", subline: "By Akki at Feb 3, 2025", color: "#111", borderColor: "#222",
+    };
+    const { container } = renderOverlay(op);
+    expect((container.querySelector(".operation__stamp-label") as HTMLElement).textContent).toBe("Approved");
+    expect((container.querySelector(".operation__stamp-subline") as HTMLElement).textContent).toBe("By Akki at Feb 3, 2025");
   });
 
   it("renders a shape with a solid fill", () => {
@@ -576,13 +597,31 @@ describe("OperationOverlay - non-text branches", () => {
     expect(el.textContent).toBe("note");
   });
 
-  it("renders a link with its href", () => {
+  it("renders a link with a kind-aware label per target", () => {
+    const cases: Array<[LinkOperation["target"], string]> = [
+      [{ kind: "url", href: "https://example.com/deep/path" }, "example.com"],
+      [{ kind: "email", href: "mailto:you@example.com" }, "you@example.com"],
+      [{ kind: "phone", href: "tel:+1234567890" }, "+1234567890"],
+      [{ kind: "page", pageIndex: 1 }, "Page 2"],
+    ];
+    for (const [target, label] of cases) {
+      const op: LinkOperation = { id: `link-${target.kind}`, type: "link", pageIndex: 0, rect: RECT, createdAt: 1, target };
+      const { container, unmount } = renderOverlay(op);
+      const el = container.querySelector(".operation--link span") as HTMLSpanElement;
+      expect(el.textContent).toBe(label);
+      unmount();
+    }
+  });
+
+  it("renders an imported link as a quiet dashed box without a label", () => {
     const op: LinkOperation = {
-      id: "link", type: "link", pageIndex: 0, rect: RECT, createdAt: 1, href: "https://example.com",
+      id: "link-imported", type: "link", pageIndex: 0, rect: RECT, createdAt: 1,
+      target: { kind: "url", href: "https://example.com" }, imported: true, annotationRef: "13R",
     };
     const { container } = renderOverlay(op);
-    const el = container.querySelector(".operation--link span") as HTMLSpanElement;
-    expect(el.textContent).toBe("https://example.com");
+    const el = container.querySelector(".operation--link") as HTMLDivElement;
+    expect(el.classList.contains("operation--link-imported")).toBe(true);
+    expect(el.querySelector("span")).toBeNull();
   });
 
   it("renders a checked form-field showing the check and value", () => {

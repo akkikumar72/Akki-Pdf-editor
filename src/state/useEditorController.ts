@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { importedLinkOperation } from "../editor/linkTarget";
 import { shiftOperationsForDeletedPage, shiftOperationsForInsertedPage } from "../editor/pageOperations";
+import { duplicateOperation } from "../editor/selectionModel";
 import { exportPipeline } from "../engine/exportPipeline";
 import { pdfEngine } from "../engine/pdfEngine";
-import { editReducer, getSelectedOperation, initialEditState } from "./editModel";
+import { editReducer, getSelectedOperation, getSelectedOperations, initialEditState } from "./editModel";
 import type { EditState } from "./editModel";
 import type { DocumentFonts, EditOperation, EditorTool, ExportFormat, LoadedPdf, TextItem } from "../types/editor";
 import { validatePdfFile } from "../utils/fileValidation";
@@ -14,6 +16,7 @@ export function useEditorController() {
   const [textItems, setTextItems] = useState<TextItem[]>([]);
   const [documentFonts, setDocumentFonts] = useState<DocumentFonts>({});
   const [pageSizes, setPageSizes] = useState<Array<{ width: number; height: number }>>([]);
+  const [importedLinkAnnotationIds, setImportedLinkAnnotationIds] = useState<string[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [scale, setScale] = useState(1.18);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
@@ -25,6 +28,7 @@ export function useEditorController() {
   const pageStageRef = useRef<HTMLDivElement>(null);
 
   const selectedOperation = useMemo(() => getSelectedOperation(editState), [editState]);
+  const selectedOperations = useMemo(() => getSelectedOperations(editState), [editState]);
   const visibleOperations = useMemo(
     () => editState.operations.filter((operation) => operation.pageIndex === pageIndex),
     [editState.operations, pageIndex],
@@ -49,9 +53,17 @@ export function useEditorController() {
     setTextItems(content.items);
     setDocumentFonts(content.fonts);
     setPageSizes(sizes);
+    // The full imported-annotation id list (not just surviving ops) so a deleted
+    // imported link still suppresses its original annotation at export.
+    setImportedLinkAnnotationIds(
+      content.links.map((link) => link.annotationRef).filter((ref): ref is string => typeof ref === "string"),
+    );
+    // Fresh opens seed the baseline with the document's own links (editable,
+    // not undoable below the baseline). Restored sessions / page mutations
+    // already carry them inside their saved operations.
     dispatch({
       type: "reset",
-      operations: savedEditState?.operations,
+      operations: savedEditState ? savedEditState.operations : content.links.map(importedLinkOperation),
       past: savedEditState?.past,
       future: savedEditState?.future,
     });
@@ -230,6 +242,7 @@ export function useEditorController() {
     setTextItems([]);
     setDocumentFonts({});
     setPageSizes([]);
+    setImportedLinkAnnotationIds([]);
     setPageIndex(0);
     setRotation(0);
     setActiveTool("select");
@@ -243,20 +256,51 @@ export function useEditorController() {
     setStatus(`${operation.type.replace("-", " ")} added`);
   }, []);
 
+  const addOperations = useCallback((operations: EditOperation[]) => {
+    if (operations.length === 0) return;
+    dispatch({ type: "add-many", operations });
+    setStatus(
+      operations.length === 1
+        ? `${operations[0].type.replace("-", " ")} added`
+        : `${operations.length} edits added`,
+    );
+  }, []);
+
   const updateOperation = useCallback((id: string, patch: Partial<EditOperation>) => {
     dispatch({ type: "update", id, patch });
   }, []);
 
   const removeSelected = useCallback(() => {
-    if (!editState.selectedId) return;
-    dispatch({ type: "remove", id: editState.selectedId });
-    setStatus("Selection removed");
-  }, [editState.selectedId]);
+    if (editState.selectedIds.length === 0) return;
+    dispatch({ type: "remove-many", ids: editState.selectedIds });
+    setStatus(
+      editState.selectedIds.length === 1
+        ? "Selection removed"
+        : `${editState.selectedIds.length} objects removed`,
+    );
+  }, [editState.selectedIds]);
 
   const removeOperation = useCallback((id: string) => {
     dispatch({ type: "remove", id });
     setStatus("Selection removed");
   }, []);
+
+  const removeOperations = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    dispatch({ type: "remove-many", ids });
+    setStatus(ids.length === 1 ? "Selection removed" : `${ids.length} objects removed`);
+  }, []);
+
+  const translateOperations = useCallback((ids: string[], dx: number, dy: number) => {
+    dispatch({ type: "translate", ids, dx, dy });
+  }, []);
+
+  const duplicateSelected = useCallback(() => {
+    const selected = getSelectedOperations(editState);
+    if (selected.length === 0) return;
+    dispatch({ type: "add-many", operations: selected.map(duplicateOperation) });
+    setStatus(selected.length === 1 ? "Duplicate added" : `${selected.length} duplicates added`);
+  }, [editState]);
 
   const updateDocumentBytes = useCallback(async (
     bytes: Uint8Array,
@@ -344,6 +388,7 @@ export function useEditorController() {
         operations: editState.operations,
         textItems,
         fonts: documentFonts,
+        suppressLinkAnnotationIds: importedLinkAnnotationIds,
       });
       setStatus(`${format.toUpperCase()} exported`);
     } catch (error) {
@@ -351,7 +396,7 @@ export function useEditorController() {
     } finally {
       setIsBusy(false);
     }
-  }, [document, documentFonts, editState.operations, textItems]);
+  }, [document, documentFonts, editState.operations, importedLinkAnnotationIds, textItems]);
 
   return {
     document,
@@ -368,6 +413,7 @@ export function useEditorController() {
     recentSessions,
     editState,
     selectedOperation,
+    selectedOperations,
     visibleOperations,
     pageStageRef,
     dispatch,
@@ -385,9 +431,13 @@ export function useEditorController() {
     clearSavedSessions,
     returnHome,
     addOperation,
+    addOperations,
     updateOperation,
     removeSelected,
     removeOperation,
+    removeOperations,
+    translateOperations,
+    duplicateSelected,
     insertPageAfter,
     deleteCurrentPage,
     rotateCurrentPage,

@@ -98,7 +98,7 @@ describe("alignmentGuides", () => {
       },
     ];
     const lines = collectAlignmentLines({
-      movingId: "moving",
+      movingIds: ["moving"],
       operations,
       textItems: [],
       pageIndex: 0,
@@ -108,6 +108,38 @@ describe("alignmentGuides", () => {
     });
     expect(lines.vertical).toContain(200);
     expect(lines.vertical).toContain(280);
+  });
+
+  it("excludes every member of a moving group from the candidate lines", () => {
+    const operations: EditOperation[] = [
+      {
+        id: "member-a",
+        type: "whiteout",
+        pageIndex: 0,
+        rect: { x: 100, y: 500, width: 120, height: 24 },
+        color: "#fff",
+        createdAt: 1,
+      },
+      {
+        id: "member-b",
+        type: "whiteout",
+        pageIndex: 0,
+        rect: { x: 300, y: 400, width: 80, height: 20 },
+        color: "#fff",
+        createdAt: 2,
+      },
+    ];
+    const lines = collectAlignmentLines({
+      movingIds: ["member-a", "member-b"],
+      operations,
+      textItems: [],
+      pageIndex: 0,
+      pageWidth: 612,
+      pageHeight: 792,
+      scale: 1,
+    });
+    expect(lines.vertical).not.toContain(100);
+    expect(lines.vertical).not.toContain(300);
   });
 
   it("includes text-item edges and skips operations on other pages", () => {
@@ -127,7 +159,7 @@ describe("alignmentGuides", () => {
       },
     ];
     const lines = collectAlignmentLines({
-      movingId: "moving",
+      movingIds: ["moving"],
       operations,
       textItems: [
         {

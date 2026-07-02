@@ -1,9 +1,11 @@
 import type { EditOperation } from "../types/editor";
 import type { EditState } from "../state/editModel";
+import { normalizeLegacyOperations } from "../editor/linkTarget";
 
 const DB_NAME = "akki-pdf-editor";
 const STORE = "sessions";
-const VERSION = 1;
+const SIGNATURE_STORE = "signatures";
+const VERSION = 2;
 
 export type SavedSession = {
   id: string;
@@ -37,6 +39,26 @@ export type SessionSaveInput = {
   operations: EditOperation[];
 };
 
+/**
+ * Sessions saved before link targets became a kind union stored `{ href }`
+ * links. Normalize every operation list (current, undo, redo) on the way out
+ * of IndexedDB so old data keeps loading.
+ */
+function normalizeSession(session: SavedSession | undefined): SavedSession | undefined {
+  if (!session) return session;
+  return {
+    ...session,
+    operations: session.operations ? normalizeLegacyOperations(session.operations) : session.operations,
+    editState: session.editState
+      ? {
+          operations: normalizeLegacyOperations(session.editState.operations),
+          past: session.editState.past.map((entry) => ({ ...entry, operations: normalizeLegacyOperations(entry.operations) })),
+          future: session.editState.future.map((entry) => ({ ...entry, operations: normalizeLegacyOperations(entry.operations) })),
+        }
+      : session.editState,
+  };
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, VERSION);
@@ -46,6 +68,9 @@ function openDb(): Promise<IDBDatabase> {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(SIGNATURE_STORE)) {
+        db.createObjectStore(SIGNATURE_STORE, { keyPath: "id" });
       }
     };
   });
@@ -91,7 +116,7 @@ export async function getLatestSession(): Promise<SavedSession | undefined> {
     request.onerror = () => reject(request.error);
   });
   db.close();
-  return sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  return normalizeSession(sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0]);
 }
 
 export async function getSession(id: string): Promise<SavedSession | undefined> {
@@ -103,7 +128,7 @@ export async function getSession(id: string): Promise<SavedSession | undefined> 
     request.onerror = () => reject(request.error);
   });
   db.close();
-  return session;
+  return normalizeSession(session);
 }
 
 export async function deleteSession(id: string) {
@@ -122,6 +147,54 @@ export async function clearSessions() {
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
     tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+/**
+ * A reusable signature captured in the signature studio. Only typed styling
+ * ({value, fontFamily, color}) or a data:image/(png|jpeg) payload in `value`
+ * is ever persisted — no other blob shapes reach this store.
+ */
+export type SavedSignature = {
+  id: string;
+  createdAt: number;
+  mode: "typed" | "image";
+  value: string;
+  color: string;
+  fontFamily?: string;
+};
+
+export async function saveSignature(signature: SavedSignature) {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(SIGNATURE_STORE, "readwrite");
+    tx.objectStore(SIGNATURE_STORE).put(signature);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+export async function listSignatures(): Promise<SavedSignature[]> {
+  const db = await openDb();
+  const signatures = await new Promise<SavedSignature[]>((resolve, reject) => {
+    const tx = db.transaction(SIGNATURE_STORE, "readonly");
+    const request = tx.objectStore(SIGNATURE_STORE).getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return signatures.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function deleteSignature(id: string) {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(SIGNATURE_STORE, "readwrite");
+    tx.objectStore(SIGNATURE_STORE).delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });

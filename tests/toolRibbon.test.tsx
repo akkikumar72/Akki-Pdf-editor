@@ -12,9 +12,10 @@ function makeProps(overrides: Partial<React.ComponentProps<typeof ToolRibbon>> =
     disabled: false,
     historyEntries: [] as EditHistoryEntry[],
     scale: 1,
-    selectedId: "sel-1",
+    selectedIds: ["sel-1"],
     onExport: vi.fn(),
     onDeletePage: vi.fn(),
+    onFindReplace: vi.fn(),
     onHome: vi.fn(),
     onInsertPage: vi.fn(),
     onRedo: vi.fn(),
@@ -59,6 +60,13 @@ describe("ToolRibbon", () => {
     expect(props.onDeletePage).toHaveBeenCalled();
   });
 
+  it("fires onFindReplace from the Find & replace button", () => {
+    const props = makeProps();
+    render(<ToolRibbon {...props} />);
+    fireEvent.click(screen.getByTitle("Find & replace"));
+    expect(props.onFindReplace).toHaveBeenCalled();
+  });
+
   it("fires undo/redo/remove when enabled", () => {
     const props = makeProps();
     render(<ToolRibbon {...props} />);
@@ -70,8 +78,8 @@ describe("ToolRibbon", () => {
     expect(props.onRemove).toHaveBeenCalled();
   });
 
-  it("disables undo/redo/remove based on canUndo/canRedo/selectedId", () => {
-    render(<ToolRibbon {...makeProps({ canUndo: false, canRedo: false, selectedId: undefined })} />);
+  it("disables undo/redo/remove based on canUndo/canRedo/selectedIds", () => {
+    render(<ToolRibbon {...makeProps({ canUndo: false, canRedo: false, selectedIds: [] })} />);
     expect(screen.getByTitle("Undo")).toBeDisabled();
     expect(screen.getByTitle("Redo")).toBeDisabled();
     expect(screen.getByTitle("Remove selected")).toBeDisabled();

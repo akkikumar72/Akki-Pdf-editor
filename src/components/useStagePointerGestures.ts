@@ -1,24 +1,27 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import type { EditOperation, EditorTool, InkOperation, PdfRect, TextItem, ViewportRect } from "../types/editor";
+import type { EditOperation, EditorTool, PdfRect, TextItem, ViewportRect } from "../types/editor";
 import { isRegionTool } from "../editor/toolRegistry";
-import { translatePoints } from "../editor/selectionModel";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
 import { collectAlignmentLines, snapViewportRect, type AlignmentLines, type GuideLine } from "../utils/alignmentGuides";
+import { viewportRectsOverlap } from "../utils/textMetrics";
 import type { ResizeHandle } from "./ResizeHandles";
 
-type DragState = {
-  id: string;
+export type DragState = {
+  /** Every operation moving in this gesture (the pressed op plus, for a group drag, the rest of the selection). */
+  ids: string[];
+  /** The op the pointer went down on; snapping and clamping are computed against its rect. */
+  primaryId: string;
   start: { x: number; y: number };
-  origin: { x: number; y: number };
-  // Alignment guide candidates never depend on the dragged rect's own position (the
-  // moving operation is excluded from the calculation), so they're computed once here
+  origins: Record<string, { x: number; y: number }>;
+  // Alignment guide candidates never depend on the dragged rects' own positions (the
+  // moving operations are excluded from the calculation), so they're computed once here
   // at drag start instead of on every pointermove — the prior per-move recompute over
   // every operation and PDF text item on the page was the dominant cause of drag lag.
   alignmentLines: AlignmentLines;
   // Updated locally on every pointermove; only dispatched to the reducer once,
-  // at gesture end, so a drag doesn't force a full operations-array rebuild
-  // (and re-render of every overlay) on every frame.
-  livePatch?: Partial<EditOperation>;
+  // at gesture end (as a single `translate`), so a drag doesn't force a full
+  // operations-array rebuild (and re-render of every overlay) on every frame.
+  liveDelta?: { dx: number; dy: number };
 };
 
 type ResizeState = {
@@ -26,7 +29,7 @@ type ResizeState = {
   handle: ResizeHandle;
   startPointer: { x: number; y: number };
   startRect: ViewportRect;
-  // Same deferred-commit strategy as DragState.livePatch.
+  // Same deferred-commit strategy as DragState.liveDelta.
   liveRect?: PdfRect;
 };
 
@@ -74,21 +77,32 @@ type UseStagePointerGesturesArgs = {
   scale: number;
   editingTextId: string | undefined;
   setEditingTextId: (id: string | undefined) => void;
+  /** Current selection; a press on an already-selected overlay starts a group drag of all of them. */
+  selectedIds: string[];
   /** Called whenever a gesture ends (pointerup/cancel/lost-capture), to clear any UI-level "move mode" toggle. */
   clearMoveMode: () => void;
-  onOperationSelect: (id?: string) => void;
+  onOperationSelect: (ids: string[], additive?: boolean) => void;
   onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  /** Commits a completed move of one or more operations as a single undo entry. */
+  onOperationsTranslate: (ids: string[], dx: number, dy: number) => void;
   /** Records where to place a new image and opens the file picker; the image tool's placement flow lives in the component. */
   onImageToolClick: (point: { x: number; y: number }) => void;
-  /** Creates operation(s) for the active tool at a viewport rect (point click or completed drag-to-draw). */
-  addAt: (viewportRect: ViewportRect, sourceTextItem?: TextItem) => void;
+  /**
+   * Creates operation(s) for the active tool at a viewport rect (point click or
+   * completed drag-to-draw). `clickPoint` is set when a region-tool press
+   * resolved to a plain click, so tools that snap to text can target the run
+   * under the press instead of the fallback-sized rect.
+   */
+  addAt: (viewportRect: ViewportRect, sourceTextItem?: TextItem, clickPoint?: { x: number; y: number }) => void;
 };
 
 /**
  * Owns the stage's pointer-gesture state machine: draw-to-create (region tools),
- * drag-to-move (existing overlays), resize-by-handle, and click-vs-drag
- * disambiguation. Every future tool with a custom click/drag/resize behavior has
- * one place to extend instead of five scattered handler bodies on the component.
+ * marquee-select (Select tool on empty area), drag-to-move (existing overlays,
+ * including group drags of a multi-selection), resize-by-handle, and
+ * click-vs-drag disambiguation. Every future tool with a custom click/drag/resize
+ * behavior has one place to extend instead of five scattered handler bodies on
+ * the component.
  */
 export function useStagePointerGestures({
   activeTool,
@@ -101,9 +115,11 @@ export function useStagePointerGestures({
   scale,
   editingTextId,
   setEditingTextId,
+  selectedIds,
   clearMoveMode,
   onOperationSelect,
   onOperationUpdate,
+  onOperationsTranslate,
   onImageToolClick,
   addAt,
 }: UseStagePointerGesturesArgs) {
@@ -118,35 +134,42 @@ export function useStagePointerGestures({
   const [drag, setDrag] = useState<DragState | null>(null);
   const [resize, setResize] = useState<ResizeState | null>(null);
   const [draw, setDraw] = useState<DrawState | null>(null);
+  const [selectDraw, setSelectDraw] = useState<DrawState | null>(null);
   const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
 
   useEffect(() => {
-    if (!draw) return;
+    if (!draw && !selectDraw) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       setDraw(null);
+      setSelectDraw(null);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [draw]);
+  }, [draw, selectDraw]);
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    // Deselect only when pressing empty page area, so selecting an overlay
-    // never gets cleared by a follow-up click (keeps its toolbar persistent).
+    // Selection changes only apply when pressing empty page area, so selecting
+    // an overlay never gets cleared by a follow-up click (keeps its toolbar
+    // persistent).
     const target = event.target as HTMLElement;
     const isEmptyArea = target === event.currentTarget || target.classList.contains("react-pdf__Page__canvas");
     if (!isEmptyArea) return;
+    /* v8 ignore next -- pointerdown fires only inside the mounted stage, so stageRef.current is always populated */
+    if (!stageRef.current) return;
     if (activeTool === "select") {
-      onOperationSelect(undefined);
+      // Rubber-band selection: a drag selects every intersected operation on
+      // pointerup; a no-drag click still deselects (resolved on pointerup).
+      stageRef.current.setPointerCapture(event.pointerId);
+      const point = pointFromEvent(event, event.currentTarget);
+      setSelectDraw({ start: point, current: point });
       return;
     }
     // Region tools (shapes, whiteout, links, forms, …) draw via an area
     // selection: press → drag → release. Start the marquee here.
     if (!isRegionTool(activeTool)) return;
-    /* v8 ignore next -- pointerdown fires only inside the mounted stage, so stageRef.current is always populated */
-    if (!stageRef.current) return;
-    onOperationSelect(undefined);
+    onOperationSelect([]);
     stageRef.current.setPointerCapture(event.pointerId);
     const point = pointFromEvent(event, event.currentTarget);
     setDraw({ start: point, current: point });
@@ -166,7 +189,7 @@ export function useStagePointerGestures({
       return;
     }
     if (activeTool === "select") {
-      // Selection/deselection is handled on pointer down for empty area.
+      // Selection/deselection is handled by the marquee gesture on pointer up.
       return;
     }
     if (activeTool === "image") {
@@ -180,6 +203,13 @@ export function useStagePointerGestures({
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (selectDraw) {
+      /* v8 ignore next -- pointermove during a select marquee always has the mounted stage ref */
+      if (!stageRef.current) return;
+      const point = pointFromEvent(event, stageRef.current);
+      setSelectDraw({ start: selectDraw.start, current: point });
+      return;
+    }
     if (draw) {
       /* v8 ignore next -- pointermove during a draw always has the mounted stage ref */
       if (!stageRef.current) return;
@@ -227,72 +257,86 @@ export function useStagePointerGestures({
     dragMoved.current = true;
     const point = pointFromEvent(event, stageRef.current);
     const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
-    const dragged = operations.find((operation) => operation.id === drag.id);
-    if (!dragged) return;
+    const primary = operations.find((operation) => operation.id === drag.primaryId);
+    if (!primary) return;
 
+    const primaryOrigin = drag.origins[drag.primaryId];
     const nextPdfRect = clampRect(
       {
-        x: drag.origin.x + (pdfPoint.x - drag.start.x),
-        y: drag.origin.y + (pdfPoint.y - drag.start.y),
-        width: dragged.rect.width,
-        height: dragged.rect.height,
+        x: primaryOrigin.x + (pdfPoint.x - drag.start.x),
+        y: primaryOrigin.y + (pdfPoint.y - drag.start.y),
+        width: primary.rect.width,
+        height: primary.rect.height,
       },
       pageWidth,
       pageHeight,
     );
     let viewportRect = pdfRectToViewport(nextPdfRect, pageHeight, scale);
     // `drag.alignmentLines` was computed once at drag start (see
-    // `handleOverlayPointerDown` below) — it never depends on the moving rect's
-    // current position, so recomputing it on every move here was pure wasted work.
+    // `handleOverlayPointerDown` below) — it never depends on the moving rects'
+    // current positions, so recomputing it on every move here was pure wasted work.
     const snapped = snapViewportRect(viewportRect, drag.alignmentLines);
     viewportRect = snapped.rect;
     setActiveGuides(snapped.guides);
     const rect = clampRect(viewportRectToPdf(viewportRect, pageHeight, scale), pageWidth, pageHeight);
-    const patch: Partial<EditOperation> = { rect };
-    if (dragged.type === "ink") {
-      // Ink renders/exports from absolute `points`, so a moved stroke must
-      // translate every point by the same delta the rect moved (shared helper).
-      (patch as Partial<InkOperation>).points = translatePoints(
-        dragged.points,
-        rect.x - dragged.rect.x,
-        rect.y - dragged.rect.y,
-      );
-    }
+    // One delta for the whole group, derived from the pressed op's snapped and
+    // clamped rect, so every member moves in lockstep with it.
+    const liveDelta = { dx: rect.x - primaryOrigin.x, dy: rect.y - primaryOrigin.y };
     // Local-only update; committed once at gesture end (see finishGesture).
     /* v8 ignore next -- this updater only runs while `drag` is non-null (checked above), so `current` is always truthy */
-    setDrag((current) => (current ? { ...current, livePatch: patch } : current));
+    setDrag((current) => (current ? { ...current, liveDelta } : current));
   };
 
   /** Dispatches the accumulated local drag/resize position (if any) to the reducer. */
   const commitLiveGesture = () => {
-    if (drag?.livePatch) onOperationUpdate(drag.id, drag.livePatch);
+    if (drag?.liveDelta) onOperationsTranslate(drag.ids, drag.liveDelta.dx, drag.liveDelta.dy);
     if (resize?.liveRect) onOperationUpdate(resize.id, { rect: resize.liveRect } as Partial<EditOperation>);
   };
 
   const finishGesture = () => {
     commitLiveGesture();
     setDraw(null);
+    setSelectDraw(null);
     setDrag(null);
     setResize(null);
     setActiveGuides([]);
     clearMoveMode();
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (selectDraw) {
+      const rect = marqueeRect(selectDraw);
+      const dragged = rect.width >= DRAW_CLICK_THRESHOLD_PX || rect.height >= DRAW_CLICK_THRESHOLD_PX;
+      if (!dragged) {
+        // A no-drag click on empty page area still deselects.
+        onOperationSelect([]);
+      } else {
+        const hitIds = operations
+          .filter((operation) => viewportRectsOverlap(pdfRectToViewport(operation.rect, pageHeight, scale), rect))
+          .map((operation) => operation.id);
+        if (event.shiftKey || event.metaKey) {
+          // Union with the existing selection: additive `select` toggles, so
+          // only feed it the ids that aren't selected yet.
+          onOperationSelect(hitIds.filter((id) => !selectedIds.includes(id)), true);
+        } else {
+          onOperationSelect(hitIds);
+        }
+      }
+    }
     if (draw) {
       const rect = marqueeRect(draw);
       const dragged = rect.width >= DRAW_CLICK_THRESHOLD_PX || rect.height >= DRAW_CLICK_THRESHOLD_PX;
       const viewportRect = dragged
         ? rect
         : { left: draw.start.x, top: draw.start.y, ...DRAW_CLICK_FALLBACK };
-      addAt(viewportRect);
+      addAt(viewportRect, undefined, dragged ? undefined : draw.start);
     }
     // A press-and-release with no movement in between is a click, not a
     // completed (no-op) move — resolve it to whatever a plain click on this
     // overlay/tool combination means, instead of leaving the gesture inert.
     if (drag) {
       if (!dragMoved.current) {
-        const pressedOperation = operations.find((operation) => operation.id === drag.id);
+        const pressedOperation = operations.find((operation) => operation.id === drag.primaryId);
         if (activeTool === "text" && pressedOperation?.type === "text" && editingTextId !== pressedOperation.id) {
           // Reference-style click-to-edit: only fires when the click didn't drag.
           setEditingTextId(pressedOperation.id);
@@ -328,7 +372,16 @@ export function useStagePointerGestures({
 
   const handleOverlayPointerDown = (operation: EditOperation, event: React.PointerEvent<HTMLDivElement>) => {
     event.stopPropagation();
-    onOperationSelect(operation.id);
+    // Shift/Cmd-click toggles the pressed overlay in and out of the selection
+    // set (Sejda-style multi-select) and never starts a drag.
+    if (event.shiftKey || event.metaKey) {
+      onOperationSelect([operation.id], true);
+      return;
+    }
+    // Pressing an already-selected member keeps the selection and drags the
+    // whole group; pressing anything else replaces the selection first.
+    const isGroupDrag = selectedIds.includes(operation.id);
+    if (!isGroupDrag) onOperationSelect([operation.id]);
     // A drag can start regardless of which tool is active or which overlay
     // type this is — moving an existing element must never depend on the
     // active tool. Whether this gesture turns out to be a plain click (e.g.
@@ -340,8 +393,19 @@ export function useStagePointerGestures({
     stageRef.current.setPointerCapture(event.pointerId);
     const point = pointFromEvent(event, stageRef.current);
     const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
+    // Group members must exist on this page; stale selection ids (e.g. ops on
+    // another page) are left behind.
+    const memberIds = isGroupDrag ? selectedIds : [operation.id];
+    const origins: Record<string, { x: number; y: number }> = {};
+    const ids: string[] = [];
+    for (const id of memberIds) {
+      const member = id === operation.id ? operation : operations.find((candidate) => candidate.id === id);
+      if (!member) continue;
+      ids.push(id);
+      origins[id] = { x: member.rect.x, y: member.rect.y };
+    }
     const alignmentLines = collectAlignmentLines({
-      movingId: operation.id,
+      movingIds: ids,
       operations,
       textItems,
       pageIndex,
@@ -350,11 +414,12 @@ export function useStagePointerGestures({
       scale,
     });
     dragMoved.current = false;
-    setDrag({ id: operation.id, start: pdfPoint, origin: { x: operation.rect.x, y: operation.rect.y }, alignmentLines });
+    setDrag({ ids, primaryId: operation.id, start: pdfPoint, origins, alignmentLines });
   };
 
   return {
     draw,
+    selectDraw,
     drag,
     resize,
     activeGuides,

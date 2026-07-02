@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { editReducer, getSelectedOperation, initialEditState } from "../src/state/editModel";
+import { editReducer, getSelectedOperation, getSelectedOperations, initialEditState } from "../src/state/editModel";
 import type { EditState } from "../src/state/editModel";
 import type {
   EditOperation,
   FormFieldOperation,
   FormMarkOperation,
+  InkOperation,
   ShapeOperation,
   TextOperation,
   WhiteoutOperation,
@@ -67,10 +68,10 @@ describe("edit reducer", () => {
   it("adds, selects, undoes, and redoes operations", () => {
     const added = editReducer(initialEditState, { type: "add", operation });
     expect(added.operations).toHaveLength(1);
-    expect(added.selectedId).toBe("text_1");
+    expect(added.selectedIds).toEqual(["text_1"]);
 
-    const selected = editReducer(added, { type: "select", id: "text_1" });
-    expect(selected.selectedId).toBe("text_1");
+    const selected = editReducer(added, { type: "select", ids: ["text_1"] });
+    expect(selected.selectedIds).toEqual(["text_1"]);
 
     const undone = editReducer(selected, { type: "undo" });
     expect(undone.operations).toHaveLength(0);
@@ -78,6 +79,7 @@ describe("edit reducer", () => {
 
     const redone = editReducer(undone, { type: "redo" });
     expect(redone.operations[0].id).toBe("text_1");
+    expect(redone.selectedIds).toEqual(["text_1"]);
   });
 
   it("restores a timestamped history checkpoint", () => {
@@ -91,33 +93,130 @@ describe("edit reducer", () => {
     const restored = editReducer(updated, { type: "restore-history", id: checkpoint.id });
     expect(restored.operations).toHaveLength(0);
     expect(restored.future).toHaveLength(1);
+    expect(restored.selectedIds).toEqual([]);
   });
 
-  it("select with no id clears selection", () => {
+  it("select with empty ids clears the selection", () => {
     const added = editReducer(initialEditState, { type: "add", operation });
-    const cleared = editReducer(added, { type: "select", id: undefined });
-    expect(cleared.selectedId).toBeUndefined();
+    const cleared = editReducer(added, { type: "select", ids: [] });
+    expect(cleared.selectedIds).toEqual([]);
   });
 
-  it("remove takes the selected-id branch when removing the selected operation", () => {
-    // Source quirk: commit's `selectedId = state.selectedId` default parameter means
-    // passing `undefined` falls back to the prior selectedId, so selection is retained.
-    // We still exercise the `state.selectedId === action.id` true branch here.
+  it("non-additive select replaces the whole selection", () => {
+    const second: TextOperation = { ...operation, id: "text_2" };
+    let state = editReducer(initialEditState, { type: "add", operation });
+    state = editReducer(state, { type: "add", operation: second });
+    const selected = editReducer(state, { type: "select", ids: ["text_1"] });
+    expect(selected.selectedIds).toEqual(["text_1"]);
+  });
+
+  it("additive select toggles ids in and out of the selection", () => {
+    const second: TextOperation = { ...operation, id: "text_2" };
+    let state = editReducer(initialEditState, { type: "add", operation });
+    state = editReducer(state, { type: "add", operation: second });
+    // add sets selection to ["text_2"]; toggle text_1 in
+    const both = editReducer(state, { type: "select", ids: ["text_1"], additive: true });
+    expect(both.selectedIds).toEqual(["text_2", "text_1"]);
+    // toggle text_2 out
+    const one = editReducer(both, { type: "select", ids: ["text_2"], additive: true });
+    expect(one.selectedIds).toEqual(["text_1"]);
+  });
+
+  it("remove drops the removed id from the selection", () => {
     const added = editReducer(initialEditState, { type: "add", operation });
-    expect(added.selectedId).toBe("text_1");
+    expect(added.selectedIds).toEqual(["text_1"]);
     const removed = editReducer(added, { type: "remove", id: "text_1" });
     expect(removed.operations).toHaveLength(0);
-    expect(removed.selectedId).toBe("text_1");
+    expect(removed.selectedIds).toEqual([]);
   });
 
   it("remove keeps selection when removing a non-selected operation", () => {
     const second: TextOperation = { ...operation, id: "text_2" };
     let state = editReducer(initialEditState, { type: "add", operation });
     state = editReducer(state, { type: "add", operation: second });
-    // selectedId is now text_2; remove text_1 keeps selection
+    // selectedIds is now ["text_2"]; remove text_1 keeps selection
     const removed = editReducer(state, { type: "remove", id: "text_1" });
     expect(removed.operations).toHaveLength(1);
-    expect(removed.selectedId).toBe("text_2");
+    expect(removed.selectedIds).toEqual(["text_2"]);
+  });
+
+  it("remove-many deletes all listed operations as one undo entry", () => {
+    const second: TextOperation = { ...operation, id: "text_2" };
+    const third: TextOperation = { ...operation, id: "text_3" };
+    let state = editReducer(initialEditState, { type: "add", operation });
+    state = editReducer(state, { type: "add", operation: second });
+    state = editReducer(state, { type: "add", operation: third });
+    state = editReducer(state, { type: "select", ids: ["text_1", "text_2"] });
+    const pastBefore = state.past.length;
+
+    const removed = editReducer(state, { type: "remove-many", ids: ["text_1", "text_2"] });
+    expect(removed.operations.map((op) => op.id)).toEqual(["text_3"]);
+    expect(removed.selectedIds).toEqual([]);
+    expect(removed.past).toHaveLength(pastBefore + 1);
+    expect(removed.past[removed.past.length - 1].label).toBe("Deleted 2 objects");
+
+    const undone = editReducer(removed, { type: "undo" });
+    expect(undone.operations).toHaveLength(3);
+  });
+
+  it("remove-many with one id uses the single-delete label", () => {
+    const added = editReducer(initialEditState, { type: "add", operation });
+    const removed = editReducer(added, { type: "remove-many", ids: ["text_1"] });
+    expect(removed.past[removed.past.length - 1].label).toBe("Delete edit");
+  });
+
+  it("remove-many with no ids is a no-op", () => {
+    const added = editReducer(initialEditState, { type: "add", operation });
+    expect(editReducer(added, { type: "remove-many", ids: [] })).toBe(added);
+  });
+
+  it("translate moves every listed operation by the same delta", () => {
+    const second: TextOperation = { ...operation, id: "text_2", rect: { x: 100, y: 200, width: 50, height: 20 } };
+    let state = editReducer(initialEditState, { type: "add", operation });
+    state = editReducer(state, { type: "add", operation: second });
+
+    const moved = editReducer(state, { type: "translate", ids: ["text_1", "text_2"], dx: 5, dy: -7 });
+    expect(moved.operations[0].rect).toMatchObject({ x: 15, y: 3 });
+    expect(moved.operations[1].rect).toMatchObject({ x: 105, y: 193 });
+    expect(moved.past[moved.past.length - 1].label).toBe("Moved 2 objects");
+
+    const undone = editReducer(moved, { type: "undo" });
+    expect(undone.operations[0].rect).toMatchObject({ x: 10, y: 10 });
+    expect(undone.operations[1].rect).toMatchObject({ x: 100, y: 200 });
+  });
+
+  it("translate leaves non-member operations untouched and uses the single-move label", () => {
+    const second: TextOperation = { ...operation, id: "text_2", rect: { x: 100, y: 200, width: 50, height: 20 } };
+    let state = editReducer(initialEditState, { type: "add", operation });
+    state = editReducer(state, { type: "add", operation: second });
+
+    const moved = editReducer(state, { type: "translate", ids: ["text_1"], dx: 1, dy: 1 });
+    expect(moved.operations[0].rect).toMatchObject({ x: 11, y: 11 });
+    expect(moved.operations[1].rect).toMatchObject({ x: 100, y: 200 });
+    expect(moved.past[moved.past.length - 1].label).toBe("Move edit");
+  });
+
+  it("translate shifts ink points together with the rect", () => {
+    const ink: InkOperation = {
+      id: "ink_1",
+      type: "ink",
+      pageIndex: 0,
+      rect: { x: 10, y: 10, width: 40, height: 20 },
+      points: [{ x: 10, y: 10 }, { x: 50, y: 30 }],
+      stroke: "#000000",
+      strokeWidth: 2,
+      createdAt: 1,
+    };
+    const state = editReducer(initialEditState, { type: "add", operation: ink });
+    const moved = editReducer(state, { type: "translate", ids: ["ink_1"], dx: 3, dy: 4 });
+    const movedInk = moved.operations[0] as InkOperation;
+    expect(movedInk.rect).toMatchObject({ x: 13, y: 14 });
+    expect(movedInk.points).toEqual([{ x: 13, y: 14 }, { x: 53, y: 34 }]);
+  });
+
+  it("translate with no ids is a no-op", () => {
+    const added = editReducer(initialEditState, { type: "add", operation });
+    expect(editReducer(added, { type: "translate", ids: [], dx: 5, dy: 5 })).toBe(added);
   });
 
   it("moves operation forward and backward via z action", () => {
@@ -138,6 +237,27 @@ describe("edit reducer", () => {
 
   it("redo with no future returns the same state", () => {
     expect(editReducer(initialEditState, { type: "redo" })).toBe(initialEditState);
+  });
+
+  it("undo/redo/restore fall back to an empty selection for legacy history entries", () => {
+    // Sessions saved before multi-select carry entries without selectedIds.
+    const legacyPast = [
+      { id: "h1", label: "L", timestamp: 1, operations: [operation] },
+    ];
+    const state = editReducer(initialEditState, { type: "reset", past: legacyPast });
+
+    const undone = editReducer(state, { type: "undo" });
+    expect(undone.selectedIds).toEqual([]);
+
+    const legacyFuture = [
+      { id: "h2", label: "L2", timestamp: 2, operations: [operation] },
+    ];
+    const withFuture = editReducer(initialEditState, { type: "reset", future: legacyFuture });
+    const redone = editReducer(withFuture, { type: "redo" });
+    expect(redone.selectedIds).toEqual([]);
+
+    const restored = editReducer(state, { type: "restore-history", id: "h1" });
+    expect(restored.selectedIds).toEqual([]);
   });
 
   it("restore-history with unknown id returns the same state", () => {
@@ -195,6 +315,28 @@ describe("edit reducer", () => {
     // No operations present, so historyLabelForOperation receives undefined -> fallback
     const updated = editReducer(initialEditState, { type: "update", id: "missing", patch: {} });
     expect(updated.past[0].label).toBe("Update edit");
+  });
+
+  it("add-many appends all operations as a single undo entry and selects the last", () => {
+    const second: TextOperation = { ...operation, id: "text_2" };
+    const added = editReducer(initialEditState, { type: "add-many", operations: [operation, second] });
+    expect(added.operations.map((op) => op.id)).toEqual(["text_1", "text_2"]);
+    expect(added.selectedIds).toEqual(["text_2"]);
+    expect(added.past).toHaveLength(1);
+    expect(added.past[0].label).toBe("2 edits added");
+
+    const undone = editReducer(added, { type: "undo" });
+    expect(undone.operations).toHaveLength(0);
+  });
+
+  it("add-many with a single operation reuses the per-type label", () => {
+    const added = editReducer(initialEditState, { type: "add-many", operations: [operation] });
+    expect(added.past[0].label).toBe("Text edit added");
+    expect(added.selectedIds).toEqual(["text_1"]);
+  });
+
+  it("add-many with no operations is a no-op", () => {
+    expect(editReducer(initialEditState, { type: "add-many", operations: [] })).toBe(initialEditState);
   });
 
   it("caps history at 80 entries", () => {
@@ -258,15 +400,63 @@ describe("edit reducer coalescing", () => {
     const next = editReducer(first, { type: "update", id: "text_2", patch: { text: "B" } });
     expect(next.past.length).toBe(firstLen + 1);
   });
+
+  it("coalesces consecutive translates of the same id set (order-insensitive key)", () => {
+    const second: TextOperation = { ...operation, id: "text_2" };
+    vi.setSystemTime(4_000_000);
+    let state = editReducer(initialEditState, { type: "add", operation });
+    state = editReducer(state, { type: "add", operation: second });
+    const pastBefore = state.past.length;
+
+    vi.setSystemTime(4_000_100);
+    const first = editReducer(state, { type: "translate", ids: ["text_1", "text_2"], dx: 1, dy: 0 });
+    expect(first.past).toHaveLength(pastBefore + 1);
+
+    vi.setSystemTime(4_000_400);
+    // Same members in a different order coalesce (the key sorts ids).
+    const secondMove = editReducer(first, { type: "translate", ids: ["text_2", "text_1"], dx: 1, dy: 0 });
+    expect(secondMove.past).toHaveLength(pastBefore + 1);
+    expect(secondMove.operations[0].rect).toMatchObject({ x: 12 });
+
+    // Undo collapses both moves in one step.
+    const undone = editReducer(secondMove, { type: "undo" });
+    expect(undone.operations[0].rect).toMatchObject({ x: 10 });
+  });
+
+  it("does not coalesce translates of different id sets", () => {
+    const second: TextOperation = { ...operation, id: "text_2" };
+    vi.setSystemTime(5_000_000);
+    let state = editReducer(initialEditState, { type: "add", operation });
+    state = editReducer(state, { type: "add", operation: second });
+    const pastBefore = state.past.length;
+
+    vi.setSystemTime(5_000_100);
+    const first = editReducer(state, { type: "translate", ids: ["text_1"], dx: 1, dy: 0 });
+    vi.setSystemTime(5_000_200);
+    const next = editReducer(first, { type: "translate", ids: ["text_2"], dx: 1, dy: 0 });
+    expect(next.past).toHaveLength(pastBefore + 2);
+  });
 });
 
-describe("getSelectedOperation", () => {
-  it("returns the selected operation when found", () => {
+describe("getSelectedOperation(s)", () => {
+  it("returns the first selected operation when found", () => {
     const added = editReducer(initialEditState, { type: "add", operation });
     expect(getSelectedOperation(added)?.id).toBe("text_1");
   });
 
   it("returns undefined when nothing matches", () => {
     expect(getSelectedOperation(initialEditState)).toBeUndefined();
+  });
+
+  it("returns every selected operation in operations order", () => {
+    const second: TextOperation = { ...operation, id: "text_2" };
+    let state = editReducer(initialEditState, { type: "add", operation });
+    state = editReducer(state, { type: "add", operation: second });
+    state = editReducer(state, { type: "select", ids: ["text_2", "text_1"] });
+    expect(getSelectedOperations(state).map((op) => op.id)).toEqual(["text_1", "text_2"]);
+  });
+
+  it("returns an empty list when nothing is selected", () => {
+    expect(getSelectedOperations(initialEditState)).toEqual([]);
   });
 });

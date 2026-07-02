@@ -1,5 +1,5 @@
 import { Document, Page } from "react-pdf";
-import { ImagePlus } from "lucide-react";
+import { Copy, ImagePlus, Trash2 } from "lucide-react";
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DocumentFonts,
@@ -12,18 +12,40 @@ import type {
   TextItem,
   ViewportRect,
 } from "../types/editor";
-import { createOperationsForTool, describeInlineInput, NEW_TEXT_PLACEHOLDER } from "../editor/operationFactory";
+import {
+  createOperationsForTool,
+  createSnappedAnnotationOperations,
+  describeInlineInput,
+  NEW_TEXT_PLACEHOLDER,
+} from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
-import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
+import { duplicateOperation as cloneOperation, translateOperation } from "../editor/selectionModel";
+import {
+  createSignatureOperation,
+  signaturePayloadFromDraft,
+  type SignatureDraft,
+} from "../editor/signaturePlacement";
 import { CanvasHintBanner } from "./CanvasHintBanner";
 import { InlineInputPopover, type PendingInputRequest } from "./InlineInputPopover";
-import { pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
+import { LinkPropertiesDialog, type LinkDialogRequest } from "./LinkPropertiesDialog";
+import { createLinkOperation } from "../editor/linkTarget";
+import { SignatureModal } from "./SignatureModal";
+import { SignaturePicker } from "./SignaturePicker";
+import { pdfRectToViewport, viewportPointToPdf, viewportRectToPdf } from "../utils/coordinates";
 import { sampleTextBackgroundColor, sampleTextColor, sampleTextFontWeight } from "../utils/canvasTextStyleSampling";
 import { validateImageFile } from "../utils/fileValidation";
 import { createId } from "../utils/ids";
+import {
+  fitImageIntoBox,
+  IMAGE_PLACEMENT_FALLBACK,
+  IMAGE_PLACEMENT_MAX,
+  loadImageSize,
+} from "../utils/imageSizing";
+import { deleteSignature, listSignatures, saveSignature, type SavedSignature } from "../utils/storage";
 import { findNearbyTextRunForStyle, groupEditableTextRuns } from "../utils/textRunGrouping";
-import { sanitizeUrl } from "../utils/url";
+import { annotationRectsForClick, annotationRectsForMarquee } from "../utils/textSelection";
 import { viewportRectsOverlap } from "../utils/textMetrics";
+import { safeImageSrc } from "../utils/safeImage";
 import { FloatingOperationToolbar } from "./FloatingOperationToolbar";
 import { OperationOverlay } from "./OperationOverlay";
 import { ResizeHandles } from "./ResizeHandles";
@@ -38,16 +60,30 @@ type PdfCanvasProps = {
   pageSize?: { width: number; height: number };
   rotation: number;
   scale: number;
-  selectedId?: string;
+  /** Current Find & Replace match to flag on the page (pink rect), if any. */
+  searchHighlight?: { pageIndex: number; rect: PdfRect } | null;
+  selectedIds: string[];
   stageRef: MutableRefObject<HTMLDivElement | null>;
   textItems: TextItem[];
   onDocumentLoad?: (proxy: unknown) => void;
+  /** Reports how many operations are moving in the live drag (0 when idle), for the "Moving N objects" status. */
+  onDraggingChange?: (count: number) => void;
   onNotice?: (message: string) => void;
   onOperationAdd: (operation: EditOperation) => void;
+  /** Adds a batch of operations as a single undo entry (text-snapped annotations, group duplicate). */
+  onOperationsAdd: (operations: EditOperation[]) => void;
   onOperationRemove: (id: string) => void;
-  onOperationSelect: (id?: string) => void;
+  /** Removes a batch of operations as a single undo entry (multi-select delete). */
+  onOperationsRemove: (ids: string[]) => void;
+  onOperationSelect: (ids: string[], additive?: boolean) => void;
+  /** Commits a completed move of one or more operations as a single undo entry. */
+  onOperationsTranslate: (ids: string[], dx: number, dy: number) => void;
   onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
 };
+
+function isTextAnnotationTool(tool: EditorTool): tool is "highlight" | "strikeout" | "underline" {
+  return tool === "highlight" || tool === "strikeout" || tool === "underline";
+}
 
 function isResizableOperation(operation: EditOperation) {
   if (operation.type === "text") return false;
@@ -83,30 +119,57 @@ export function PdfCanvas({
   pageSize,
   rotation,
   scale,
-  selectedId,
+  searchHighlight,
+  selectedIds,
   stageRef,
   textItems,
   onDocumentLoad,
+  onDraggingChange,
   onNotice,
   onOperationAdd,
+  onOperationsAdd,
   onOperationRemove,
+  onOperationsRemove,
   onOperationSelect,
+  onOperationsTranslate,
   onOperationUpdate,
 }: PdfCanvasProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePoint = useRef<PdfPoint | null>(null);
+  const [pendingImage, setPendingImage] = useState<{
+    dataUrl: string;
+    mimeType: "image/png" | "image/jpeg";
+    width: number;
+    height: number;
+  } | null>(null);
+  const [ghostPoint, setGhostPoint] = useState<PdfPoint | null>(null);
+  const [signatureRequest, setSignatureRequest] = useState<{
+    point: PdfPoint;
+    saved: SavedSignature[];
+    view: "chooser" | "modal";
+  } | null>(null);
   const [hintVisible, setHintVisible] = useState(false);
   const [moveModeOperationId, setMoveModeOperationId] = useState<string | undefined>();
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
   const [pendingInput, setPendingInput] = useState<PendingInputRequest | null>(null);
+  const [pendingLink, setPendingLink] = useState<LinkDialogRequest | null>(null);
   const [isPageRendered, setIsPageRendered] = useState(false);
   const pageWidth = pageSize?.width ?? 612;
   const pageHeight = pageSize?.height ?? 792;
-  const selectedOperation = operations.find((operation) => operation.id === selectedId);
+  // The single-op chrome (inline toolbar, resize handles) only applies when
+  // exactly one operation is selected; a multi-selection gets group chrome.
+  const selectedOperation = selectedIds.length === 1
+    ? operations.find((operation) => operation.id === selectedIds[0])
+    : undefined;
+  const selectedPageOperations = operations.filter((operation) => selectedIds.includes(operation.id));
   const canPickExistingText = isPageRendered && (activeTool === "select" || activeTool === "text");
   const pdfFile = useMemo(() => ({ data: document.bytes.slice() }), [document.bytes]);
   const editableTextRuns = useMemo(() => groupEditableTextRuns(textItems), [textItems]);
+  const searchHighlightRect =
+    searchHighlight && searchHighlight.pageIndex === pageIndex
+      ? pdfRectToViewport(searchHighlight.rect, pageHeight, scale)
+      : undefined;
   const replacedSourceRects = useMemo(
     () =>
       operations
@@ -120,17 +183,38 @@ export function PdfCanvas({
     setIsPageRendered(false);
     setEditingTextId(undefined);
     // The popover's anchor is a viewport rect for the page/scale it opened at, so
-    // it goes stale the moment any of those change.
+    // it goes stale the moment any of those change. Same for the signature
+    // picker's anchor and the image ghost's viewport position.
     setPendingInput(null);
+    setPendingLink(null);
+    setSignatureRequest(null);
+    setPendingImage(null);
+    setGhostPoint(null);
   }, [document.fingerprint, pageIndex, rotation, scale]);
 
   useEffect(() => {
     setPendingInput(null);
+    setPendingLink(null);
+    setSignatureRequest(null);
+    setPendingImage(null);
+    setGhostPoint(null);
   }, [activeTool]);
 
   useEffect(() => {
-    if (editingTextId && selectedId !== editingTextId) setEditingTextId(undefined);
-  }, [editingTextId, selectedId]);
+    if (!pendingImage) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setPendingImage(null);
+      setGhostPoint(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pendingImage]);
+
+  useEffect(() => {
+    if (editingTextId && (selectedIds.length !== 1 || selectedIds[0] !== editingTextId)) setEditingTextId(undefined);
+  }, [editingTextId, selectedIds]);
 
   // Sejda-style unused-edit cleanup: whenever a text edit session ends (commit,
   // Escape, click-away, selection change), a freshly placed box that is still
@@ -154,8 +238,8 @@ export function PdfCanvas({
   }, [editingTextId, moveModeOperationId]);
 
   useEffect(() => {
-    if (!selectedId) setMoveModeOperationId(undefined);
-  }, [selectedId]);
+    if (selectedIds.length === 0) setMoveModeOperationId(undefined);
+  }, [selectedIds]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -216,18 +300,18 @@ export function PdfCanvas({
   }, [isPageRendered, replacedSourceRects, pageHeight, scale, stageRef]);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (selectedIds.length === 0) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       if (editingTextId) return;
       const active = window.document.activeElement as HTMLElement | null;
       if (active && (active.isContentEditable || /^(input|textarea|select)$/i.test(active.tagName))) return;
       event.preventDefault();
-      onOperationRemove(selectedId);
+      onOperationsRemove(selectedIds);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedId, editingTextId, onOperationRemove]);
+  }, [selectedIds, editingTextId, onOperationsRemove]);
 
   useEffect(() => {
     if (!documentFonts) return;
@@ -240,16 +324,62 @@ export function PdfCanvas({
       (operation): operation is TextOperation => operation.type === "text",
     );
     if (createdText) {
-      onOperationSelect(createdText.id);
+      onOperationSelect([createdText.id]);
       window.requestAnimationFrame(() => setEditingTextId(createdText.id));
     } else if (nextOperations[0]) {
       // Select the freshly drawn op (shape, whiteout, …) so its inline toolbar
       // and resize handles appear immediately — reference parity for shapes.
-      onOperationSelect(nextOperations[0].id);
+      onOperationSelect([nextOperations[0].id]);
     }
   };
 
-  const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem) => {
+  const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem, clickPoint?: { x: number; y: number }) => {
+    if (activeTool === "signature") {
+      // The signature tool routes through the signature studio: saved
+      // signatures get a one-click picker, otherwise the modal opens directly.
+      const point = { x: viewportRect.left, y: viewportRect.top };
+      let saved: SavedSignature[] = [];
+      try {
+        saved = await listSignatures();
+      } catch {
+        saved = [];
+      }
+      setSignatureRequest({ point, saved, view: saved.length > 0 ? "chooser" : "modal" });
+      return;
+    }
+    if (activeTool === "link") {
+      // The link tool routes through the kind-aware properties dialog instead
+      // of the generic inline popover.
+      const rect = viewportRectToPdf(viewportRect, pageHeight, scale);
+      setPendingLink({
+        anchor: viewportRect,
+        onConfirm: (target) => {
+          setPendingLink(null);
+          const created = createLinkOperation({ target, pageIndex, rect, enforceMinSize: true });
+          /* v8 ignore next -- the dialog only confirms already-sanitized targets, so createLinkOperation never rejects here */
+          if (!created) return;
+          onOperationAdd(created);
+          onOperationSelect([created.id]);
+        },
+        onCancel: () => setPendingLink(null),
+      });
+      return;
+    }
+    // Sejda-style text snapping: with an annotate tool armed, a marquee becomes
+    // one annotation per intersected text-run line (clipped to the marquee) and
+    // a plain click annotates the whole run under it. No text hit -> fall
+    // through to the existing free-rect behavior.
+    if (isTextAnnotationTool(activeTool)) {
+      const snappedRects = clickPoint
+        ? annotationRectsForClick(viewportPointToPdf(clickPoint, pageHeight, scale), editableTextRuns)
+        : annotationRectsForMarquee(viewportRectToPdf(viewportRect, pageHeight, scale), editableTextRuns);
+      if (snappedRects.length > 0) {
+        const created = createSnappedAnnotationOperations(activeTool, pageIndex, snappedRects);
+        onOperationsAdd(created);
+        onOperationSelect([created[created.length - 1].id]);
+        return;
+      }
+    }
     const inheritStyleFromTextItem = sourceTextItem
       ? undefined
       : activeTool === "text"
@@ -304,37 +434,28 @@ export function PdfCanvas({
   };
 
   const addLinkForOperation = (operation: EditOperation) => {
-    const isExistingLink = operation.type === "link";
-    const defaultHref = operation.type === "link" ? operation.href : "https://";
-    setPendingInput({
-      title: isExistingLink ? "Edit link" : "Add link",
-      confirmLabel: isExistingLink ? "Save link" : "Add link",
-      fields: [{ key: "href", label: "Link URL", defaultValue: defaultHref }],
+    const existing = operation.type === "link" ? operation : undefined;
+    setPendingLink({
       anchor: pdfRectToViewport(operation.rect, pageHeight, scale),
-      onConfirm: (values) => {
-        setPendingInput(null);
-        const href = values.href?.trim();
-        if (!href) return;
-        const safeHref = sanitizeUrl(href);
-        if (!safeHref) {
-          onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
+      target: existing?.target,
+      onConfirm: (target) => {
+        setPendingLink(null);
+        if (existing) {
+          onOperationUpdate(existing.id, { target } as Partial<EditOperation>);
           return;
         }
-        if (isExistingLink) {
-          onOperationUpdate(operation.id, { href: safeHref } as Partial<EditOperation>);
-          return;
-        }
-        onOperationAdd({
-          id: createId("link"),
-          type: "link",
-          pageIndex: operation.pageIndex,
-          rect: { ...operation.rect },
-          href: safeHref,
-          opacity: 1,
-          createdAt: Date.now(),
-        });
+        const created = createLinkOperation({ target, pageIndex: operation.pageIndex, rect: operation.rect });
+        /* v8 ignore next -- the dialog only confirms already-sanitized targets, so createLinkOperation never rejects here */
+        if (!created) return;
+        onOperationAdd(created);
       },
-      onCancel: () => setPendingInput(null),
+      onDelete: existing
+        ? () => {
+            setPendingLink(null);
+            onOperationRemove(existing.id);
+          }
+        : undefined,
+      onCancel: () => setPendingLink(null),
     });
   };
 
@@ -343,12 +464,24 @@ export function PdfCanvas({
     return { ...operation, ...textPreview.patch };
   };
 
+  const placeSignature = async (draft: SignatureDraft, point: PdfPoint) => {
+    const payload = await signaturePayloadFromDraft(draft);
+    const operation = createSignatureOperation({ payload, point, pageIndex, pageHeight, scale });
+    onOperationAdd(operation);
+    onOperationSelect([operation.id]);
+  };
+
   const onImageToolClick = (point: { x: number; y: number }) => {
     pendingImagePoint.current = point;
     imageInputRef.current?.click();
   };
 
-  const { draw, drag, resize, activeGuides, stagePointerHandlers, handleResizeStart, handleOverlayPointerDown } =
+  const stagePointFromEvent = (event: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+  };
+
+  const { draw, selectDraw, drag, resize, activeGuides, stagePointerHandlers, handleResizeStart, handleOverlayPointerDown } =
     useStagePointerGestures({
       activeTool,
       operations,
@@ -360,22 +493,87 @@ export function PdfCanvas({
       scale,
       editingTextId,
       setEditingTextId,
+      selectedIds,
       clearMoveMode: () => setMoveModeOperationId(undefined),
       onOperationSelect,
       onOperationUpdate,
+      onOperationsTranslate,
       onImageToolClick,
       addAt,
     });
 
-  // A drag/resize in progress only updates its own local (undispatched) rect —
-  // see useStagePointerGestures — so this overrides the affected operation's
-  // rendered position with that live value instead of the stale committed one.
+  // Feeds the "Moving N objects" status readout while a drag is actually moving.
+  useEffect(() => {
+    onDraggingChange?.(drag?.liveDelta ? drag.ids.length : 0);
+  }, [drag, onDraggingChange]);
+
+  // While an image placement is pending, the ghost follows the pointer and the
+  // next stage click commits the operation there; every other stage gesture is
+  // suspended so the click can't fall through and create something else.
+  const handleStagePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (pendingImage) {
+      setGhostPoint(stagePointFromEvent(event));
+      return;
+    }
+    stagePointerHandlers.onPointerMove(event);
+  };
+
+  const handleStageClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (pendingImage) {
+      const point = stagePointFromEvent(event);
+      const rect = viewportRectToPdf(
+        {
+          left: point.x - pendingImage.width / 2,
+          top: point.y - pendingImage.height / 2,
+          width: pendingImage.width,
+          height: pendingImage.height,
+        },
+        pageHeight,
+        scale,
+      );
+      const id = createId("image");
+      onOperationAdd({
+        id,
+        type: "image",
+        pageIndex,
+        rect,
+        dataUrl: pendingImage.dataUrl,
+        mimeType: pendingImage.mimeType,
+        opacity: 1,
+        createdAt: Date.now(),
+      });
+      onOperationSelect([id]);
+      setPendingImage(null);
+      setGhostPoint(null);
+      return;
+    }
+    stagePointerHandlers.onClick(event);
+  };
+
+  // A drag/resize in progress only updates its own local (undispatched) delta —
+  // see useStagePointerGestures — so this overrides the affected operations'
+  // rendered positions with that live value instead of the stale committed one.
+  // During a group drag every member of drag.ids renders at its live position.
   const gestureOverride = (operation: EditOperation): EditOperation => {
-    if (drag?.id === operation.id && drag.livePatch) return { ...operation, ...drag.livePatch } as EditOperation;
+    if (drag?.liveDelta && drag.ids.includes(operation.id)) {
+      return translateOperation(operation, drag.liveDelta.dx, drag.liveDelta.dy);
+    }
     if (resize?.id === operation.id && resize.liveRect) return { ...operation, rect: resize.liveRect };
     return operation;
   };
   const liveSelectedOperation = selectedOperation ? gestureOverride(selectedOperation) : undefined;
+
+  // Group bounding box (multi-selection): min/max of the live member rects.
+  const groupRect = (() => {
+    if (selectedPageOperations.length < 2) return undefined;
+    const rects = selectedPageOperations.map((operation) =>
+      pdfRectToViewport(gestureOverride(operation).rect, pageHeight, scale));
+    const left = Math.min(...rects.map((rect) => rect.left));
+    const top = Math.min(...rects.map((rect) => rect.top));
+    const right = Math.max(...rects.map((rect) => rect.left + rect.width));
+    const bottom = Math.max(...rects.map((rect) => rect.top + rect.height));
+    return { left, top, width: right - left, height: bottom - top };
+  })();
 
   // Stable across renders where `operations` hasn't changed (in particular,
   // across every pointermove during one drag/resize gesture, since operations
@@ -391,7 +589,7 @@ export function PdfCanvas({
   );
   const handleStartTextEdit = useCallback(
     (id: string) => {
-      onOperationSelect(id);
+      onOperationSelect([id]);
       setEditingTextId(id);
     },
     [onOperationSelect],
@@ -431,6 +629,8 @@ export function PdfCanvas({
             minHeight: pageHeight * scale,
           }}
           {...stagePointerHandlers}
+          onPointerMove={handleStagePointerMove}
+          onClick={handleStageClick}
         >
           <Document
             file={pdfFile}
@@ -487,6 +687,21 @@ export function PdfCanvas({
 
           {draw ? <div className="draw-marquee" aria-hidden="true" style={marqueeRect(draw)} /> : null}
 
+          {selectDraw ? <div className="select-marquee" aria-hidden="true" style={marqueeRect(selectDraw)} /> : null}
+
+          {searchHighlightRect ? (
+            <div
+              className="search-match-highlight"
+              aria-hidden="true"
+              style={{
+                left: searchHighlightRect.left,
+                top: searchHighlightRect.top,
+                width: searchHighlightRect.width,
+                height: searchHighlightRect.height,
+              }}
+            />
+          ) : null}
+
           <div className="operation-layer">
             {operations.map((operation) => {
               if (operation.type !== "text" || !operation.sourceCoverRect) return null;
@@ -530,8 +745,49 @@ export function PdfCanvas({
                 onResizeStart={(handle, event) => handleResizeStart(handle, event, selectedOperation)}
               />
             ) : null}
+            {groupRect ? (
+              <>
+                <div
+                  className="group-selection-outline"
+                  aria-hidden="true"
+                  style={{
+                    left: groupRect.left,
+                    top: groupRect.top,
+                    width: groupRect.width,
+                    height: groupRect.height,
+                  }}
+                />
+                {!drag ? (
+                  <div
+                    className="group-toolbar"
+                    role="toolbar"
+                    aria-label={`Selected ${selectedPageOperations.length} objects`}
+                    style={{ left: groupRect.left, top: Math.max(8, groupRect.top - 44) }}
+                  >
+                    <span className="group-toolbar__count">Selected {selectedPageOperations.length} objects</span>
+                    <button
+                      aria-label="Duplicate selected"
+                      title="Duplicate selected"
+                      onClick={() => onOperationsAdd(selectedPageOperations.map(cloneOperation))}
+                    >
+                      <Copy aria-hidden="true" />
+                    </button>
+                    <button
+                      aria-label="Delete selected"
+                      title="Delete selected"
+                      onClick={() => onOperationsRemove(selectedIds)}
+                    >
+                      <Trash2 aria-hidden="true" />
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
             {pendingInput ? (
               <InlineInputPopover request={pendingInput} pageWidth={pageWidth} scale={scale} />
+            ) : null}
+            {pendingLink ? (
+              <LinkPropertiesDialog request={pendingLink} pageCount={document.pageCount} pageWidth={pageWidth} scale={scale} />
             ) : null}
             {operations.map((operation) => (
               <OperationOverlay
@@ -541,8 +797,8 @@ export function PdfCanvas({
                 documentFonts={documentFonts}
                 pageHeight={pageHeight}
                 scale={scale}
-                selected={operation.id === selectedId}
-                dragging={drag?.id === operation.id}
+                selected={selectedIds.includes(operation.id)}
+                dragging={Boolean(drag?.ids.includes(operation.id))}
                 moveModeActive={moveModeOperationId === operation.id}
                 onPointerDown={handleOverlayPointerDownById}
                 onStartTextEdit={handleStartTextEdit}
@@ -551,6 +807,43 @@ export function PdfCanvas({
               />
             ))}
           </div>
+
+          {pendingImage && ghostPoint ? (
+            <div
+              className="image-ghost"
+              aria-hidden="true"
+              style={{
+                left: ghostPoint.x - pendingImage.width / 2,
+                top: ghostPoint.y - pendingImage.height / 2,
+                width: pendingImage.width,
+                height: pendingImage.height,
+              }}
+            >
+              {safeImageSrc(pendingImage.dataUrl) ? <img src={safeImageSrc(pendingImage.dataUrl)} alt="" /> : null}
+            </div>
+          ) : null}
+
+          {signatureRequest?.view === "chooser" ? (
+            <SignaturePicker
+              anchor={{ left: signatureRequest.point.x, top: signatureRequest.point.y, width: 1, height: 1 }}
+              pageWidth={pageWidth}
+              scale={scale}
+              signatures={signatureRequest.saved}
+              onCancel={() => setSignatureRequest(null)}
+              onChoose={(saved) => {
+                setSignatureRequest(null);
+                void placeSignature(saved, signatureRequest.point);
+              }}
+              onCreateNew={() => setSignatureRequest({ ...signatureRequest, view: "modal" })}
+              onDelete={(id) => {
+                void deleteSignature(id).catch(() => onNotice?.("Could not delete that saved signature."));
+                setSignatureRequest({
+                  ...signatureRequest,
+                  saved: signatureRequest.saved.filter((signature) => signature.id !== id),
+                });
+              }}
+            />
+          ) : null}
 
           <input
             ref={imageInputRef}
@@ -561,37 +854,58 @@ export function PdfCanvas({
               const file = event.currentTarget.files?.[0];
               const point = pendingImagePoint.current;
               event.currentTarget.value = "";
-              if (!file || !point) return;
+              pendingImagePoint.current = null;
+              if (!file) return;
               void (async () => {
                 const validation = await validateImageFile(file);
                 if (!validation.ok) {
                   onNotice?.(validation.reason);
-                  pendingImagePoint.current = null;
                   return;
                 }
                 try {
                   const dataUrl = await readFileAsDataUrl(file);
-                  const rect = viewportRectToPdf({ left: point.x, top: point.y, width: 180, height: 120 }, pageHeight, scale);
-                  onOperationAdd({
-                    id: createId("image"),
-                    type: "image",
-                    pageIndex,
-                    rect,
+                  // Aspect-correct placement: scale the image's natural size into a
+                  // max box instead of the old flat 180x120 drop.
+                  const natural = await loadImageSize(dataUrl);
+                  const size = fitImageIntoBox(
+                    natural?.width ?? 0,
+                    natural?.height ?? 0,
+                    IMAGE_PLACEMENT_MAX.width,
+                    IMAGE_PLACEMENT_MAX.height,
+                    IMAGE_PLACEMENT_FALLBACK,
+                  );
+                  setPendingImage({
                     dataUrl,
                     mimeType: file.type === "image/jpeg" ? "image/jpeg" : "image/png",
-                    opacity: 1,
-                    createdAt: Date.now(),
+                    ...size,
                   });
+                  // The ghost starts at the click that opened the picker (when there
+                  // was one) and follows the pointer from there.
+                  setGhostPoint(point);
                 } catch {
                   onNotice?.("Could not read that image file.");
-                } finally {
-                  pendingImagePoint.current = null;
                 }
               })();
             }}
           />
         </div>
       </div>
+
+      {signatureRequest?.view === "modal" ? (
+        <SignatureModal
+          onCancel={() => setSignatureRequest(null)}
+          onNotice={onNotice}
+          onSave={(draft, saveForReuse) => {
+            const point = signatureRequest.point;
+            setSignatureRequest(null);
+            if (saveForReuse) {
+              void saveSignature({ id: createId("sig"), createdAt: Date.now(), ...draft }).catch(() =>
+                onNotice?.("Could not save the signature for reuse."));
+            }
+            void placeSignature(draft, point);
+          }}
+        />
+      ) : null}
 
       {activeTool !== "select" && !editingTextId && !drag && !resize && (hintVisible || draw) ? (
         <CanvasHintBanner tool={activeTool} drawing={Boolean(draw)} />

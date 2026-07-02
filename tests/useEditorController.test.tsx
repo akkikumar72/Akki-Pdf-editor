@@ -94,7 +94,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Sensible defaults; individual tests override.
   mockedEngine.getPageSizes.mockResolvedValue(sizes);
-  mockedEngine.extractTextAndFonts.mockResolvedValue({ items: [], fonts: {} });
+  mockedEngine.extractTextAndFonts.mockResolvedValue({ items: [], fonts: {}, links: [] });
   mockedEngine.loadDocument.mockResolvedValue(makeLoaded());
   mockedEngine.createBlankDocument.mockResolvedValue(makeLoaded({ name: "blank.pdf" }));
   mockedEngine.insertBlankPage.mockResolvedValue(new Uint8Array([9]));
@@ -505,6 +505,7 @@ describe("pageTextItems", () => {
         { str: "b", pageIndex: 1, rect: { x: 0, y: 0, width: 1, height: 1 } },
       ],
       fonts: {},
+      links: [],
     });
     mockedEngine.loadDocument.mockResolvedValue(makeLoaded({ pageCount: 2 }));
     mockedEngine.getPageSizes.mockResolvedValue([sizes[0], sizes[0]]);
@@ -547,6 +548,35 @@ describe("operation actions", () => {
     expect(result.current.status).toBe("text added");
   });
 
+  it("addOperations batches operations into one undo entry and sets a count status", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperations([textOp(), textOp({ id: "text_2" })]);
+    });
+    expect(result.current.editState.operations).toHaveLength(2);
+    expect(result.current.editState.past).toHaveLength(1);
+    expect(result.current.status).toBe("2 edits added");
+  });
+
+  it("addOperations with one operation uses the per-type status", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperations([textOp()]);
+    });
+    expect(result.current.editState.operations).toHaveLength(1);
+    expect(result.current.status).toBe("text added");
+  });
+
+  it("addOperations with an empty list is a no-op", async () => {
+    const { result } = renderHook(() => useEditorController());
+    const statusBefore = result.current.status;
+    await act(async () => {
+      result.current.addOperations([]);
+    });
+    expect(result.current.editState.operations).toHaveLength(0);
+    expect(result.current.status).toBe(statusBefore);
+  });
+
   it("updateOperation patches an operation", async () => {
     const { result } = renderHook(() => useEditorController());
     await act(async () => {
@@ -575,13 +605,130 @@ describe("operation actions", () => {
     const { result } = renderHook(() => useEditorController());
     await act(async () => {
       result.current.addOperation(textOp());
-      result.current.dispatch({ type: "select", id: undefined });
+      result.current.dispatch({ type: "select", ids: [] });
     });
     const opsBefore = result.current.editState.operations.length;
     await act(async () => {
       result.current.removeSelected();
     });
     expect(result.current.editState.operations).toHaveLength(opsBefore);
+  });
+
+  it("removeSelected deletes a multi-selection as one undo entry", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperation(textOp());
+      result.current.addOperation(textOp({ id: "text_2" }));
+      result.current.dispatch({ type: "select", ids: ["text_1", "text_2"] });
+    });
+    const pastBefore = result.current.editState.past.length;
+    await act(async () => {
+      result.current.removeSelected();
+    });
+    expect(result.current.editState.operations).toHaveLength(0);
+    expect(result.current.editState.past).toHaveLength(pastBefore + 1);
+    expect(result.current.status).toBe("2 objects removed");
+  });
+
+  it("selectedOperations exposes every selected operation", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperation(textOp());
+      result.current.addOperation(textOp({ id: "text_2" }));
+      result.current.dispatch({ type: "select", ids: ["text_1", "text_2"] });
+    });
+    expect(result.current.selectedOperations.map((op) => op.id)).toEqual(["text_1", "text_2"]);
+  });
+
+  it("removeOperations removes a batch and sets a count status", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperation(textOp());
+      result.current.addOperation(textOp({ id: "text_2" }));
+    });
+    await act(async () => {
+      result.current.removeOperations(["text_1", "text_2"]);
+    });
+    expect(result.current.editState.operations).toHaveLength(0);
+    expect(result.current.status).toBe("2 objects removed");
+  });
+
+  it("removeOperations with one id uses the single status", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperation(textOp());
+    });
+    await act(async () => {
+      result.current.removeOperations(["text_1"]);
+    });
+    expect(result.current.editState.operations).toHaveLength(0);
+    expect(result.current.status).toBe("Selection removed");
+  });
+
+  it("removeOperations with no ids is a no-op", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperation(textOp());
+    });
+    const statusBefore = result.current.status;
+    await act(async () => {
+      result.current.removeOperations([]);
+    });
+    expect(result.current.editState.operations).toHaveLength(1);
+    expect(result.current.status).toBe(statusBefore);
+  });
+
+  it("translateOperations moves the listed operations", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperation(textOp());
+      result.current.addOperation(textOp({ id: "text_2", rect: { x: 5, y: 5, width: 10, height: 10 } }));
+    });
+    await act(async () => {
+      result.current.translateOperations(["text_1", "text_2"], 2, 3);
+    });
+    expect(result.current.editState.operations[0].rect).toMatchObject({ x: 3, y: 4 });
+    expect(result.current.editState.operations[1].rect).toMatchObject({ x: 7, y: 8 });
+  });
+
+  it("duplicateSelected clones the whole selection as one undo entry", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperation(textOp({ rect: { x: 30, y: 30, width: 10, height: 10 } }));
+      result.current.addOperation(textOp({ id: "text_2", rect: { x: 60, y: 60, width: 10, height: 10 } }));
+      result.current.dispatch({ type: "select", ids: ["text_1", "text_2"] });
+    });
+    const pastBefore = result.current.editState.past.length;
+    await act(async () => {
+      result.current.duplicateSelected();
+    });
+    expect(result.current.editState.operations).toHaveLength(4);
+    expect(result.current.editState.past).toHaveLength(pastBefore + 1);
+    expect(result.current.status).toBe("2 duplicates added");
+  });
+
+  it("duplicateSelected with a single selection uses the single status", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperation(textOp({ rect: { x: 30, y: 30, width: 10, height: 10 } }));
+    });
+    await act(async () => {
+      result.current.duplicateSelected();
+    });
+    expect(result.current.editState.operations).toHaveLength(2);
+    expect(result.current.status).toBe("Duplicate added");
+  });
+
+  it("duplicateSelected does nothing without a selection", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      result.current.addOperation(textOp());
+      result.current.dispatch({ type: "select", ids: [] });
+    });
+    await act(async () => {
+      result.current.duplicateSelected();
+    });
+    expect(result.current.editState.operations).toHaveLength(1);
   });
 
   it("removeOperation removes by id", async () => {
@@ -794,6 +941,66 @@ describe("runExport", () => {
       await result.current.runExport("csv");
     });
     expect(result.current.status).toBe("Could not export csv.");
+  });
+});
+
+describe("imported PDF links", () => {
+  const importedLink = {
+    pageIndex: 0,
+    rect: { x: 10, y: 20, width: 100, height: 30 },
+    target: { kind: "url" as const, href: "https://imported.example/" },
+    annotationRef: "13R",
+  };
+
+  it("seeds imported links as editable operations on a fresh open", async () => {
+    mockedEngine.extractTextAndFonts.mockResolvedValue({
+      items: [],
+      fonts: {},
+      links: [importedLink, { ...importedLink, annotationRef: undefined }],
+    });
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    expect(result.current.editState.operations).toHaveLength(2);
+    const op = result.current.editState.operations[0];
+    expect(op.type).toBe("link");
+    expect(op).toMatchObject({ imported: true, annotationRef: "13R", target: importedLink.target });
+    // Baseline seed: importing must not create undo history.
+    expect(result.current.editState.past).toHaveLength(0);
+  });
+
+  it("does not re-seed imported links when restoring a saved session", async () => {
+    mockedEngine.extractTextAndFonts.mockResolvedValue({ items: [], fonts: {}, links: [importedLink] });
+    mockedGetLatest.mockResolvedValue({
+      id: "s1",
+      name: "saved.pdf",
+      updatedAt: 5,
+      bytes: new Uint8Array([1]),
+      editState: { operations: [textOp()], past: [], future: [] },
+      operations: [textOp()],
+    } as SavedSession);
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      await result.current.restoreLatestSession();
+    });
+    expect(result.current.editState.operations).toHaveLength(1);
+    expect(result.current.editState.operations[0].type).toBe("text");
+  });
+
+  it("forwards imported annotation ids to the export pipeline for suppression", async () => {
+    mockedEngine.extractTextAndFonts.mockResolvedValue({
+      items: [],
+      fonts: {},
+      links: [importedLink, { ...importedLink, annotationRef: undefined }],
+    });
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      await result.current.runExport("pdf");
+    });
+    expect(mockedExport.export).toHaveBeenCalledWith(
+      "pdf",
+      expect.objectContaining({ suppressLinkAnnotationIds: ["13R"] }),
+    );
   });
 });
 

@@ -1,15 +1,14 @@
 import type { DocumentFonts, EditOperation } from "../types/editor";
 import { resolveFont } from "../engine/fontResolver";
+import { SIGNATURE_FONTS } from "../editor/signatureFonts";
+import { describeLinkTarget } from "../editor/linkTarget";
 import { cssFamilyForFontKey, ensureEmbeddedFontLoaded } from "../engine/fontRegistry";
 import { NEW_TEXT_PLACEHOLDER } from "../editor/operationFactory";
 import { pdfRectToViewport } from "../utils/coordinates";
 import { textBaselineTopPaddingPx } from "../utils/textMetrics";
 import { caretRangeFromClientPoint, getLastPointerDownPoint } from "../utils/caret";
 import { memo, useEffect, useRef, useState } from "react";
-
-function safeImageSrc(src: string | undefined): string | undefined {
-  return src && /^data:image\/(png|jpeg|jpg);base64,/i.test(src) ? src : undefined;
-}
+import { safeImageSrc } from "../utils/safeImage";
 
 type OperationOverlayProps = {
   operation: EditOperation;
@@ -203,23 +202,30 @@ function OperationOverlayComponent({
 
     case "image": {
       const src = safeImageSrc(operation.dataUrl);
-      return <div className={className} style={style} onPointerDown={handlePointerDown}>{src ? <img src={src} alt="" /> : null}</div>;
+      return <div className={className} style={style} onPointerDown={handlePointerDown}>{src ? <img src={src} alt="" draggable={false} /> : null}</div>;
     }
 
-    case "signature":
+    case "signature": {
+      // Handwriting faces come from the signature studio's own catalog; a
+      // legacy family saved before the studio existed still resolves through
+      // the general font stack.
+      const signatureFamily =
+        SIGNATURE_FONTS.find((font) => font.label === operation.fontFamily)?.cssFamily ??
+        resolveFont(operation.fontFamily).cssFamily;
       return (
         <div
           className={className}
           style={{
             ...style,
             color: operation.color,
-            fontFamily: resolveFont(operation.fontFamily).cssFamily,
+            fontFamily: signatureFamily,
           }}
           onPointerDown={handlePointerDown}
         >
-          {operation.mode === "image" ? (safeImageSrc(operation.value) ? <img src={safeImageSrc(operation.value)} alt="Signature" /> : null) : operation.value}
+          {operation.mode === "image" ? (safeImageSrc(operation.value) ? <img src={safeImageSrc(operation.value)} alt="Signature" draggable={false} /> : null) : operation.value}
         </div>
       );
+    }
 
     case "stamp":
       return (
@@ -232,7 +238,8 @@ function OperationOverlayComponent({
           }}
           onPointerDown={handlePointerDown}
         >
-          {operation.label}
+          <span className="operation__stamp-label">{operation.label}</span>
+          {operation.subline ? <span className="operation__stamp-subline">{operation.subline}</span> : null}
         </div>
       );
 
@@ -334,9 +341,16 @@ function OperationOverlayComponent({
     }
 
     case "link":
+      // Imported PDF links stay visually quiet (dashed outline only) so the
+      // original page content shows through; user-created links keep their
+      // kind-aware label (URL host, address, number, "Page N").
       return (
-        <div className={className} style={style} onPointerDown={handlePointerDown}>
-          <span>{operation.href}</span>
+        <div
+          className={`${className}${operation.imported ? " operation--link-imported" : ""}`}
+          style={style}
+          onPointerDown={handlePointerDown}
+        >
+          {operation.imported ? null : <span>{describeLinkTarget(operation.target)}</span>}
         </div>
       );
 

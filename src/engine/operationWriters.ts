@@ -13,7 +13,7 @@ import type {
   TextOperation,
 } from "../types/editor";
 import { dataUrlToBytes } from "../utils/download";
-import { sanitizeUrl } from "../utils/url";
+import { sanitizeLinkTarget } from "../utils/url";
 import { textBaselineDrawY } from "../utils/textMetrics";
 
 function hexToRgb(color: string) {
@@ -294,10 +294,34 @@ export async function writeStamp(page: PDFPage, operation: StampOperation, opaci
     color: hexToRgb("#ffffff"),
     opacity: Math.min(opacity, 0.88),
   });
+  const labelSize = Math.min(18, Math.max(9, rect.height * (operation.subline ? 0.28 : 0.32)));
+  if (operation.subline) {
+    const sublineFont = await ctx.getFont("Inter");
+    const sublineSize = Math.min(11, Math.max(7, rect.height * 0.16));
+    page.drawText(operation.label.toUpperCase(), {
+      x: rect.x + 8,
+      y: rect.y + rect.height * 0.52,
+      size: labelSize,
+      font,
+      color: hexToRgb(operation.color),
+      maxWidth: Math.max(12, rect.width - 16),
+      opacity,
+    });
+    page.drawText(operation.subline, {
+      x: rect.x + 8,
+      y: rect.y + Math.max(4, rect.height * 0.22),
+      size: sublineSize,
+      font: sublineFont,
+      color: hexToRgb(operation.color),
+      maxWidth: Math.max(12, rect.width - 16),
+      opacity,
+    });
+    return;
+  }
   page.drawText(operation.label.toUpperCase(), {
     x: rect.x + 8,
     y: rect.y + Math.max(6, (rect.height - 14) / 2),
-    size: Math.min(18, Math.max(9, rect.height * 0.32)),
+    size: labelSize,
     font,
     color: hexToRgb(operation.color),
     maxWidth: Math.max(12, rect.width - 16),
@@ -403,20 +427,31 @@ export async function writeFormField(page: PDFPage, operation: FormFieldOperatio
 }
 
 export function writeLink(pdf: PDFDocument, page: PDFPage, operation: LinkOperation) {
-  const safeHref = sanitizeUrl(operation.href);
-  if (!safeHref) return;
+  const target = sanitizeLinkTarget(operation.target);
+  if (!target) return;
+  // sanitizeLinkTarget already rejects negative page indexes; the upper bound
+  // can only be validated here, against the document being written.
+  if (target.kind === "page" && target.pageIndex >= pdf.getPageCount()) return;
 
   const rect = operation.rect;
+  const action =
+    target.kind === "page"
+      ? {
+          Type: "Action",
+          S: "GoTo",
+          D: [pdf.getPage(target.pageIndex).ref, PDFName.of("XYZ"), null, null, null],
+        }
+      : {
+          Type: "Action",
+          S: "URI",
+          URI: PDFString.of(target.href),
+        };
   const annotation = pdf.context.obj({
     Type: "Annot",
     Subtype: "Link",
     Rect: [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height],
     Border: [0, 0, 0],
-    A: {
-      Type: "Action",
-      S: "URI",
-      URI: PDFString.of(safeHref),
-    },
+    A: action,
   });
   const annotations = page.node.Annots();
   if (annotations) {
@@ -424,6 +459,9 @@ export function writeLink(pdf: PDFDocument, page: PDFPage, operation: LinkOperat
   } else {
     page.node.set(PDFName.of("Annots"), pdf.context.obj([annotation]));
   }
+  // Imported links re-emit the original (invisible) annotation; painting the
+  // editor's blue frame onto them would deface the source document.
+  if (operation.imported) return;
   page.drawRectangle({
     x: rect.x,
     y: rect.y,

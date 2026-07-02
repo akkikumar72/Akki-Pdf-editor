@@ -1,18 +1,28 @@
 import { buildDetectedCssFontFamily, resolveFont } from "../engine/fontResolver";
-import type { EditOperation, EditorTool, TextItem, ViewportRect } from "../types/editor";
-import { viewportRectToPdf } from "../utils/coordinates";
+import type {
+  AnnotationOperation,
+  EditOperation,
+  EditorTool,
+  PdfRect,
+  TextItem,
+  TextOperation,
+  ViewportRect,
+} from "../types/editor";
+import { pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
 import { padReplacementCoverRect } from "../utils/textMetrics";
 import { createId } from "../utils/ids";
-import { sanitizeUrl } from "../utils/url";
+import { formatStampDate, stampDateStyleOptions, type StampDateStyle } from "../utils/stampDate";
+import type { TextMatch } from "../utils/textSearch";
 import { toolLabel } from "./toolRegistry";
 
-/** A single text/textarea field to collect through an inline input popover before creating an operation. */
+/** A single text/textarea/select field to collect through an inline input popover before creating an operation. */
 export type InlineInputField = {
   key: string;
   label: string;
   defaultValue: string;
   placeholder?: string;
   multiline?: boolean;
+  options?: Array<{ value: string; label: string }>;
 };
 
 /** Describes the inline popover (if any) `activeTool` needs filled in before `createOperationsForTool` can produce an operation. */
@@ -41,9 +51,7 @@ type CreateOperationInput = {
 const DEFAULT_COLORS = {
   ink: "#111827",
   highlight: "#ffe066",
-  link: "#2563eb",
   whiteout: "#ffffff",
-  signature: "#111827",
 };
 
 const FORM_KIND_BY_TOOL = {
@@ -83,27 +91,21 @@ export function describeInlineInput(activeTool: EditorTool, operations: EditOper
       fields: [{ key: "text", label: "Note", defaultValue: "Note" }],
     };
   }
-  if (activeTool === "link") {
-    return {
-      title: "Add link",
-      confirmLabel: "Add link",
-      fields: [{ key: "href", label: "Link URL", defaultValue: "https://" }],
-    };
-  }
+  // The link tool routes through the kind-aware LinkPropertiesDialog (see
+  // PdfCanvas/LinkPropertiesDialog), not the generic inline popover.
   if (activeTool === "stamp") {
     return {
       title: "Add stamp",
       confirmLabel: "Add stamp",
-      fields: [{ key: "label", label: "Stamp label", defaultValue: "APPROVED" }],
+      fields: [
+        { key: "label", label: "Subject", defaultValue: "Approved" },
+        { key: "author", label: "Author", defaultValue: "", placeholder: "Optional" },
+        { key: "dateStyle", label: "Date", defaultValue: "none", options: stampDateStyleOptions() },
+      ],
     };
   }
-  if (activeTool === "signature") {
-    return {
-      title: "Add signature",
-      confirmLabel: "Add signature",
-      fields: [{ key: "value", label: "Signature text", defaultValue: "Akki Pathak" }],
-    };
-  }
+  // The signature tool routes through the signature studio modal (see
+  // PdfCanvas/SignatureModal), not the generic inline popover.
   if (activeTool in FORM_KIND_BY_TOOL) {
     const index = operations.filter((operation) => operation.type === "form-field").length + 1;
     const nameField: InlineInputField = {
@@ -121,6 +123,57 @@ export function describeInlineInput(activeTool: EditorTool, operations: EditOper
     };
   }
   return null;
+}
+
+/**
+ * Builds a replacement `text` operation (whiteout mask + editable overlay) for an
+ * existing PDF text item whose content becomes `replacedText`. Reuses the
+ * factory's sourceTextItem branch so the mask/baseline/font math stays in one
+ * place; `scale: 1` makes the viewport round-trip lossless. Off-canvas callers
+ * (e.g. the Find & Replace dialog) have no style sampling, so the mask falls
+ * back to white and the item's detected font drives the styling.
+ */
+export function createTextItemReplacementOperation(item: TextItem, replacedText: string, pageHeight: number): TextOperation {
+  const [operation] = createOperationsForTool({
+    activeTool: "text",
+    viewportRect: pdfRectToViewport(item.rect, pageHeight, 1),
+    pageHeight,
+    pageIndex: item.pageIndex,
+    scale: 1,
+    operations: [],
+    sourceTextItem: { ...item, str: replacedText },
+  });
+  return operation as TextOperation;
+}
+
+/** Replacement operation for a single find match: the whole item's text with just that occurrence substituted. */
+export function createReplacementOperation(match: TextMatch, replacement: string, pageHeight: number): TextOperation {
+  const replacedText =
+    match.item.str.slice(0, match.startIndex) + replacement + match.item.str.slice(match.endIndex);
+  return createTextItemReplacementOperation(match.item, replacedText, pageHeight);
+}
+
+/**
+ * Annotation operations for text-snapped rects (one per intersected run line).
+ * Unlike the marquee branches in `createOperationsForTool`, these use the rects
+ * verbatim — snapped line rects must not be inflated to tool minimum sizes.
+ */
+export function createSnappedAnnotationOperations(
+  tool: "highlight" | "strikeout" | "underline",
+  pageIndex: number,
+  rects: PdfRect[],
+): AnnotationOperation[] {
+  const now = Date.now();
+  return rects.map((rect) => ({
+    id: createId("annotation"),
+    type: "annotation",
+    kind: tool,
+    pageIndex,
+    rect,
+    color: tool === "highlight" ? DEFAULT_COLORS.highlight : "#ef4444",
+    opacity: tool === "highlight" ? 0.36 : 1,
+    createdAt: now,
+  }));
 }
 
 export function createOperationsForTool({
@@ -336,56 +389,23 @@ export function createOperationsForTool({
     ];
   }
 
-  if (activeTool === "link") {
-    const href = resolvedFields?.href?.trim();
-    if (!href) return [];
-    const safeHref = sanitizeUrl(href);
-    if (!safeHref) return [];
-    return [
-      {
-        id: createId("link"),
-        type: "link",
-        pageIndex,
-        rect: { ...rect, width: Math.max(rect.width, 160), height: Math.max(rect.height, 28) },
-        href: safeHref,
-        opacity: 1,
-        createdAt: now,
-      },
-    ];
-  }
-
   if (activeTool === "stamp") {
     const label = resolvedFields?.label?.trim();
     if (!label) return [];
+    const author = resolvedFields?.author?.trim();
+    const formattedDate = formatStampDate((resolvedFields?.dateStyle ?? "none") as StampDateStyle);
+    const subline = author && formattedDate ? `By ${author} at ${formattedDate}` : author ? `By ${author}` : formattedDate || undefined;
     return [
       {
         id: createId("stamp"),
         type: "stamp",
         pageIndex,
-        rect: { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, 46) },
+        rect: { ...rect, width: Math.max(rect.width, 130), height: Math.max(rect.height, subline ? 58 : 46) },
         label,
+        subline,
         color: "#b91c1c",
         borderColor: "#b91c1c",
         opacity: 0.9,
-        createdAt: now,
-      },
-    ];
-  }
-
-  if (activeTool === "signature") {
-    const value = resolvedFields?.value?.trim();
-    if (!value) return [];
-    return [
-      {
-        id: createId("signature"),
-        type: "signature",
-        mode: "typed",
-        pageIndex,
-        rect: { ...rect, width: Math.max(rect.width, 180), height: Math.max(rect.height, 54) },
-        value,
-        color: DEFAULT_COLORS.signature,
-        fontFamily: "EB Garamond",
-        opacity: 1,
         createdAt: now,
       },
     ];

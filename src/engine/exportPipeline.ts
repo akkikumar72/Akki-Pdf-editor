@@ -28,6 +28,8 @@ export type ExportContext = {
   operations: EditOperation[];
   textItems: TextItem[];
   fonts?: DocumentFonts;
+  /** Original /Link annotation ids mirrored as imported link operations — stripped from the PDF export to avoid duplicates. */
+  suppressLinkAnnotationIds?: string[];
 };
 
 export class ExportPipeline {
@@ -37,7 +39,9 @@ export class ExportPipeline {
     const base = safeBaseName(context.filename);
     switch (format) {
       case "pdf": {
-        const bytes = await this.engine.savePdf(context.bytes, context.operations, context.fonts);
+        const bytes = await this.engine.savePdf(context.bytes, context.operations, context.fonts, {
+          suppressLinkAnnotationIds: context.suppressLinkAnnotationIds,
+        });
         downloadBlob(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), `${base}-edited.pdf`);
         return;
       }

@@ -92,6 +92,9 @@ export type SignatureOperation = BaseOperation & {
 export type StampOperation = BaseOperation & {
   type: "stamp";
   label: string;
+  // Optional second line ("By <author> at <date>"); `label` stays the subject so
+  // stamps in previously saved sessions keep rendering unchanged.
+  subline?: string;
   color: string;
   borderColor: string;
 };
@@ -112,9 +115,32 @@ export type InkOperation = BaseOperation & {
   variant?: "ink" | "draw" | "freehand-highlight";
 };
 
+/**
+ * Where a link operation points (Sejda parity: external URL, email, phone,
+ * internal page). `email`/`phone` store the full scheme-qualified href
+ * (`mailto:…`/`tel:…`) so the writer and overlay never re-derive it.
+ */
+export type LinkTarget =
+  | { kind: "url"; href: string }
+  | { kind: "email"; href: string }
+  | { kind: "phone"; href: string }
+  | { kind: "page"; pageIndex: number };
+
 export type LinkOperation = BaseOperation & {
   type: "link";
-  href: string;
+  target: LinkTarget;
+  /** True when this op mirrors a /Link annotation read from the source PDF. */
+  imported?: boolean;
+  /** PDF.js annotation id (e.g. "13R") of the mirrored source annotation. */
+  annotationRef?: string;
+};
+
+/** A /Link annotation read from the source PDF during text extraction. */
+export type ImportedLinkAnnotation = {
+  pageIndex: number;
+  rect: PdfRect;
+  target: LinkTarget;
+  annotationRef?: string;
 };
 
 export type AnnotationOperation = BaseOperation & {

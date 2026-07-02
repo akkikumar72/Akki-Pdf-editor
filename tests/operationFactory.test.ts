@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { createOperationsForTool, describeInlineInput } from "../src/editor/operationFactory";
+import {
+  createOperationsForTool,
+  createReplacementOperation,
+  createSnappedAnnotationOperations,
+  createTextItemReplacementOperation,
+  describeInlineInput,
+} from "../src/editor/operationFactory";
 import type { EditOperation, TextItem } from "../src/types/editor";
+import type { TextMatch } from "../src/utils/textSearch";
 import { padReplacementCoverRect } from "../src/utils/textMetrics";
 
 const textItem: TextItem = {
@@ -103,6 +110,53 @@ describe("operation factory", () => {
     expect(operation.color).toBe("#ffffff");
     expect(operation.whiteout).toBe(false);
     expect(operation.whiteoutColor).toBeUndefined();
+  });
+
+  it("createTextItemReplacementOperation masks the whole item and carries the new text", () => {
+    const operation = createTextItemReplacementOperation(textItem, "Grand total", 792);
+    expect(operation.type).toBe("text");
+    expect(operation.text).toBe("Grand total");
+    expect(operation.pageIndex).toBe(0);
+    expect(operation.whiteout).toBe(true);
+    expect(operation.whiteoutColor).toBe("#ffffff");
+    expect(operation.fontSize).toBe(20);
+    expect(operation.sourceCoverRect).toEqual(padReplacementCoverRect(textItem.rect, 20));
+  });
+
+  it("createReplacementOperation substitutes only the matched occurrence within the item text", () => {
+    const match: TextMatch = {
+      pageIndex: 0,
+      item: textItem,
+      startIndex: 8,
+      endIndex: 13,
+      rect: { x: 139, y: 700, width: 43, height: 20 },
+    };
+    const operation = createReplacementOperation(match, "amount", 792);
+    expect(operation.text).toBe("Invoice amount");
+    expect(operation.whiteout).toBe(true);
+  });
+
+  it("createSnappedAnnotationOperations keeps rects verbatim and styles per tool", () => {
+    const rects = [
+      { x: 10, y: 700, width: 80, height: 12 },
+      { x: 10, y: 680, width: 60, height: 12 },
+    ];
+    const highlights = createSnappedAnnotationOperations("highlight", 1, rects);
+    expect(highlights).toHaveLength(2);
+    expect(highlights[0]).toMatchObject({
+      type: "annotation",
+      kind: "highlight",
+      pageIndex: 1,
+      rect: rects[0],
+      color: "#ffe066",
+      opacity: 0.36,
+    });
+
+    const [strikeout] = createSnappedAnnotationOperations("strikeout", 0, [rects[0]]);
+    expect(strikeout).toMatchObject({ kind: "strikeout", color: "#ef4444", opacity: 1 });
+
+    const [underline] = createSnappedAnnotationOperations("underline", 0, [rects[1]]);
+    expect(underline).toMatchObject({ kind: "underline", color: "#ef4444", opacity: 1, rect: rects[1] });
   });
 
   it("creates form fields through resolved inline input fields", () => {
@@ -303,33 +357,57 @@ describe("operation factory", () => {
     expect(ink.points).toHaveLength(4);
   });
 
-  it("creates a link, and bails for empty or unsafe URLs", () => {
-    const [link] = createOperationsForTool({
-      ...baseInput,
-      activeTool: "link",
-      resolvedFields: { href: "https://example.com" },
-    });
-    if (link.type !== "link") throw new Error("Expected link");
-    expect(link.href).toContain("example.com");
-
+  it("creates nothing for the link tool (routed through the link properties dialog)", () => {
     expect(createOperationsForTool({ ...baseInput, activeTool: "link" })).toEqual([]);
-    expect(
-      createOperationsForTool({ ...baseInput, activeTool: "link", resolvedFields: { href: "javascript:alert(1)" } }),
-    ).toEqual([]);
   });
 
   it("creates a stamp when labelled, and bails when the label is empty", () => {
     const [stamp] = createOperationsForTool({ ...baseInput, activeTool: "stamp", resolvedFields: { label: "PAID" } });
     if (stamp.type !== "stamp") throw new Error("Expected stamp");
     expect(stamp.label).toBe("PAID");
+    expect(stamp.subline).toBeUndefined();
+    expect(stamp.rect.height).toBe(46);
     expect(createOperationsForTool({ ...baseInput, activeTool: "stamp" })).toEqual([]);
   });
 
-  it("creates a typed signature when provided, and bails when empty", () => {
-    const [sig] = createOperationsForTool({ ...baseInput, activeTool: "signature", resolvedFields: { value: "Akki" } });
-    if (sig.type !== "signature") throw new Error("Expected signature");
-    expect(sig.value).toBe("Akki");
-    expect(sig.mode).toBe("typed");
+  it("computes the stamp subline from author and date style", () => {
+    const both = createOperationsForTool({
+      ...baseInput,
+      activeTool: "stamp",
+      resolvedFields: { label: "Approved", author: "Akki", dateStyle: "mdy" },
+    })[0];
+    if (both.type !== "stamp") throw new Error("Expected stamp");
+    expect(both.subline).toMatch(/^By Akki at [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+    // A subline makes the default box taller so both lines fit.
+    expect(both.rect.height).toBe(58);
+
+    const authorOnly = createOperationsForTool({
+      ...baseInput,
+      activeTool: "stamp",
+      resolvedFields: { label: "Approved", author: "Akki", dateStyle: "none" },
+    })[0];
+    if (authorOnly.type !== "stamp") throw new Error("Expected stamp");
+    expect(authorOnly.subline).toBe("By Akki");
+
+    const dateOnly = createOperationsForTool({
+      ...baseInput,
+      activeTool: "stamp",
+      resolvedFields: { label: "Approved", dateStyle: "dmy" },
+    })[0];
+    if (dateOnly.type !== "stamp") throw new Error("Expected stamp");
+    expect(dateOnly.subline).toMatch(/^\d{1,2} [A-Z][a-z]{2}, \d{4}$/);
+
+    const neither = createOperationsForTool({
+      ...baseInput,
+      activeTool: "stamp",
+      resolvedFields: { label: "Approved" },
+    })[0];
+    if (neither.type !== "stamp") throw new Error("Expected stamp");
+    expect(neither.subline).toBeUndefined();
+  });
+
+  it("no longer creates signatures through the generic factory (studio flow owns them)", () => {
+    expect(createOperationsForTool({ ...baseInput, activeTool: "signature", resolvedFields: { value: "Akki" } })).toEqual([]);
     expect(createOperationsForTool({ ...baseInput, activeTool: "signature" })).toEqual([]);
   });
 
@@ -412,27 +490,27 @@ describe("operation factory", () => {
 });
 
 describe("describeInlineInput", () => {
-  it("describes a single-field popover for annotate-text, link, stamp, and signature", () => {
+  it("describes popovers for annotate-text and stamp", () => {
     expect(describeInlineInput("annotate-text", [])).toEqual({
       title: "Annotation note",
       confirmLabel: "Add note",
       fields: [{ key: "text", label: "Note", defaultValue: "Note" }],
     });
-    expect(describeInlineInput("link", [])).toEqual({
-      title: "Add link",
-      confirmLabel: "Add link",
-      fields: [{ key: "href", label: "Link URL", defaultValue: "https://" }],
-    });
-    expect(describeInlineInput("stamp", [])).toEqual({
-      title: "Add stamp",
-      confirmLabel: "Add stamp",
-      fields: [{ key: "label", label: "Stamp label", defaultValue: "APPROVED" }],
-    });
-    expect(describeInlineInput("signature", [])).toEqual({
-      title: "Add signature",
-      confirmLabel: "Add signature",
-      fields: [{ key: "value", label: "Signature text", defaultValue: "Akki Pathak" }],
-    });
+    const stamp = describeInlineInput("stamp", []);
+    expect(stamp?.title).toBe("Add stamp");
+    expect(stamp?.fields.map((field) => field.key)).toEqual(["label", "author", "dateStyle"]);
+    expect(stamp?.fields[0].defaultValue).toBe("Approved");
+    expect(stamp?.fields[2].options?.map((option) => option.value)).toEqual([
+      "none",
+      "mdy",
+      "time-mdy",
+      "dmy",
+      "time-dmy",
+    ]);
+  });
+
+  it("returns null for the signature tool (handled by the signature studio modal)", () => {
+    expect(describeInlineInput("signature", [])).toBeNull();
   });
 
   it("describes a single field for non-dropdown form tools, with an incrementing default name", () => {
@@ -462,7 +540,7 @@ describe("describeInlineInput", () => {
   });
 
   it("returns null for tools that create immediately with no text input", () => {
-    for (const tool of ["select", "text", "whiteout", "highlight", "shape", "ink", "mark-check", "image", "table-region"] as const) {
+    for (const tool of ["select", "text", "whiteout", "highlight", "shape", "ink", "mark-check", "image", "link", "table-region"] as const) {
       expect(describeInlineInput(tool, [])).toBeNull();
     }
   });

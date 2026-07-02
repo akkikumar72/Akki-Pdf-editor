@@ -1,7 +1,16 @@
-import { PDFDocument, PDFFont, degrees } from "pdf-lib";
+import { PDFDocument, PDFFont, PDFName, PDFRef, degrees } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import type { DocumentFontInfo, DocumentFonts, EditOperation, LoadedPdf, TextItem } from "../types/editor";
+import type {
+  DocumentFontInfo,
+  DocumentFonts,
+  EditOperation,
+  ImportedLinkAnnotation,
+  LinkTarget,
+  LoadedPdf,
+  TextItem,
+} from "../types/editor";
+import { sanitizeEmailToMailto, sanitizeTel, sanitizeUrl } from "../utils/url";
 import { cleanPdfFontName, inferFontWeight, inferItalic, resolvePdfFont } from "./fontResolver";
 import {
   type WriterContext,
@@ -115,6 +124,59 @@ const PDF_JS_OPTIONS = {
   wasmUrl: "/pdfjs/wasm/",
 };
 
+export type SavePdfOptions = {
+  /** PDF.js annotation ids (e.g. "13R") of imported /Link annotations to strip before writing operations. */
+  suppressLinkAnnotationIds?: string[];
+};
+
+/**
+ * PDF.js formats annotation ids as `${num}R` (generation 0) or `${num}R${gen}`.
+ * Parse one into a `num:gen` key comparable against pdf-lib PDFRefs, or `null`
+ * for ids that are not object references.
+ */
+function refKeyFromPdfJsId(id: string): string | null {
+  const match = /^(\d+)R(\d*)$/.exec(id);
+  return match ? `${match[1]}:${match[2] || "0"}` : null;
+}
+
+type PdfJsDestinationResolver = {
+  getDestination: (name: string) => Promise<unknown>;
+  getPageIndex: (ref: unknown) => Promise<number>;
+};
+
+/**
+ * Classify a PDF.js /Link annotation into a sanitized LinkTarget: URI actions
+ * become url/email/phone by scheme, GoTo destinations (inline array or named)
+ * resolve to an internal page index. Returns `null` for unsafe URIs and
+ * destination shapes we do not support (e.g. remote GoToR).
+ */
+async function resolveLinkAnnotationTarget(
+  pdf: PdfJsDestinationResolver,
+  annotation: Record<string, unknown>,
+): Promise<LinkTarget | null> {
+  const url = typeof annotation.url === "string" ? annotation.url : undefined;
+  if (url) {
+    if (/^mailto:/i.test(url)) {
+      const href = sanitizeEmailToMailto(url);
+      return href ? { kind: "email", href } : null;
+    }
+    if (/^tel:/i.test(url)) {
+      const href = sanitizeTel(url);
+      return href ? { kind: "phone", href } : null;
+    }
+    const href = sanitizeUrl(url);
+    return href ? { kind: "url", href } : null;
+  }
+  try {
+    const dest = typeof annotation.dest === "string" ? await pdf.getDestination(annotation.dest) : annotation.dest;
+    if (!Array.isArray(dest) || dest[0] === undefined || dest[0] === null) return null;
+    const pageIndex = await pdf.getPageIndex(dest[0]);
+    return Number.isInteger(pageIndex) && pageIndex >= 0 ? { kind: "page", pageIndex } : null;
+  } catch {
+    return null;
+  }
+}
+
 export class PdfEngine {
   private async getPdfJs() {
     const pdfjs = await import("pdfjs-dist");
@@ -182,13 +244,14 @@ export class PdfEngine {
   async extractTextAndFonts(
     bytes: Uint8Array,
     pageIndex?: number,
-  ): Promise<{ items: TextItem[]; fonts: DocumentFonts }> {
+  ): Promise<{ items: TextItem[]; fonts: DocumentFonts; links: ImportedLinkAnnotation[] }> {
     const pdfjs = await this.getPdfJs();
     // fontExtraProperties exposes the embedded font program bytes (`.data`) on commonObjs,
     // which pdf.js otherwise drops to save memory. Required to reuse the original font.
     const pdf = await pdfjs.getDocument({ data: bytes.slice(), fontExtraProperties: true, ...PDF_JS_OPTIONS }).promise;
     const items: TextItem[] = [];
     const fonts: DocumentFonts = {};
+    const links: ImportedLinkAnnotation[] = [];
 
     try {
       const pageIndexes =
@@ -196,6 +259,33 @@ export class PdfEngine {
 
       for (const currentPageIndex of pageIndexes) {
         const page = await pdf.getPage(currentPageIndex + 1);
+        // Surface existing /Link annotations as editable overlays. Failures here
+        // (malformed annotation dictionaries) must not break text extraction.
+        try {
+          const annotations = (await page.getAnnotations()) as Array<Record<string, unknown>>;
+          for (const annotation of annotations) {
+            if (annotation.subtype !== "Link") continue;
+            const rectArray = Array.isArray(annotation.rect) ? (annotation.rect as number[]) : undefined;
+            if (!rectArray || rectArray.length < 4) continue;
+            const target = await resolveLinkAnnotationTarget(pdf as unknown as PdfJsDestinationResolver, annotation);
+            if (!target) continue;
+            links.push({
+              pageIndex: currentPageIndex,
+              // PDF.js annotation rects are [x1, y1, x2, y2] in PDF user space
+              // (bottom-left origin, unrotated), matching our PdfRect space.
+              rect: {
+                x: Math.min(rectArray[0], rectArray[2]),
+                y: Math.min(rectArray[1], rectArray[3]),
+                width: Math.abs(rectArray[2] - rectArray[0]),
+                height: Math.abs(rectArray[3] - rectArray[1]),
+              },
+              target,
+              annotationRef: typeof annotation.id === "string" ? annotation.id : undefined,
+            });
+          }
+        } catch {
+          // Annotations unavailable for this page: links simply are not imported.
+        }
         const textContent = await page.getTextContent();
         const styles = textContent.styles as Record<string, Record<string, unknown>>;
         let commonObjs: PdfCommonObjs | null = null;
@@ -251,7 +341,7 @@ export class PdfEngine {
       void pdf.destroy().catch(() => undefined);
     }
 
-    return { items, fonts };
+    return { items, fonts, links };
   }
 
   async getPageSizes(bytes: Uint8Array) {
@@ -259,10 +349,37 @@ export class PdfEngine {
     return pdf.getPages().map((page) => page.getSize());
   }
 
-  async savePdf(originalBytes: Uint8Array, operations: EditOperation[], fonts?: DocumentFonts) {
+  async savePdf(
+    originalBytes: Uint8Array,
+    operations: EditOperation[],
+    fonts?: DocumentFonts,
+    options?: SavePdfOptions,
+  ) {
     const pdf = await PDFDocument.load(originalBytes);
     pdf.registerFontkit(fontkit);
     const pages = pdf.getPages();
+
+    // Imported link annotations are re-emitted from their (possibly edited)
+    // operations by writeLink; removing the originals here keeps the exported
+    // page from carrying two live copies of the same link — and lets a deleted
+    // imported link actually disappear.
+    const suppressed = new Set(
+      (options?.suppressLinkAnnotationIds ?? [])
+        .map(refKeyFromPdfJsId)
+        .filter((key): key is string => key !== null),
+    );
+    if (suppressed.size > 0) {
+      for (const page of pages) {
+        const annotations = page.node.Annots();
+        if (!annotations) continue;
+        const kept = annotations
+          .asArray()
+          .filter((entry) => !(entry instanceof PDFRef && suppressed.has(`${entry.objectNumber}:${entry.generationNumber}`)));
+        if (kept.length !== annotations.size()) {
+          page.node.set(PDFName.of("Annots"), pdf.context.obj(kept));
+        }
+      }
+    }
     const embeddedFonts = new Map<string, PDFFont>();
     const reusedFonts = new Map<string, PDFFont | null>();
     const fontkitByKey = new Map<string, FontkitFont | null>();

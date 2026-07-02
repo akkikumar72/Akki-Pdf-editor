@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { FindReplaceDialog, type SearchHighlight } from "../components/FindReplaceDialog";
 import { Inspector } from "../components/Inspector";
 import { PageRail } from "../components/PageRail";
 import { PdfCanvas } from "../components/PdfCanvas";
@@ -12,7 +13,25 @@ export function EditorRoute() {
   const editor = useEditor();
   const navigate = useNavigate();
   const [restoreChecked, setRestoreChecked] = useState(false);
+  const [findReplaceOpen, setFindReplaceOpen] = useState(false);
+  const [searchHighlight, setSearchHighlight] = useState<SearchHighlight | null>(null);
+  const [movingCount, setMovingCount] = useState(0);
   const { document, isBusy, restoreLatestSession } = editor;
+
+  const closeFindReplace = useCallback(() => {
+    setFindReplaceOpen(false);
+    setSearchHighlight(null);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      setFindReplaceOpen(true);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => {
     if (document) return;
@@ -52,6 +71,7 @@ export function EditorRoute() {
           disabled={isBusy}
           historyEntries={editState.past}
           onExport={editor.runExport}
+          onFindReplace={() => setFindReplaceOpen(true)}
           onHome={() => {
             navigate("/");
             void editor.returnHome();
@@ -68,7 +88,7 @@ export function EditorRoute() {
           onZoomIn={() => editor.setScale((value) => Math.min(2.4, value + 0.1))}
           onZoomOut={() => editor.setScale((value) => Math.max(0.45, value - 0.1))}
           scale={editor.scale}
-          selectedId={editState.selectedId}
+          selectedIds={editState.selectedIds}
         />
       )}
       rail={(
@@ -83,8 +103,12 @@ export function EditorRoute() {
         <Inspector
           operation={editor.selectedOperation}
           operationCount={editState.operations.length}
+          pageCount={document.pageCount}
           pageTextItems={editor.pageTextItems}
+          selectedCount={editState.selectedIds.length}
+          onDuplicateSelected={editor.duplicateSelected}
           onExport={editor.runExport}
+          onRemoveSelected={editor.removeSelected}
           onUpdate={editor.updateOperation}
         />
       )}
@@ -92,10 +116,12 @@ export function EditorRoute() {
         <StatusBar
           documentName={document.name}
           isBusy={isBusy}
+          movingCount={movingCount}
           operationCount={editState.operations.length}
           pageIndex={editor.pageIndex}
           pageCount={document.pageCount}
           scale={editor.scale}
+          selectedCount={editState.selectedIds.length}
           status={editor.status}
         />
       )}
@@ -104,20 +130,36 @@ export function EditorRoute() {
         activeTool={editor.activeTool}
         document={document}
         documentFonts={editor.documentFonts}
+        onDraggingChange={setMovingCount}
         onNotice={editor.setStatus}
         onOperationAdd={editor.addOperation}
+        onOperationsAdd={editor.addOperations}
         onOperationRemove={editor.removeOperation}
-        onOperationSelect={(id) => editor.dispatch({ type: "select", id })}
+        onOperationsRemove={editor.removeOperations}
+        onOperationSelect={(ids, additive) => editor.dispatch({ type: "select", ids, additive })}
+        onOperationsTranslate={editor.translateOperations}
         onOperationUpdate={editor.updateOperation}
         operations={editor.visibleOperations}
         pageIndex={editor.pageIndex}
         pageSize={editor.pageSizes[editor.pageIndex]}
         rotation={editor.rotation}
         scale={editor.scale}
-        selectedId={editState.selectedId}
+        searchHighlight={searchHighlight}
+        selectedIds={editState.selectedIds}
         stageRef={editor.pageStageRef}
         textItems={editor.pageTextItems}
       />
+      {findReplaceOpen ? (
+        <FindReplaceDialog
+          textItems={editor.textItems}
+          operations={editState.operations}
+          pageSizes={editor.pageSizes}
+          onAddOperations={editor.addOperations}
+          onHighlight={setSearchHighlight}
+          onPageChange={editor.setPageIndex}
+          onClose={closeFindReplace}
+        />
+      ) : null}
     </AppShell>
   );
 }
