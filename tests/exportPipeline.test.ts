@@ -100,6 +100,127 @@ describe("export pipeline", () => {
   });
 });
 
+describe("export pipeline – edit-aware data export", () => {
+  it("emits a replacement text op's value instead of the original overlapping item", () => {
+    const csv = new ExportPipeline().toCsv(items, [
+      {
+        id: "replace_amount",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 160, y: 680, width: 40, height: 12 },
+        sourceCoverRect: { x: 160, y: 680, width: 28, height: 12 },
+        text: "$50",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left",
+        whiteout: true,
+        createdAt: 1,
+      },
+    ]);
+    expect(csv).toContain("$50");
+    expect(csv).not.toContain("$42");
+  });
+
+  it("drops an original item covered by a whiteout op", () => {
+    const csv = new ExportPipeline().toCsv(items, [
+      {
+        id: "hide_name_header",
+        type: "whiteout",
+        pageIndex: 0,
+        rect: { x: 10, y: 700, width: 40, height: 12 },
+        color: "#ffffff",
+        createdAt: 1,
+      },
+    ]);
+    expect(csv).not.toContain("Name");
+    expect(csv).toContain("Amount");
+  });
+
+  it("includes a newly added text op with no overlap as its own cell", () => {
+    const csv = new ExportPipeline().toCsv(items, [
+      {
+        id: "new_note",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 10, y: 620, width: 60, height: 12 },
+        text: "Reviewed",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left",
+        createdAt: 1,
+      },
+    ]);
+    expect(csv).toContain("Reviewed");
+    expect(csv).toContain("Name");
+    expect(csv).toContain("Akki");
+  });
+
+  it("neutralizes formula-injection payloads from an edit-aware synthetic cell", () => {
+    const csv = new ExportPipeline().toCsv(items, [
+      {
+        id: "injected",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 10, y: 620, width: 60, height: 12 },
+        text: "=cmd|'/c calc'!A0",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left",
+        createdAt: 1,
+      },
+    ]);
+    expect(csv).toContain("\"'=cmd|'/c calc'!A0\"");
+    expect(csv).not.toMatch(/"=cmd/);
+  });
+
+  it("reflects edits in toText and toXlsxBytes too", () => {
+    const editOps = [
+      {
+        id: "replace_amount",
+        type: "text" as const,
+        pageIndex: 0,
+        rect: { x: 160, y: 680, width: 40, height: 12 },
+        sourceCoverRect: { x: 160, y: 680, width: 28, height: 12 },
+        text: "$50",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left" as const,
+        whiteout: true,
+        createdAt: 1,
+      },
+    ];
+    expect(new ExportPipeline().toText(items, editOps)).toContain("$50");
+    expect(new ExportPipeline().toText(items, editOps)).not.toContain("$42");
+
+    const sheet = strFromU8(
+      unzipSync(new ExportPipeline().toXlsxBytes(items, editOps))["xl/worksheets/sheet1.xml"],
+    );
+    expect(sheet).toContain("$50");
+    expect(sheet).not.toContain("$42");
+  });
+
+  it("keeps a zero-area text item instead of treating it as covered (avoids a divide-by-zero)", () => {
+    const zeroArea: TextItem[] = [
+      { str: "Ghost", pageIndex: 0, rect: { x: 10, y: 700, width: 0, height: 0 } },
+    ];
+    const csv = new ExportPipeline().toCsv(zeroArea, [
+      {
+        id: "hide_everything",
+        type: "whiteout",
+        pageIndex: 0,
+        rect: { x: 0, y: 0, width: 1000, height: 1000 },
+        color: "#ffffff",
+        createdAt: 1,
+      },
+    ]);
+    expect(csv).toContain("Ghost");
+  });
+});
+
 describe("export pipeline – export() dispatch", () => {
   const fakeEngine = {
     savePdf: vi.fn(async () => new Uint8Array([1, 2, 3])),

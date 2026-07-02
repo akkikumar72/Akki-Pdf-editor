@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 import { pdfEngine, PdfEngine } from "../src/engine/pdfEngine";
 import type { DocumentFonts, EditOperation } from "../src/types/editor";
 
@@ -9,6 +9,19 @@ async function blankPdfBytes(pages = 1): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   for (let i = 0; i < pages; i += 1) pdf.addPage([612, 792]);
   return new Uint8Array(await pdf.save());
+}
+
+/**
+ * Decodes a reloaded page's raw content stream operators to text so tests can
+ * assert on *what* was drawn (e.g. the `cm` translate before a rectangle path)
+ * instead of only that `savePdf` produced loadable bytes.
+ */
+function decodePageContentText(pdf: PDFDocument, page: ReturnType<PDFDocument["getPage"]>): string {
+  const contents = page.node.Contents();
+  const refs = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
+  return refs
+    .map((ref) => new TextDecoder().decode(decodePDFRawStream(pdf.context.lookup(ref) as PDFRawStream).decode()))
+    .join("\n");
 }
 
 // A real, fully-parseable TTF with broad Latin coverage; used to exercise the
@@ -166,7 +179,19 @@ describe("PdfEngine.savePdf – text operations", () => {
         createdAt: 3,
       },
     ];
-    await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    // t_left's whiteout mask must be anchored to sourceCoverRect (10, 690), not
+    // the editable rect (40, 700) -- the mask must stay put while dragged text moves.
+    expect(content).toContain("1 0 0 1 10 690 cm");
+    expect(content).not.toContain("1 0 0 1 40 700 cm");
+    // t_center has no sourceCoverRect, so its mask falls back to its own rect.
+    expect(content).toContain("1 0 0 1 40 650 cm");
+    // Encoded as hex strings in the Tj operator.
+    expect(content).toContain(Buffer.from("Left", "latin1").toString("hex").toUpperCase());
+    expect(content).toContain(Buffer.from("Center", "latin1").toString("hex").toUpperCase());
+    expect(content).toContain(Buffer.from("Right", "latin1").toString("hex").toUpperCase());
   });
 
   it("reuses the embedded font when it covers every glyph", async () => {
@@ -504,7 +529,12 @@ describe("PdfEngine.savePdf – images, signatures and stamps", () => {
         createdAt: 4,
       },
     ];
-    await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    const xObjects = reloaded.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict);
+    // One embedded image XObject per drawImage call (2 image ops + 1 image-mode
+    // signature + 1 no-mime-segment image) -- not just "the bytes reload".
+    expect(xObjects?.keys()).toHaveLength(4);
   });
 
   it("draws a typed signature and a stamp", async () => {
@@ -571,29 +601,9 @@ describe("PdfEngine.savePdf – form marks and fields", () => {
     await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
   });
 
-  it("draws checkbox (checked/unchecked), radio (checked/unchecked), signature and text fields", async () => {
+  it("draws radio (checked/unchecked), signature and text fields", async () => {
     const original = await blankPdfBytes();
     const operations: EditOperation[] = [
-      {
-        id: "f_check_on",
-        type: "form-field",
-        kind: "checkbox",
-        name: "agree",
-        checked: true,
-        pageIndex: 0,
-        rect: { x: 40, y: 700, width: 30, height: 20 },
-        createdAt: 1,
-      },
-      {
-        id: "f_check_off",
-        type: "form-field",
-        kind: "checkbox",
-        name: "agree2",
-        checked: false,
-        pageIndex: 0,
-        rect: { x: 40, y: 660, width: 30, height: 20 },
-        createdAt: 2,
-      },
       {
         id: "f_radio_on",
         type: "form-field",
@@ -716,6 +726,85 @@ describe("PdfEngine.savePdf – hexToRgb color forms", () => {
       },
     ];
     await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
+  });
+});
+
+describe("PdfEngine.savePdf – export validity (writer registry regression)", () => {
+  it("writes text, highlight, shape, stamp, form-field and link operations to a loadable, page-count-preserved PDF", async () => {
+    const original = await blankPdfBytes(2);
+    const operations: EditOperation[] = [
+      {
+        id: "text_1",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 72, y: 700, width: 200, height: 24 },
+        text: "Hello world",
+        fontFamily: "Helvetica",
+        fontSize: 14,
+        color: "#101010",
+        align: "left",
+        createdAt: 1,
+      },
+      {
+        id: "highlight_1",
+        type: "annotation",
+        kind: "highlight",
+        pageIndex: 0,
+        rect: { x: 72, y: 640, width: 160, height: 20 },
+        color: "#facc15",
+        createdAt: 2,
+      },
+      {
+        id: "shape_1",
+        type: "shape",
+        kind: "rectangle",
+        pageIndex: 0,
+        rect: { x: 72, y: 580, width: 100, height: 60 },
+        stroke: "#1d4ed8",
+        strokeWidth: 2,
+        createdAt: 3,
+      },
+      {
+        id: "stamp_1",
+        type: "stamp",
+        pageIndex: 1,
+        rect: { x: 72, y: 500, width: 120, height: 30 },
+        label: "approved",
+        color: "#166534",
+        borderColor: "#166534",
+        createdAt: 4,
+      },
+      {
+        id: "form_field_1",
+        type: "form-field",
+        kind: "text",
+        name: "fullName",
+        value: "Akki",
+        pageIndex: 1,
+        rect: { x: 72, y: 440, width: 160, height: 24 },
+        createdAt: 5,
+      },
+      {
+        id: "link_1",
+        type: "link",
+        pageIndex: 1,
+        rect: { x: 72, y: 400, width: 120, height: 24 },
+        href: "https://example.com",
+        createdAt: 6,
+      },
+      {
+        id: "table_region_1",
+        type: "table-region",
+        label: "Table 1",
+        pageIndex: 1,
+        rect: { x: 72, y: 300, width: 200, height: 80 },
+        createdAt: 7,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    expect(reloaded.getPageCount()).toBe(2);
+    expect(reloaded.getPage(1).node.Annots()?.size()).toBe(1);
   });
 });
 

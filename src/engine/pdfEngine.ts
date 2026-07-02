@@ -1,11 +1,22 @@
-import { PDFDocument, PDFName, PDFString, degrees, rgb } from "pdf-lib";
+import { PDFDocument, PDFFont, degrees } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { DocumentFontInfo, DocumentFonts, EditOperation, LoadedPdf, TextItem } from "../types/editor";
-import { dataUrlToBytes } from "../utils/download";
-import { sanitizeUrl } from "../utils/url";
-import { textBaselineDrawY } from "../utils/textMetrics";
 import { cleanPdfFontName, inferFontWeight, inferItalic, resolvePdfFont } from "./fontResolver";
+import {
+  type WriterContext,
+  writeAnnotation,
+  writeFormField,
+  writeFormMark,
+  writeImage,
+  writeInk,
+  writeLink,
+  writeShape,
+  writeSignature,
+  writeStamp,
+  writeText,
+  writeWhiteoutMask,
+} from "./operationWriters";
 
 type PdfFontMeta = { name?: string; bold?: boolean; italic?: boolean; data?: Uint8Array; mimetype?: string };
 
@@ -103,56 +114,6 @@ const PDF_JS_OPTIONS = {
   standardFontDataUrl: "/pdfjs/standard_fonts/",
   wasmUrl: "/pdfjs/wasm/",
 };
-
-function hexToRgb(color: string) {
-  const normalized = color.replace("#", "");
-  const value =
-    normalized.length === 3
-      ? normalized
-          .split("")
-          .map((char) => char + char)
-          .join("")
-      : normalized.padEnd(6, "0").slice(0, 6);
-  const number = Number.parseInt(value, 16);
-  return rgb(((number >> 16) & 255) / 255, ((number >> 8) & 255) / 255, (number & 255) / 255);
-}
-
-/**
- * Resolve a fill color for pdf-lib, treating missing/"transparent"/non-hex
- * values as no fill instead of producing NaN color operands.
- */
-function fillColorOrUndefined(color?: string) {
-  if (!color || color === "transparent") return undefined;
-  if (!/^#?[0-9a-f]{3}([0-9a-f]{3})?$/i.test(color.trim())) return undefined;
-  return hexToRgb(color);
-}
-
-function dataUrlMimeType(dataUrl: string) {
-  return dataUrl.match(/^data:(.*?);/)?.[1] ?? "image/png";
-}
-
-function drawCheckMark(
-  page: ReturnType<PDFDocument["getPage"]>,
-  rect: EditOperation["rect"],
-  color: string,
-  opacity: number,
-  thickness = 1.4,
-) {
-  page.drawLine({
-    start: { x: rect.x + rect.width * 0.2, y: rect.y + rect.height * 0.5 },
-    end: { x: rect.x + rect.width * 0.42, y: rect.y + rect.height * 0.25 },
-    color: hexToRgb(color),
-    thickness,
-    opacity,
-  });
-  page.drawLine({
-    start: { x: rect.x + rect.width * 0.42, y: rect.y + rect.height * 0.25 },
-    end: { x: rect.x + rect.width * 0.82, y: rect.y + rect.height * 0.78 },
-    color: hexToRgb(color),
-    thickness,
-    opacity,
-  });
-}
 
 export class PdfEngine {
   private async getPdfJs() {
@@ -302,8 +263,8 @@ export class PdfEngine {
     const pdf = await PDFDocument.load(originalBytes);
     pdf.registerFontkit(fontkit);
     const pages = pdf.getPages();
-    const embeddedFonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>>>();
-    const reusedFonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>> | null>();
+    const embeddedFonts = new Map<string, PDFFont>();
+    const reusedFonts = new Map<string, PDFFont | null>();
     const fontkitByKey = new Map<string, FontkitFont | null>();
 
     const getFont = async (
@@ -342,7 +303,7 @@ export class PdfEngine {
     const getReusedFont = async (key: string) => {
       if (reusedFonts.has(key)) return reusedFonts.get(key) ?? null;
       const info = fonts?.[key];
-      let embedded: Awaited<ReturnType<typeof pdf.embedFont>> | null = null;
+      let embedded: PDFFont | null = null;
       if (info?.bytes) {
         try {
           embedded = await pdf.embedFont(info.bytes, { subset: true });
@@ -354,337 +315,56 @@ export class PdfEngine {
       return embedded;
     };
 
+    const ctx: WriterContext = { getFont, getReusedFont, embeddedCovers };
+
     for (const operation of operations) {
       const page = pages[operation.pageIndex];
       if (!page) continue;
-      const rect = operation.rect;
       const opacity = operation.opacity ?? 1;
 
-      if (operation.type === "whiteout" || (operation.type === "text" && operation.whiteout)) {
-        // For a moved replacement, keep the mask anchored to the original PDF text bounds
-        // (sourceCoverRect) so the underlying glyph never reappears at its old position.
-        const maskRect = operation.type === "text" ? (operation.sourceCoverRect ?? rect) : rect;
-        page.drawRectangle({
-          x: maskRect.x,
-          y: maskRect.y,
-          width: maskRect.width,
-          height: maskRect.height,
-          color: hexToRgb(operation.type === "whiteout" ? operation.color : (operation.whiteoutColor ?? "#ffffff")),
-          opacity,
-        });
-      }
-
-      if (operation.type === "text") {
-        let font: Awaited<ReturnType<typeof pdf.embedFont>> | null = null;
-        if (operation.embeddedFontKey && embeddedCovers(operation.embeddedFontKey, operation.text)) {
-          font = await getReusedFont(operation.embeddedFontKey);
+      switch (operation.type) {
+        case "whiteout":
+          writeWhiteoutMask(page, operation.rect, operation.color, opacity);
+          break;
+        case "text":
+          await writeText(page, operation, opacity, ctx);
+          break;
+        case "annotation":
+          await writeAnnotation(page, operation, opacity, ctx);
+          break;
+        case "shape":
+          writeShape(page, operation, opacity);
+          break;
+        case "ink":
+          writeInk(page, operation, opacity);
+          break;
+        case "image":
+          await writeImage(pdf, page, operation, opacity);
+          break;
+        case "signature":
+          await writeSignature(pdf, page, operation, opacity, ctx);
+          break;
+        case "stamp":
+          await writeStamp(page, operation, opacity, ctx);
+          break;
+        case "form-mark":
+          writeFormMark(page, operation, opacity);
+          break;
+        case "form-field":
+          await writeFormField(page, operation, opacity, ctx);
+          break;
+        case "link":
+          writeLink(pdf, page, operation);
+          break;
+        case "table-region":
+          // Intentionally not drawn — a table-region is a non-exported
+          // organizational marker that renders only as an overlay label.
+          break;
+        /* v8 ignore next 4 -- exhaustiveness guard: the EditOperation union has no member left unhandled above, so this branch is unreachable at runtime and only guards against a future variant being missed at compile time */
+        default: {
+          const exhaustive: never = operation;
+          void exhaustive;
         }
-        if (!font) {
-          font = await getFont(operation.fontFamily, {
-            bold: operation.bold,
-            italic: operation.italic,
-            fontWeight: operation.fontWeight,
-            fontStyle: operation.fontStyle,
-          });
-        }
-        const textWidth = font.widthOfTextAtSize(operation.text, operation.fontSize);
-        const x =
-          operation.align === "center"
-            ? rect.x + Math.max(0, rect.width - textWidth) / 2
-            : operation.align === "right"
-              ? rect.x + Math.max(0, rect.width - textWidth)
-              : rect.x;
-        page.drawText(operation.text, {
-          x,
-          y: textBaselineDrawY(rect, operation.fontSize),
-          size: operation.fontSize,
-          font,
-          color: hexToRgb(operation.color),
-          opacity,
-          maxWidth: rect.width,
-          lineHeight: operation.fontSize,
-        });
-      }
-
-      if (operation.type === "annotation" && operation.kind === "highlight") {
-        page.drawRectangle({
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          color: hexToRgb(operation.color),
-          opacity: operation.opacity ?? 0.28,
-        });
-      }
-
-      if (operation.type === "annotation" && operation.kind !== "highlight") {
-        const strokeWidth = operation.strokeWidth ?? 2;
-        if (operation.kind === "strikeout" || operation.kind === "underline") {
-          const y =
-            operation.kind === "strikeout" ? rect.y + rect.height * 0.55 : rect.y + Math.max(1, rect.height * 0.12);
-          page.drawLine({
-            start: { x: rect.x, y },
-            end: { x: rect.x + rect.width, y },
-            color: hexToRgb(operation.color),
-            thickness: strokeWidth,
-            opacity,
-          });
-        } else {
-          const font = await getFont("Inter");
-          page.drawRectangle({
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-            borderColor: hexToRgb(operation.color),
-            borderWidth: strokeWidth,
-            color: hexToRgb("#ffffff"),
-            opacity: Math.min(opacity, 0.92),
-          });
-          if (operation.text) {
-            page.drawText(operation.text, {
-              x: rect.x + 6,
-              y: rect.y + Math.max(6, rect.height - 17),
-              size: Math.min(13, Math.max(8, rect.height * 0.35)),
-              font,
-              color: hexToRgb(operation.color),
-              maxWidth: Math.max(12, rect.width - 12),
-              lineHeight: 14,
-              opacity,
-            });
-          }
-        }
-      }
-
-      if (operation.type === "shape") {
-        if (operation.kind === "ellipse") {
-          page.drawEllipse({
-            x: rect.x + rect.width / 2,
-            y: rect.y + rect.height / 2,
-            xScale: rect.width / 2,
-            yScale: rect.height / 2,
-            borderColor: hexToRgb(operation.stroke),
-            borderWidth: operation.strokeWidth,
-            color: fillColorOrUndefined(operation.fill),
-            opacity,
-          });
-        } else if (operation.kind === "line" || operation.kind === "arrow") {
-          page.drawLine({
-            start: { x: rect.x, y: rect.y },
-            end: { x: rect.x + rect.width, y: rect.y + rect.height },
-            color: hexToRgb(operation.stroke),
-            thickness: operation.strokeWidth,
-            opacity,
-          });
-          if (operation.kind === "arrow") {
-            page.drawLine({
-              start: { x: rect.x + rect.width, y: rect.y + rect.height },
-              end: { x: rect.x + rect.width - 10, y: rect.y + rect.height - 2 },
-              color: hexToRgb(operation.stroke),
-              thickness: operation.strokeWidth,
-            });
-          }
-        } else {
-          page.drawRectangle({
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-            borderColor: hexToRgb(operation.stroke),
-            borderWidth: operation.strokeWidth,
-            color: fillColorOrUndefined(operation.fill),
-            opacity,
-          });
-        }
-      }
-
-      if (operation.type === "ink" && operation.points.length > 1) {
-        for (let index = 1; index < operation.points.length; index += 1) {
-          page.drawLine({
-            start: operation.points[index - 1],
-            end: operation.points[index],
-            color: hexToRgb(operation.stroke),
-            thickness: operation.strokeWidth,
-            opacity,
-          });
-        }
-      }
-
-      if (operation.type === "image" || (operation.type === "signature" && operation.mode === "image")) {
-        const dataUrl = operation.type === "image" ? operation.dataUrl : operation.value;
-        const bytes = dataUrlToBytes(dataUrl);
-        const mime = dataUrlMimeType(dataUrl);
-        const image =
-          mime.includes("jpeg") || mime.includes("jpg") ? await pdf.embedJpg(bytes) : await pdf.embedPng(bytes);
-        page.drawImage(image, {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          opacity,
-        });
-      }
-
-      if (operation.type === "signature" && operation.mode !== "image") {
-        const font = await getFont(operation.fontFamily);
-        page.drawText(operation.value, {
-          x: rect.x,
-          y: rect.y + rect.height * 0.25,
-          size: Math.min(rect.height * 0.55, 36),
-          font,
-          color: hexToRgb(operation.color),
-          opacity,
-        });
-      }
-
-      if (operation.type === "stamp") {
-        const font = await getFont("Inter", { bold: true });
-        page.drawRectangle({
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          borderColor: hexToRgb(operation.borderColor),
-          borderWidth: 2,
-          color: hexToRgb("#ffffff"),
-          opacity: Math.min(opacity, 0.88),
-        });
-        page.drawText(operation.label.toUpperCase(), {
-          x: rect.x + 8,
-          y: rect.y + Math.max(6, (rect.height - 14) / 2),
-          size: Math.min(18, Math.max(9, rect.height * 0.32)),
-          font,
-          color: hexToRgb(operation.color),
-          maxWidth: Math.max(12, rect.width - 16),
-          opacity,
-        });
-      }
-
-      if (operation.type === "form-mark") {
-        if (operation.mark === "check") {
-          drawCheckMark(page, rect, operation.color, opacity, Math.max(1.2, Math.min(rect.width, rect.height) * 0.08));
-        } else if (operation.mark === "cross") {
-          page.drawLine({
-            start: { x: rect.x, y: rect.y },
-            end: { x: rect.x + rect.width, y: rect.y + rect.height },
-            color: hexToRgb(operation.color),
-            thickness: 1.6,
-            opacity,
-          });
-          page.drawLine({
-            start: { x: rect.x + rect.width, y: rect.y },
-            end: { x: rect.x, y: rect.y + rect.height },
-            color: hexToRgb(operation.color),
-            thickness: 1.6,
-            opacity,
-          });
-        } else {
-          page.drawEllipse({
-            x: rect.x + rect.width / 2,
-            y: rect.y + rect.height / 2,
-            xScale: rect.width * 0.26,
-            yScale: rect.height * 0.26,
-            color: hexToRgb(operation.color),
-            opacity,
-          });
-        }
-      }
-
-      if (operation.type === "form-field") {
-        const font = await getFont("Inter");
-        page.drawRectangle({
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          borderColor: hexToRgb("#64748b"),
-          borderWidth: 1,
-          color: hexToRgb("#ffffff"),
-          opacity: Math.min(opacity, 0.82),
-        });
-
-        if (operation.kind === "checkbox") {
-          const boxSize = Math.min(rect.width, rect.height) * 0.58;
-          const boxRect = {
-            x: rect.x + 5,
-            y: rect.y + (rect.height - boxSize) / 2,
-            width: boxSize,
-            height: boxSize,
-          };
-          page.drawRectangle({ ...boxRect, borderColor: hexToRgb("#475569"), borderWidth: 1 });
-          if (operation.checked) drawCheckMark(page, boxRect, "#111827", opacity, 1.4);
-        } else if (operation.kind === "radio") {
-          page.drawEllipse({
-            x: rect.x + Math.min(rect.width, rect.height) * 0.42,
-            y: rect.y + rect.height / 2,
-            xScale: Math.min(rect.width, rect.height) * 0.22,
-            yScale: Math.min(rect.width, rect.height) * 0.22,
-            borderColor: hexToRgb("#475569"),
-            borderWidth: 1,
-            opacity,
-          });
-          if (operation.checked) {
-            page.drawEllipse({
-              x: rect.x + Math.min(rect.width, rect.height) * 0.42,
-              y: rect.y + rect.height / 2,
-              xScale: Math.min(rect.width, rect.height) * 0.1,
-              yScale: Math.min(rect.width, rect.height) * 0.1,
-              color: hexToRgb("#111827"),
-              opacity,
-            });
-          }
-        } else if (operation.kind === "signature") {
-          page.drawText("Signature", {
-            x: rect.x + 6,
-            y: rect.y + Math.max(5, rect.height * 0.32),
-            size: Math.min(12, Math.max(8, rect.height * 0.28)),
-            font,
-            color: hexToRgb("#64748b"),
-            maxWidth: Math.max(12, rect.width - 12),
-            opacity,
-          });
-        } else {
-          page.drawText(operation.value || operation.name, {
-            x: rect.x + 6,
-            y: rect.y + Math.max(5, rect.height * 0.34),
-            size: Math.min(12, Math.max(8, rect.height * 0.3)),
-            font,
-            color: hexToRgb(operation.value ? "#111827" : "#64748b"),
-            maxWidth: Math.max(12, rect.width - 12),
-            opacity,
-          });
-        }
-      }
-
-      if (operation.type === "link") {
-        const safeHref = sanitizeUrl(operation.href);
-        if (!safeHref) continue;
-        const annotation = pdf.context.obj({
-          Type: "Annot",
-          Subtype: "Link",
-          Rect: [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height],
-          Border: [0, 0, 0],
-          A: {
-            Type: "Action",
-            S: "URI",
-            URI: PDFString.of(safeHref),
-          },
-        });
-        const annotations = page.node.Annots();
-        if (annotations) {
-          annotations.push(annotation);
-        } else {
-          page.node.set(PDFName.of("Annots"), pdf.context.obj([annotation]));
-        }
-        page.drawRectangle({
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          borderColor: hexToRgb("#2563eb"),
-          borderWidth: 0.75,
-          opacity: 0.45,
-        });
       }
     }
 

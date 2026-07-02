@@ -29,6 +29,13 @@ export function useEditorController() {
     () => editState.operations.filter((operation) => operation.pageIndex === pageIndex),
     [editState.operations, pageIndex],
   );
+  // Stable identity across renders that don't touch textItems/pageIndex, so
+  // consumers (PdfCanvas's groupEditableTextRuns memo, Inspector) don't re-derive
+  // on every unrelated re-render (e.g. a drag/resize commit on another page).
+  const pageTextItems = useMemo(
+    () => textItems.filter((item) => item.pageIndex === pageIndex),
+    [textItems, pageIndex],
+  );
 
   const loadPdfState = useCallback(async (
     loaded: LoadedPdf,
@@ -349,6 +356,7 @@ export function useEditorController() {
   return {
     document,
     textItems,
+    pageTextItems,
     documentFonts,
     pageSizes,
     pageIndex,

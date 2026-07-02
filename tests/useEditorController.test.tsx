@@ -497,6 +497,31 @@ describe("clearSavedSessions", () => {
   });
 });
 
+describe("pageTextItems", () => {
+  it("filters textItems down to the active page", async () => {
+    mockedEngine.extractTextAndFonts.mockResolvedValue({
+      items: [
+        { str: "a", pageIndex: 0, rect: { x: 0, y: 0, width: 1, height: 1 } },
+        { str: "b", pageIndex: 1, rect: { x: 0, y: 0, width: 1, height: 1 } },
+      ],
+      fonts: {},
+    });
+    mockedEngine.loadDocument.mockResolvedValue(makeLoaded({ pageCount: 2 }));
+    mockedEngine.getPageSizes.mockResolvedValue([sizes[0], sizes[0]]);
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    expect(result.current.pageTextItems).toEqual([
+      { str: "a", pageIndex: 0, rect: { x: 0, y: 0, width: 1, height: 1 } },
+    ]);
+    act(() => {
+      result.current.setPageIndex(1);
+    });
+    expect(result.current.pageTextItems).toEqual([
+      { str: "b", pageIndex: 1, rect: { x: 0, y: 0, width: 1, height: 1 } },
+    ]);
+  });
+});
+
 describe("returnHome", () => {
   it("saves and resets to the home state", async () => {
     const { result } = renderHook(() => useEditorController());

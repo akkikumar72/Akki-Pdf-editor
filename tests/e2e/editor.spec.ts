@@ -529,3 +529,77 @@ test("creates a blank document from the tool hub", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Apply/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Forms/i })).toBeVisible();
 });
+
+test("opens the Forms dropdown and places a dropdown field through the inline popover", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("forms-dropdown.pdf");
+  await makeSamplePdf(pdfPath);
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/forms-dropdown\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Forms" }).click();
+  await page.getByRole("menu").getByRole("menuitem", { name: "Dropdown" }).click();
+
+  const canvas = page.getByRole("region", { name: "PDF editor canvas" });
+  await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 360 } });
+
+  const popover = page.getByRole("dialog", { name: "Add form field" });
+  await expect(popover).toBeVisible();
+  await popover.getByLabel("Field name").fill("status");
+  await popover.getByLabel("Dropdown options").fill("Paid, Pending");
+  await popover.getByRole("button", { name: "Add field" }).click();
+
+  await expect(popover).not.toBeVisible();
+  await expect(canvas.locator(".operation--form-field")).toBeVisible();
+});
+
+test("editing a selected link through the inline popover", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("edit-link.pdf");
+  await makeSamplePdf(pdfPath);
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/edit-link\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Links" }).click();
+  const canvas = page.getByRole("region", { name: "PDF editor canvas" });
+  await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 360 } });
+
+  const createPopover = page.getByRole("dialog", { name: "Add link" });
+  await createPopover.getByLabel("Link URL").fill("https://example.com");
+  await createPopover.getByRole("button", { name: "Add link" }).click();
+  await expect(canvas.locator(".operation--link")).toContainText("example.com");
+
+  const inlineToolbar = page.getByRole("toolbar", { name: "Inline edit tools" });
+  await inlineToolbar.getByRole("button", { name: "Add link" }).click();
+  const editPopover = page.getByRole("dialog", { name: "Edit link" });
+  await expect(editPopover.getByLabel("Link URL")).toHaveValue("https://example.com/");
+  await editPopover.getByLabel("Link URL").fill("https://updated.example.com");
+  await editPopover.getByRole("button", { name: "Save link" }).click();
+
+  await expect(editPopover).not.toBeVisible();
+  await expect(canvas.locator(".operation--link")).toContainText("updated.example.com");
+});
+
+test("canceling a stamp input leaves the page unchanged", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("cancel-stamp.pdf");
+  await makeSamplePdf(pdfPath);
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/cancel-stamp\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Images" }).click();
+  await page.getByRole("menu").getByRole("menuitem", { name: "Stamp" }).click();
+
+  const canvas = page.getByRole("region", { name: "PDF editor canvas" });
+  await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 360 } });
+
+  const popover = page.getByRole("dialog", { name: "Add stamp" });
+  await expect(popover).toBeVisible();
+  await popover.getByRole("button", { name: "Cancel" }).click();
+
+  await expect(popover).not.toBeVisible();
+  await expect(canvas.locator(".operation--stamp")).toHaveCount(0);
+});

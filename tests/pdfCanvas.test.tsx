@@ -1,4 +1,4 @@
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -502,58 +502,70 @@ describe("PdfCanvas - operation overlays and selection", () => {
   });
 });
 
-describe("PdfCanvas - link prompts", () => {
-  it("adds a link operation to a non-link op via the toolbar", () => {
+describe("PdfCanvas - link inline popover", () => {
+  it("adds a link operation to a non-link op via the toolbar popover", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "prompt").mockReturnValue("https://example.com");
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
+    const popover = getByRole("dialog", { name: "Add link" });
+    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "https://example.com" } });
+    fireEvent.click(within(popover).getByRole("button", { name: "Add link" }));
     expect(onOperationAdd).toHaveBeenCalled();
     expect(onOperationAdd.mock.calls[0][0].type).toBe("link");
   });
 
-  it("does nothing when the link prompt is cancelled", () => {
+  it("does nothing when the link popover is cancelled", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "prompt").mockReturnValue(null);
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
+    const { getByLabelText, getByRole, queryByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
+    const popover = getByRole("dialog", { name: "Add link" });
+    fireEvent.click(within(popover).getByText("Cancel"));
     expect(onOperationAdd).not.toHaveBeenCalled();
+    expect(queryByRole("dialog", { name: "Add link" })).toBeNull();
   });
 
   it("notices an unsafe link url for a non-link op", () => {
     const op = shapeOp();
     const onNotice = vi.fn();
     const onOperationAdd = vi.fn();
-    vi.spyOn(window, "prompt").mockReturnValue("javascript:alert(1)");
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd, onNotice });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd, onNotice });
     fireEvent.click(getByLabelText("Add link"));
+    const popover = getByRole("dialog", { name: "Add link" });
+    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "javascript:alert(1)" } });
+    fireEvent.click(within(popover).getByRole("button", { name: "Add link" }));
     expect(onNotice).toHaveBeenCalled();
     expect(onOperationAdd).not.toHaveBeenCalled();
   });
 
-  it("updates an existing link operation's href", () => {
+  it("updates an existing link operation's href, pre-filled with its current value", () => {
     const op: EditOperation = {
       id: "link-1", type: "link", pageIndex: 0, rect: { x: 10, y: 10, width: 50, height: 20 },
       createdAt: 1, href: "https://old.com", opacity: 1,
     };
     const onOperationUpdate = vi.fn();
-    vi.spyOn(window, "prompt").mockReturnValue("https://new.com");
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate });
     fireEvent.click(getByLabelText("Add link"));
+    const popover = getByRole("dialog", { name: "Edit link" });
+    const input = within(popover).getByLabelText("Link URL") as HTMLInputElement;
+    expect(input.value).toBe("https://old.com");
+    fireEvent.change(input, { target: { value: "https://new.com" } });
+    fireEvent.click(within(popover).getByText("Save link"));
     expect(onOperationUpdate).toHaveBeenCalledWith("link-1", { href: "https://new.com/" });
   });
 
-  it("cancels updating an existing link when prompt is empty", () => {
+  it("cancels updating an existing link when the URL field is emptied", () => {
     const op: EditOperation = {
       id: "link-2", type: "link", pageIndex: 0, rect: { x: 10, y: 10, width: 50, height: 20 },
       createdAt: 1, href: "https://old.com", opacity: 1,
     };
     const onOperationUpdate = vi.fn();
-    vi.spyOn(window, "prompt").mockReturnValue("");
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate });
     fireEvent.click(getByLabelText("Add link"));
+    const popover = getByRole("dialog", { name: "Edit link" });
+    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "" } });
+    fireEvent.click(within(popover).getByText("Save link"));
     expect(onOperationUpdate).not.toHaveBeenCalled();
   });
 
@@ -564,11 +576,36 @@ describe("PdfCanvas - link prompts", () => {
     };
     const onNotice = vi.fn();
     const onOperationUpdate = vi.fn();
-    vi.spyOn(window, "prompt").mockReturnValue("javascript:bad");
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate, onNotice });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate, onNotice });
     fireEvent.click(getByLabelText("Add link"));
+    const popover = getByRole("dialog", { name: "Edit link" });
+    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "javascript:bad" } });
+    fireEvent.click(within(popover).getByText("Save link"));
     expect(onNotice).toHaveBeenCalled();
     expect(onOperationUpdate).not.toHaveBeenCalled();
+  });
+
+  it("dismisses the popover on Escape without changing anything", () => {
+    const op = shapeOp();
+    const onOperationAdd = vi.fn();
+    const { getByLabelText, getByRole, queryByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
+    fireEvent.click(getByLabelText("Add link"));
+    const popover = getByRole("dialog", { name: "Add link" });
+    fireEvent.keyDown(popover, { key: "Escape" });
+    expect(onOperationAdd).not.toHaveBeenCalled();
+    expect(queryByRole("dialog", { name: "Add link" })).toBeNull();
+  });
+
+  it("confirms via Enter on the single-line field", () => {
+    const op = shapeOp();
+    const onOperationAdd = vi.fn();
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
+    fireEvent.click(getByLabelText("Add link"));
+    const popover = getByRole("dialog", { name: "Add link" });
+    const input = within(popover).getByLabelText("Link URL");
+    fireEvent.change(input, { target: { value: "https://enter.example" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onOperationAdd).toHaveBeenCalled();
   });
 });
 
@@ -658,18 +695,63 @@ describe("PdfCanvas - drag-to-draw region tools", () => {
     expect(onOperationAdd).not.toHaveBeenCalled();
   });
 
-  it("does not create when a region draw resolves to no operation (cancelled prompt)", async () => {
+  it("does not create when a region draw's inline popover is cancelled", async () => {
     const onOperationAdd = vi.fn();
     const onOperationSelect = vi.fn();
-    vi.spyOn(window, "prompt").mockReturnValue(null);
     const stageRef = { current: null } as Props["stageRef"];
-    const { stage } = renderCanvas({ activeTool: "link", onOperationAdd, onOperationSelect, stageRef });
+    const { getByRole, stage } = renderCanvas({ activeTool: "link", onOperationAdd, onOperationSelect, stageRef });
     stageRef.current = stage;
     fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 180, clientY: 120 });
     fireEvent.pointerUp(stage, { clientX: 180, clientY: 120 });
     await Promise.resolve();
+    const popover = getByRole("dialog", { name: "Add link" });
+    fireEvent.click(within(popover).getByText("Cancel"));
     expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("creates a link region operation once its inline popover is confirmed", async () => {
+    const onOperationAdd = vi.fn();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { getByRole, stage } = renderCanvas({ activeTool: "link", onOperationAdd, onOperationSelect, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 180, clientY: 120 });
+    fireEvent.pointerUp(stage, { clientX: 180, clientY: 120 });
+    await Promise.resolve();
+    const popover = getByRole("dialog", { name: "Add link" });
+    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "https://region.example" } });
+    fireEvent.click(within(popover).getByRole("button", { name: "Add link" }));
+    expect(onOperationAdd).toHaveBeenCalled();
+    const created = onOperationAdd.mock.calls[0][0];
+    expect(created.type).toBe("link");
+    expect(created.href).toBe("https://region.example/");
+    expect(onOperationSelect).toHaveBeenLastCalledWith(created.id);
+  });
+
+  it("creates a stamp operation from a single point-click once its inline popover is confirmed", () => {
+    const onOperationAdd = vi.fn();
+    const { getByRole, stage } = renderCanvas({ activeTool: "stamp", onOperationAdd });
+    fireEvent.click(stage, { clientX: 100, clientY: 200 });
+    const popover = getByRole("dialog", { name: "Add stamp" });
+    fireEvent.change(within(popover).getByLabelText("Stamp label"), { target: { value: "REVIEWED" } });
+    fireEvent.click(within(popover).getByRole("button", { name: "Add stamp" }));
+    expect(onOperationAdd).toHaveBeenCalled();
+    expect(onOperationAdd.mock.calls[0][0].type).toBe("stamp");
+    expect(onOperationAdd.mock.calls[0][0].label).toBe("REVIEWED");
+  });
+
+  it("creates nothing and selects nothing when the popover is confirmed with an empty field", () => {
+    const onOperationAdd = vi.fn();
+    const onOperationSelect = vi.fn();
+    const { getByRole, stage } = renderCanvas({ activeTool: "stamp", onOperationAdd, onOperationSelect });
+    fireEvent.click(stage, { clientX: 100, clientY: 200 });
+    const popover = getByRole("dialog", { name: "Add stamp" });
+    fireEvent.change(within(popover).getByLabelText("Stamp label"), { target: { value: "" } });
+    fireEvent.click(within(popover).getByRole("button", { name: "Add stamp" }));
+    expect(onOperationAdd).not.toHaveBeenCalled();
+    expect(onOperationSelect).not.toHaveBeenCalled();
   });
 });
 
@@ -694,9 +776,11 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
     expect(onOperationSelect).toHaveBeenCalledWith(op.id);
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
+    // The commit is deferred until the gesture ends, not fired on every pointermove.
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
     expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
-    fireEvent.pointerUp(stage);
   });
 
   it("dragging an ink operation translates its points", () => {
@@ -713,9 +797,9 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--ink") ?? container.querySelector('[class*="operation--"]');
     fireEvent.pointerDown(overlay as HTMLElement, { clientX: 100, clientY: 400, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 120, clientY: 420 });
+    fireEvent.pointerUp(stage);
     const patch = onOperationUpdate.mock.calls.at(-1)?.[1];
     expect(patch).toHaveProperty("points");
-    fireEvent.pointerUp(stage);
   });
 
   it("clicking a text overlay in the Text tool (no movement) enters edit mode instead of dragging", () => {
@@ -737,6 +821,23 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     expect(overlay.getAttribute("contenteditable")).toBe("true");
   });
 
+  it("clicking a non-text overlay with no movement resolves to a no-op (not edit mode)", () => {
+    const op = shapeOp();
+    const onOperationSelect = vi.fn();
+    const onOperationUpdate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: [op], selectedId: op.id, stageRef,
+      onOperationSelect, onOperationUpdate,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
+    expect(onOperationSelect).toHaveBeenCalledWith(op.id);
+    fireEvent.pointerUp(stage);
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+  });
+
   it("dragging a text overlay in the Text tool moves it instead of entering edit mode", () => {
     const op = textOp();
     const onOperationUpdate = vi.fn();
@@ -748,9 +849,10 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--text") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 70, clientY: 620 });
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
     expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
-    fireEvent.pointerUp(stage);
     // Since the gesture moved, it must not also resolve to "enter edit mode".
     expect(overlay.getAttribute("contenteditable")).toBe("false");
   });
@@ -766,9 +868,10 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 150, clientY: 150 });
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
     expect(onOperationUpdate.mock.calls[0][1]).toHaveProperty("rect");
-    fireEvent.pointerUp(stage);
   });
 
   it("suppresses the native click that follows a completed drag, so it doesn't add a stray operation", () => {
@@ -786,8 +889,8 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     const overlay = container.querySelector(".operation--text") as HTMLElement;
     fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 160, clientY: 700 });
-    expect(onOperationUpdate).toHaveBeenCalled();
     fireEvent.pointerUp(stage);
+    expect(onOperationUpdate).toHaveBeenCalled();
     // The click's target is the stage itself (empty canvas), same as a real release.
     fireEvent.click(stage, { clientX: 160, clientY: 700 });
     expect(onOperationAdd).not.toHaveBeenCalled();
@@ -897,9 +1000,10 @@ describe("PdfCanvas - resize interactions", () => {
     // HANDLES order: nw, n, ne, e, se, s, sw, w  -> index 4 is "se"
     fireEvent.pointerDown(handles[4], { clientX: 240, clientY: 470, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 300, clientY: 530 });
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
     expect(onOperationUpdate.mock.calls.at(-1)?.[1]).toHaveProperty("rect");
-    fireEvent.pointerUp(stage);
   });
 
   it("resizing from the NW handle clamps to the minimum size", () => {
@@ -915,8 +1019,8 @@ describe("PdfCanvas - resize interactions", () => {
     fireEvent.pointerDown(handles[0], { clientX: 100, clientY: 372, pointerId: 1 });
     // drag far past the opposite edge to force min clamp on both axes
     fireEvent.pointerMove(stage, { clientX: 400, clientY: 400 });
-    expect(onOperationUpdate).toHaveBeenCalled();
     fireEvent.pointerUp(stage);
+    expect(onOperationUpdate).toHaveBeenCalled();
   });
 
   it("resize start without a stage ref does nothing", () => {

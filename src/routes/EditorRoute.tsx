@@ -83,7 +83,7 @@ export function EditorRoute() {
         <Inspector
           operation={editor.selectedOperation}
           operationCount={editState.operations.length}
-          pageTextItems={editor.textItems.filter((item) => item.pageIndex === editor.pageIndex)}
+          pageTextItems={editor.pageTextItems}
           onExport={editor.runExport}
           onUpdate={editor.updateOperation}
         />
@@ -116,7 +116,7 @@ export function EditorRoute() {
         scale={editor.scale}
         selectedId={editState.selectedId}
         stageRef={editor.pageStageRef}
-        textItems={editor.textItems.filter((item) => item.pageIndex === editor.pageIndex)}
+        textItems={editor.pageTextItems}
       />
     </AppShell>
   );

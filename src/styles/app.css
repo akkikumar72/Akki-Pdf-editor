@@ -1565,6 +1565,41 @@ select:disabled {
   cursor: pointer;
 }
 
+.inline-popover {
+  position: absolute;
+  z-index: 13;
+  display: grid;
+  gap: var(--space-sm);
+  width: min(19rem, calc(100% - 1rem));
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+  box-shadow: 0 10px 24px -14px color-mix(in oklch, var(--color-accent) 34%, transparent);
+  pointer-events: auto;
+}
+
+.inline-popover[data-placement="below"] {
+  box-shadow: 0 8px 20px -14px color-mix(in oklch, var(--color-accent) 34%, transparent);
+}
+
+.inline-popover__title {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.inline-popover .field-stack {
+  gap: var(--space-xs);
+}
+
+.inline-popover__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
 .history-dialog__backdrop {
   position: fixed;
   z-index: 1000;
@@ -2088,17 +2123,8 @@ select:disabled {
   font-size: var(--text-xs);
 }
 
-.operation--form-checkbox,
 .operation--form-radio {
   place-items: center;
-}
-
-.operation--form-checkbox::before {
-  content: "";
-  width: min(1rem, 60%);
-  aspect-ratio: 1;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-xs);
 }
 
 .operation--form-radio::before {

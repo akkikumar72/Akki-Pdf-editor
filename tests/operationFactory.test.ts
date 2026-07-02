@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createOperationsForTool } from "../src/editor/operationFactory";
+import { createOperationsForTool, describeInlineInput } from "../src/editor/operationFactory";
 import type { EditOperation, TextItem } from "../src/types/editor";
 import { padReplacementCoverRect } from "../src/utils/textMetrics";
 
@@ -22,7 +22,6 @@ describe("operation factory", () => {
       pageIndex: 0,
       scale: 1,
       operations: [],
-      prompt: () => null,
       sourceTextItem: textItem,
       sampledBackgroundColor: "#d7ecff",
       sampledTextColor: "#f8fafc",
@@ -47,7 +46,6 @@ describe("operation factory", () => {
       pageIndex: 0,
       scale: 1,
       operations: [],
-      prompt: () => null,
     });
 
     expect(operation.type).toBe("text");
@@ -63,7 +61,6 @@ describe("operation factory", () => {
       pageIndex: 0,
       scale: 1,
       operations: [],
-      prompt: () => null,
       sourceTextItem: {
         ...textItem,
         fontName: "g_d1_f1",
@@ -90,7 +87,6 @@ describe("operation factory", () => {
       pageIndex: 0,
       scale: 1,
       operations: [],
-      prompt: () => null,
       inheritStyleFromTextItem: {
         ...textItem,
         fontName: "g_d1_f1",
@@ -109,7 +105,7 @@ describe("operation factory", () => {
     expect(operation.whiteoutColor).toBeUndefined();
   });
 
-  it("creates form fields through a prompt boundary", () => {
+  it("creates form fields through resolved inline input fields", () => {
     const [operation] = createOperationsForTool({
       activeTool: "form-dropdown",
       viewportRect: { left: 100, top: 100, width: 160, height: 32 },
@@ -117,7 +113,7 @@ describe("operation factory", () => {
       pageIndex: 0,
       scale: 1,
       operations: [],
-      prompt: (message) => (message === "Field name" ? "status" : "Paid, Pending"),
+      resolvedFields: { name: "status", options: "Paid, Pending" },
     });
 
     expect(operation.type).toBe("form-field");
@@ -133,14 +129,12 @@ describe("operation factory", () => {
     pageIndex: 2,
     scale: 1,
     operations: [] as EditOperation[],
-    prompt: () => null,
   };
 
   it("uses a reliable embedded font name and keeps detected weight without sampling", () => {
     const [operation] = createOperationsForTool({
       ...baseInput,
       activeTool: "select",
-      prompt: () => null,
       sourceTextItem: {
         str: "Body copy",
         pageIndex: 0,
@@ -165,7 +159,6 @@ describe("operation factory", () => {
     const [operation] = createOperationsForTool({
       ...baseInput,
       activeTool: "select",
-      prompt: () => null,
       sourceTextItem: {
         str: "ALL CAPS HEADING TEXT",
         pageIndex: 0,
@@ -186,7 +179,6 @@ describe("operation factory", () => {
     const [operation] = createOperationsForTool({
       ...baseInput,
       activeTool: "text",
-      prompt: () => null,
     });
     if (operation.type !== "text") throw new Error("Expected text operation");
     expect(operation.text).toBe("Type your text");
@@ -212,7 +204,6 @@ describe("operation factory", () => {
     const [operation] = createOperationsForTool({
       ...baseInput,
       activeTool: "select",
-      prompt: () => null,
       sourceTextItem: {
         str: "Sampled bold",
         pageIndex: 0,
@@ -234,7 +225,6 @@ describe("operation factory", () => {
     const [operation] = createOperationsForTool({
       ...baseInput,
       activeTool: "select",
-      prompt: () => null,
       sourceTextItem: {
         str: "",
         pageIndex: 0,
@@ -276,17 +266,19 @@ describe("operation factory", () => {
     expect(underline.kind).toBe("underline");
   });
 
-  it("creates a note annotation when prompted, and bails when cancelled", () => {
+  it("creates a note annotation when a note is resolved, and bails when empty", () => {
     const [note] = createOperationsForTool({
       ...baseInput,
       activeTool: "annotate-text",
-      prompt: () => "Check this",
+      resolvedFields: { text: "Check this" },
     });
     if (note.type !== "annotation") throw new Error("Expected annotation");
     expect(note.kind).toBe("note");
     expect(note.text).toBe("Check this");
 
-    expect(createOperationsForTool({ ...baseInput, activeTool: "annotate-text", prompt: () => null })).toEqual([]);
+    expect(
+      createOperationsForTool({ ...baseInput, activeTool: "annotate-text" }),
+    ).toEqual([]);
   });
 
   it("creates every shape variant", () => {
@@ -311,38 +303,38 @@ describe("operation factory", () => {
     expect(ink.points).toHaveLength(4);
   });
 
-  it("creates a link, and bails for cancelled or unsafe URLs", () => {
+  it("creates a link, and bails for empty or unsafe URLs", () => {
     const [link] = createOperationsForTool({
       ...baseInput,
       activeTool: "link",
-      prompt: () => "https://example.com",
+      resolvedFields: { href: "https://example.com" },
     });
     if (link.type !== "link") throw new Error("Expected link");
     expect(link.href).toContain("example.com");
 
-    expect(createOperationsForTool({ ...baseInput, activeTool: "link", prompt: () => null })).toEqual([]);
-    expect(createOperationsForTool({ ...baseInput, activeTool: "link", prompt: () => "javascript:alert(1)" })).toEqual(
-      [],
-    );
+    expect(createOperationsForTool({ ...baseInput, activeTool: "link" })).toEqual([]);
+    expect(
+      createOperationsForTool({ ...baseInput, activeTool: "link", resolvedFields: { href: "javascript:alert(1)" } }),
+    ).toEqual([]);
   });
 
-  it("creates a stamp when labelled, and bails when cancelled", () => {
-    const [stamp] = createOperationsForTool({ ...baseInput, activeTool: "stamp", prompt: () => "PAID" });
+  it("creates a stamp when labelled, and bails when the label is empty", () => {
+    const [stamp] = createOperationsForTool({ ...baseInput, activeTool: "stamp", resolvedFields: { label: "PAID" } });
     if (stamp.type !== "stamp") throw new Error("Expected stamp");
     expect(stamp.label).toBe("PAID");
-    expect(createOperationsForTool({ ...baseInput, activeTool: "stamp", prompt: () => null })).toEqual([]);
+    expect(createOperationsForTool({ ...baseInput, activeTool: "stamp" })).toEqual([]);
   });
 
-  it("creates a typed signature when provided, and bails when cancelled", () => {
-    const [sig] = createOperationsForTool({ ...baseInput, activeTool: "signature", prompt: () => "Akki" });
+  it("creates a typed signature when provided, and bails when empty", () => {
+    const [sig] = createOperationsForTool({ ...baseInput, activeTool: "signature", resolvedFields: { value: "Akki" } });
     if (sig.type !== "signature") throw new Error("Expected signature");
     expect(sig.value).toBe("Akki");
     expect(sig.mode).toBe("typed");
-    expect(createOperationsForTool({ ...baseInput, activeTool: "signature", prompt: () => null })).toEqual([]);
+    expect(createOperationsForTool({ ...baseInput, activeTool: "signature" })).toEqual([]);
   });
 
   it("creates the non-dropdown form kinds", () => {
-    const text = createOperationsForTool({ ...baseInput, activeTool: "form-text", prompt: () => "name" })[0];
+    const text = createOperationsForTool({ ...baseInput, activeTool: "form-text", resolvedFields: { name: "name" } })[0];
     if (text.type !== "form-field") throw new Error("Expected form-field");
     expect(text.kind).toBe("text");
     expect(text.options).toBeUndefined();
@@ -352,20 +344,20 @@ describe("operation factory", () => {
     const multiline = createOperationsForTool({
       ...baseInput,
       activeTool: "form-multiline",
-      prompt: () => "notes",
+      resolvedFields: { name: "notes" },
     })[0];
     if (multiline.type !== "form-field") throw new Error("Expected form-field");
     expect(multiline.kind).toBe("multiline");
     expect(multiline.rect.height).toBe(76);
 
-    const radio = createOperationsForTool({ ...baseInput, activeTool: "form-radio", prompt: () => "r" })[0];
+    const radio = createOperationsForTool({ ...baseInput, activeTool: "form-radio", resolvedFields: { name: "r" } })[0];
     if (radio.type !== "form-field") throw new Error("Expected form-field");
     expect(radio.checked).toBe(false);
 
     const signature = createOperationsForTool({
       ...baseInput,
       activeTool: "form-signature",
-      prompt: () => "sign",
+      resolvedFields: { name: "sign" },
     })[0];
     if (signature.type !== "form-field") throw new Error("Expected form-field");
     expect(signature.kind).toBe("signature");
@@ -383,31 +375,17 @@ describe("operation factory", () => {
     expect(mark.opacity).toBe(1);
   });
 
-  it("uses the default field name and counts existing form fields", () => {
-    const existing = createOperationsForTool({ ...baseInput, activeTool: "form-text", prompt: () => "first" });
-    let captured = "";
-    createOperationsForTool({
-      ...baseInput,
-      activeTool: "form-text",
-      operations: existing,
-      prompt: (_message, defaultValue) => {
-        captured = defaultValue ?? "";
-        return defaultValue ?? null;
-      },
-    });
-    // index = existing form fields (1) + 1 = 2
-    expect(captured).toBe("text_field_2");
+  it("bails when the form field name is empty", () => {
+    expect(
+      createOperationsForTool({ ...baseInput, activeTool: "form-text" }),
+    ).toEqual([]);
   });
 
-  it("bails when the form field name prompt is cancelled", () => {
-    expect(createOperationsForTool({ ...baseInput, activeTool: "form-text", prompt: () => null })).toEqual([]);
-  });
-
-  it("defaults dropdown options to empty when the options prompt is cancelled", () => {
+  it("defaults dropdown options to empty when the options field is empty", () => {
     const [operation] = createOperationsForTool({
       ...baseInput,
       activeTool: "form-dropdown",
-      prompt: (message) => (message === "Field name" ? "choice" : null),
+      resolvedFields: { name: "choice" },
     });
     if (operation.type !== "form-field") throw new Error("Expected form-field");
     expect(operation.options).toEqual([]);
@@ -430,5 +408,62 @@ describe("operation factory", () => {
   it("returns an empty list for unhandled tools", () => {
     expect(createOperationsForTool({ ...baseInput, activeTool: "image" })).toEqual([]);
     expect(createOperationsForTool({ ...baseInput, activeTool: "totally-unknown" as never })).toEqual([]);
+  });
+});
+
+describe("describeInlineInput", () => {
+  it("describes a single-field popover for annotate-text, link, stamp, and signature", () => {
+    expect(describeInlineInput("annotate-text", [])).toEqual({
+      title: "Annotation note",
+      confirmLabel: "Add note",
+      fields: [{ key: "text", label: "Note", defaultValue: "Note" }],
+    });
+    expect(describeInlineInput("link", [])).toEqual({
+      title: "Add link",
+      confirmLabel: "Add link",
+      fields: [{ key: "href", label: "Link URL", defaultValue: "https://" }],
+    });
+    expect(describeInlineInput("stamp", [])).toEqual({
+      title: "Add stamp",
+      confirmLabel: "Add stamp",
+      fields: [{ key: "label", label: "Stamp label", defaultValue: "APPROVED" }],
+    });
+    expect(describeInlineInput("signature", [])).toEqual({
+      title: "Add signature",
+      confirmLabel: "Add signature",
+      fields: [{ key: "value", label: "Signature text", defaultValue: "Akki Pathak" }],
+    });
+  });
+
+  it("describes a single field for non-dropdown form tools, with an incrementing default name", () => {
+    const first = describeInlineInput("form-text", []);
+    expect(first?.fields).toEqual([{ key: "name", label: "Field name", defaultValue: "text_field_1" }]);
+
+    const existing = createOperationsForTool({
+      viewportRect: { left: 50, top: 50, width: 10, height: 10 },
+      pageHeight: 792,
+      pageIndex: 0,
+      scale: 1,
+      operations: [],
+      activeTool: "form-text",
+      resolvedFields: { name: "first" },
+    });
+    const second = describeInlineInput("form-text", existing);
+    // index = existing form fields (1) + 1 = 2
+    expect(second?.fields).toEqual([{ key: "name", label: "Field name", defaultValue: "text_field_2" }]);
+  });
+
+  it("describes two fields (name + options) for the dropdown form tool", () => {
+    const descriptor = describeInlineInput("form-dropdown", []);
+    expect(descriptor?.fields).toEqual([
+      { key: "name", label: "Field name", defaultValue: "dropdown_1" },
+      { key: "options", label: "Dropdown options", defaultValue: "Option 1, Option 2", placeholder: "Comma-separated" },
+    ]);
+  });
+
+  it("returns null for tools that create immediately with no text input", () => {
+    for (const tool of ["select", "text", "whiteout", "highlight", "shape", "ink", "mark-check", "image", "table-region"] as const) {
+      expect(describeInlineInput(tool, [])).toBeNull();
+    }
   });
 });
