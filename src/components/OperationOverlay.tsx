@@ -201,7 +201,7 @@ function OperationOverlayComponent({
 
     case "image": {
       const src = safeImageSrc(operation.dataUrl);
-      return <div className={className} style={style} onPointerDown={handlePointerDown}>{src ? <img src={src} alt="" /> : null}</div>;
+      return <div className={className} style={style} onPointerDown={handlePointerDown}>{src ? <img src={src} alt="" draggable={false} /> : null}</div>;
     }
 
     case "signature": {
@@ -221,7 +221,7 @@ function OperationOverlayComponent({
           }}
           onPointerDown={handlePointerDown}
         >
-          {operation.mode === "image" ? (safeImageSrc(operation.value) ? <img src={safeImageSrc(operation.value)} alt="Signature" /> : null) : operation.value}
+          {operation.mode === "image" ? (safeImageSrc(operation.value) ? <img src={safeImageSrc(operation.value)} alt="Signature" draggable={false} /> : null) : operation.value}
         </div>
       );
     }

@@ -1956,6 +1956,13 @@ select:disabled {
   object-fit: contain;
 }
 
+/* Native image dragging would hijack the overlay move gesture. */
+.operation img {
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
+}
+
 .operation--signature {
   font-size: 2rem;
   font-style: italic;
