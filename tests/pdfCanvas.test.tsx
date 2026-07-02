@@ -791,107 +791,109 @@ describe("PdfCanvas - operation overlays and selection", () => {
   });
 });
 
-describe("PdfCanvas - link inline popover", () => {
-  it("adds a link operation to a non-link op via the toolbar popover", () => {
+describe("PdfCanvas - link properties dialog", () => {
+  it("adds a link operation to a non-link op via the toolbar dialog", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
     const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
-    const popover = getByRole("dialog", { name: "Add link" });
-    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "https://example.com" } });
-    fireEvent.click(within(popover).getByRole("button", { name: "Add link" }));
+    const dialog = getByRole("dialog", { name: "Add link" });
+    fireEvent.change(within(dialog).getByLabelText("External URL"), { target: { value: "https://example.com" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add link" }));
     expect(onOperationAdd).toHaveBeenCalled();
-    expect(onOperationAdd.mock.calls[0][0].type).toBe("link");
+    const created = onOperationAdd.mock.calls[0][0];
+    expect(created.type).toBe("link");
+    expect(created.target).toEqual({ kind: "url", href: "https://example.com/" });
+    // Toolbar-attached links keep the source operation's exact rect.
+    expect(created.rect).toEqual(op.rect);
   });
 
-  it("does nothing when the link popover is cancelled", () => {
+  it("does nothing when the link dialog is closed", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
     const { getByLabelText, getByRole, queryByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
-    const popover = getByRole("dialog", { name: "Add link" });
-    fireEvent.click(within(popover).getByText("Cancel"));
+    const dialog = getByRole("dialog", { name: "Add link" });
+    fireEvent.click(within(dialog).getByText("Close"));
     expect(onOperationAdd).not.toHaveBeenCalled();
     expect(queryByRole("dialog", { name: "Add link" })).toBeNull();
   });
 
-  it("notices an unsafe link url for a non-link op", () => {
+  it("keeps the dialog open with an inline error for an unsafe URL", () => {
     const op = shapeOp();
-    const onNotice = vi.fn();
     const onOperationAdd = vi.fn();
-    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd, onNotice });
+    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
-    const popover = getByRole("dialog", { name: "Add link" });
-    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "javascript:alert(1)" } });
-    fireEvent.click(within(popover).getByRole("button", { name: "Add link" }));
-    expect(onNotice).toHaveBeenCalled();
+    const dialog = getByRole("dialog", { name: "Add link" });
+    fireEvent.change(within(dialog).getByLabelText("External URL"), { target: { value: "javascript:alert(1)" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add link" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(/valid http/i);
     expect(onOperationAdd).not.toHaveBeenCalled();
   });
 
-  it("updates an existing link operation's href, pre-filled with its current value", () => {
+  it("updates an existing link operation's target, pre-filled with its current value", () => {
     const op: EditOperation = {
       id: "link-1", type: "link", pageIndex: 0, rect: { x: 10, y: 10, width: 50, height: 20 },
-      createdAt: 1, href: "https://old.com", opacity: 1,
+      createdAt: 1, target: { kind: "url", href: "https://old.com" }, opacity: 1,
     };
     const onOperationUpdate = vi.fn();
     const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate });
     fireEvent.click(getByLabelText("Add link"));
-    const popover = getByRole("dialog", { name: "Edit link" });
-    const input = within(popover).getByLabelText("Link URL") as HTMLInputElement;
+    const dialog = getByRole("dialog", { name: "Edit link" });
+    const input = within(dialog).getByLabelText("External URL") as HTMLInputElement;
     expect(input.value).toBe("https://old.com");
     fireEvent.change(input, { target: { value: "https://new.com" } });
-    fireEvent.click(within(popover).getByText("Save link"));
-    expect(onOperationUpdate).toHaveBeenCalledWith("link-1", { href: "https://new.com/" });
+    fireEvent.click(within(dialog).getByText("Save link"));
+    expect(onOperationUpdate).toHaveBeenCalledWith("link-1", { target: { kind: "url", href: "https://new.com/" } });
   });
 
-  it("cancels updating an existing link when the URL field is emptied", () => {
+  it("retargets an existing link to an internal page", () => {
     const op: EditOperation = {
       id: "link-2", type: "link", pageIndex: 0, rect: { x: 10, y: 10, width: 50, height: 20 },
-      createdAt: 1, href: "https://old.com", opacity: 1,
+      createdAt: 1, target: { kind: "url", href: "https://old.com" }, opacity: 1,
     };
     const onOperationUpdate = vi.fn();
     const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate });
     fireEvent.click(getByLabelText("Add link"));
-    const popover = getByRole("dialog", { name: "Edit link" });
-    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "" } });
-    fireEvent.click(within(popover).getByText("Save link"));
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    const dialog = getByRole("dialog", { name: "Edit link" });
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Link to internal page" }));
+    fireEvent.change(within(dialog).getByLabelText("Page number"), { target: { value: "2" } });
+    fireEvent.click(within(dialog).getByText("Save link"));
+    expect(onOperationUpdate).toHaveBeenCalledWith("link-2", { target: { kind: "page", pageIndex: 1 } });
   });
 
-  it("notices an unsafe href when editing an existing link", () => {
+  it("deletes an existing link from the dialog", () => {
     const op: EditOperation = {
       id: "link-3", type: "link", pageIndex: 0, rect: { x: 10, y: 10, width: 50, height: 20 },
-      createdAt: 1, href: "https://old.com", opacity: 1,
+      createdAt: 1, target: { kind: "url", href: "https://old.com" }, opacity: 1,
     };
-    const onNotice = vi.fn();
-    const onOperationUpdate = vi.fn();
-    const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationUpdate, onNotice });
+    const onOperationRemove = vi.fn();
+    const { getByLabelText, getByRole, queryByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationRemove });
     fireEvent.click(getByLabelText("Add link"));
-    const popover = getByRole("dialog", { name: "Edit link" });
-    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "javascript:bad" } });
-    fireEvent.click(within(popover).getByText("Save link"));
-    expect(onNotice).toHaveBeenCalled();
-    expect(onOperationUpdate).not.toHaveBeenCalled();
+    const dialog = getByRole("dialog", { name: "Edit link" });
+    fireEvent.click(within(dialog).getByText("Delete link"));
+    expect(onOperationRemove).toHaveBeenCalledWith("link-3");
+    expect(queryByRole("dialog", { name: "Edit link" })).toBeNull();
   });
 
-  it("dismisses the popover on Escape without changing anything", () => {
+  it("dismisses the dialog on Escape without changing anything", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
     const { getByLabelText, getByRole, queryByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
-    const popover = getByRole("dialog", { name: "Add link" });
-    fireEvent.keyDown(popover, { key: "Escape" });
+    const dialog = getByRole("dialog", { name: "Add link" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
     expect(onOperationAdd).not.toHaveBeenCalled();
     expect(queryByRole("dialog", { name: "Add link" })).toBeNull();
   });
 
-  it("confirms via Enter on the single-line field", () => {
+  it("confirms via Enter on the active field", () => {
     const op = shapeOp();
     const onOperationAdd = vi.fn();
     const { getByLabelText, getByRole } = renderCanvas({ operations: [op], selectedId: op.id, onOperationAdd });
     fireEvent.click(getByLabelText("Add link"));
-    const popover = getByRole("dialog", { name: "Add link" });
-    const input = within(popover).getByLabelText("Link URL");
+    const dialog = getByRole("dialog", { name: "Add link" });
+    const input = within(dialog).getByLabelText("External URL");
     fireEvent.change(input, { target: { value: "https://enter.example" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onOperationAdd).toHaveBeenCalled();
@@ -988,18 +990,32 @@ describe("PdfCanvas - drag-to-draw region tools", () => {
     const onOperationAdd = vi.fn();
     const onOperationSelect = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
-    const { getByRole, stage } = renderCanvas({ activeTool: "link", onOperationAdd, onOperationSelect, stageRef });
+    const { getByRole, stage } = renderCanvas({ activeTool: "form-text", onOperationAdd, onOperationSelect, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 180, clientY: 120 });
+    fireEvent.pointerUp(stage, { clientX: 180, clientY: 120 });
+    await Promise.resolve();
+    const popover = getByRole("dialog", { name: "Add form field" });
+    fireEvent.click(within(popover).getByText("Cancel"));
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("does not create when a drawn link region's dialog is closed", async () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { getByRole, stage } = renderCanvas({ activeTool: "link", onOperationAdd, stageRef });
     stageRef.current = stage;
     fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
     fireEvent.pointerMove(stage, { clientX: 180, clientY: 120 });
     fireEvent.pointerUp(stage, { clientX: 180, clientY: 120 });
     await Promise.resolve();
     const popover = getByRole("dialog", { name: "Add link" });
-    fireEvent.click(within(popover).getByText("Cancel"));
+    fireEvent.click(within(popover).getByText("Close"));
     expect(onOperationAdd).not.toHaveBeenCalled();
   });
 
-  it("creates a link region operation once its inline popover is confirmed", async () => {
+  it("creates a link region operation once its properties dialog is confirmed", async () => {
     const onOperationAdd = vi.fn();
     const onOperationSelect = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
@@ -1010,13 +1026,32 @@ describe("PdfCanvas - drag-to-draw region tools", () => {
     fireEvent.pointerUp(stage, { clientX: 180, clientY: 120 });
     await Promise.resolve();
     const popover = getByRole("dialog", { name: "Add link" });
-    fireEvent.change(within(popover).getByLabelText("Link URL"), { target: { value: "https://region.example" } });
+    fireEvent.change(within(popover).getByLabelText("External URL"), { target: { value: "https://region.example" } });
     fireEvent.click(within(popover).getByRole("button", { name: "Add link" }));
     expect(onOperationAdd).toHaveBeenCalled();
     const created = onOperationAdd.mock.calls[0][0];
     expect(created.type).toBe("link");
-    expect(created.href).toBe("https://region.example/");
+    expect(created.target).toEqual({ kind: "url", href: "https://region.example/" });
+    // Drawn link regions inherit the factory minimum size.
+    expect(created.rect.height).toBeGreaterThanOrEqual(28);
     expect(onOperationSelect).toHaveBeenLastCalledWith(created.id);
+  });
+
+  it("creates an email link from the region dialog's email kind", async () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { getByRole, stage } = renderCanvas({ activeTool: "link", onOperationAdd, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 180, clientY: 120 });
+    fireEvent.pointerUp(stage, { clientX: 180, clientY: 120 });
+    await Promise.resolve();
+    const popover = getByRole("dialog", { name: "Add link" });
+    fireEvent.click(within(popover).getByRole("radio", { name: "Link to email address" }));
+    fireEvent.change(within(popover).getByLabelText("Email address"), { target: { value: "you@example.com" } });
+    fireEvent.click(within(popover).getByRole("button", { name: "Add link" }));
+    expect(onOperationAdd).toHaveBeenCalled();
+    expect(onOperationAdd.mock.calls[0][0].target).toEqual({ kind: "email", href: "mailto:you@example.com" });
   });
 
   it("creates a stamp operation from a single point-click once its inline popover is confirmed", () => {
@@ -1665,7 +1700,7 @@ describe("PdfCanvas - resizable type branches", () => {
     ["highlight annotation", { id: "a1", type: "annotation", kind: "highlight", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 20 }, createdAt: 1, color: "#ff0" }, true],
     ["note annotation", { id: "a2", type: "annotation", kind: "note", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 40 }, createdAt: 1, color: "#00f", text: "n" }, true],
     ["strikeout annotation (not resizable)", { id: "a3", type: "annotation", kind: "strikeout", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 18 }, createdAt: 1, color: "#f00" }, false],
-    ["link (not resizable)", { id: "l1", type: "link", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 20 }, createdAt: 1, href: "https://x.com" }, false],
+    ["link (not resizable)", { id: "l1", type: "link", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 20 }, createdAt: 1, target: { kind: "url", href: "https://x.com" } }, false],
     ["form-mark (resizable, to fit whatever box size the PDF has)", { id: "fm1", type: "form-mark", pageIndex: 0, rect: { x: 50, y: 500, width: 20, height: 20 }, createdAt: 1, mark: "check", color: "#000" }, true],
     ["shape line (not resizable)", { id: "s9", type: "shape", kind: "line", pageIndex: 0, rect: { x: 50, y: 500, width: 100, height: 4 }, createdAt: 1, stroke: "#000", strokeWidth: 2 }, false],
   ])("%s -> resize handles present=%s", (_label, op, expected) => {

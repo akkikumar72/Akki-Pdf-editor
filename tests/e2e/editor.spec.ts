@@ -554,7 +554,7 @@ test("opens the Forms dropdown and places a dropdown field through the inline po
   await expect(canvas.locator(".operation--form-field")).toBeVisible();
 });
 
-test("editing a selected link through the inline popover", async ({ page }, testInfo) => {
+test("editing a selected link through the link properties dialog", async ({ page }, testInfo) => {
   const pdfPath = testInfo.outputPath("edit-link.pdf");
   await makeSamplePdf(pdfPath);
 
@@ -566,20 +566,22 @@ test("editing a selected link through the inline popover", async ({ page }, test
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 360 } });
 
-  const createPopover = page.getByRole("dialog", { name: "Add link" });
-  await createPopover.getByLabel("Link URL").fill("https://example.com");
-  await createPopover.getByRole("button", { name: "Add link" }).click();
+  const createDialog = page.getByRole("dialog", { name: "Add link" });
+  await expect(createDialog.getByRole("radio", { name: "Link to external URL" })).toBeChecked();
+  await createDialog.getByRole("textbox", { name: "External URL" }).fill("https://example.com");
+  await createDialog.getByRole("button", { name: "Add link" }).click();
   await expect(canvas.locator(".operation--link")).toContainText("example.com");
 
   const inlineToolbar = page.getByRole("toolbar", { name: "Inline edit tools" });
   await inlineToolbar.getByRole("button", { name: "Add link" }).click();
-  const editPopover = page.getByRole("dialog", { name: "Edit link" });
-  await expect(editPopover.getByLabel("Link URL")).toHaveValue("https://example.com/");
-  await editPopover.getByLabel("Link URL").fill("https://updated.example.com");
-  await editPopover.getByRole("button", { name: "Save link" }).click();
+  const editDialog = page.getByRole("dialog", { name: "Edit link" });
+  await expect(editDialog.getByRole("textbox", { name: "External URL" })).toHaveValue("https://example.com/");
+  await editDialog.getByRole("radio", { name: "Link to email address" }).click();
+  await editDialog.getByRole("textbox", { name: "Email address" }).fill("you@example.com");
+  await editDialog.getByRole("button", { name: "Save link" }).click();
 
-  await expect(editPopover).not.toBeVisible();
-  await expect(canvas.locator(".operation--link")).toContainText("updated.example.com");
+  await expect(editDialog).not.toBeVisible();
+  await expect(canvas.locator(".operation--link")).toContainText("you@example.com");
 });
 
 test("canceling a stamp input leaves the page unchanged", async ({ page }, testInfo) => {

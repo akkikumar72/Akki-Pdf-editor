@@ -13,7 +13,6 @@ import { padReplacementCoverRect } from "../utils/textMetrics";
 import { createId } from "../utils/ids";
 import { formatStampDate, stampDateStyleOptions, type StampDateStyle } from "../utils/stampDate";
 import type { TextMatch } from "../utils/textSearch";
-import { sanitizeUrl } from "../utils/url";
 import { toolLabel } from "./toolRegistry";
 
 /** A single text/textarea/select field to collect through an inline input popover before creating an operation. */
@@ -52,7 +51,6 @@ type CreateOperationInput = {
 const DEFAULT_COLORS = {
   ink: "#111827",
   highlight: "#ffe066",
-  link: "#2563eb",
   whiteout: "#ffffff",
 };
 
@@ -93,13 +91,8 @@ export function describeInlineInput(activeTool: EditorTool, operations: EditOper
       fields: [{ key: "text", label: "Note", defaultValue: "Note" }],
     };
   }
-  if (activeTool === "link") {
-    return {
-      title: "Add link",
-      confirmLabel: "Add link",
-      fields: [{ key: "href", label: "Link URL", defaultValue: "https://" }],
-    };
-  }
+  // The link tool routes through the kind-aware LinkPropertiesDialog (see
+  // PdfCanvas/LinkPropertiesDialog), not the generic inline popover.
   if (activeTool === "stamp") {
     return {
       title: "Add stamp",
@@ -390,24 +383,6 @@ export function createOperationsForTool({
         stroke: activeTool === "draw" ? "#2563eb" : DEFAULT_COLORS.ink,
         strokeWidth: activeTool === "draw" ? 2.4 : 2,
         variant: activeTool,
-        opacity: 1,
-        createdAt: now,
-      },
-    ];
-  }
-
-  if (activeTool === "link") {
-    const href = resolvedFields?.href?.trim();
-    if (!href) return [];
-    const safeHref = sanitizeUrl(href);
-    if (!safeHref) return [];
-    return [
-      {
-        id: createId("link"),
-        type: "link",
-        pageIndex,
-        rect: { ...rect, width: Math.max(rect.width, 160), height: Math.max(rect.height, 28) },
-        href: safeHref,
         opacity: 1,
         createdAt: now,
       },

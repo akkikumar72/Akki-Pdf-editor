@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, decodePDFRawStream } from "pdf-lib";
 import { pdfEngine, PdfEngine } from "../src/engine/pdfEngine";
-import type { DocumentFonts, EditOperation } from "../src/types/editor";
+import type { DocumentFonts, EditOperation, LinkOperation } from "../src/types/editor";
 
 async function blankPdfBytes(pages = 1): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
@@ -98,7 +98,7 @@ describe("PdfEngine.savePdf", () => {
         type: "link",
         pageIndex: 0,
         rect: { x: 40, y: 600, width: 160, height: 28 },
-        href: "https://example.com",
+        target: { kind: "url", href: "https://example.com" },
         opacity: 1,
         createdAt: 1,
       },
@@ -107,7 +107,7 @@ describe("PdfEngine.savePdf", () => {
         type: "link",
         pageIndex: 0,
         rect: { x: 40, y: 560, width: 160, height: 28 },
-        href: "javascript:alert(1)",
+        target: { kind: "url", href: "javascript:alert(1)" },
         opacity: 1,
         createdAt: 2,
       },
@@ -689,7 +689,7 @@ describe("PdfEngine.savePdf – links Annots branches", () => {
         type: "link",
         pageIndex: 0,
         rect: { x: 40, y: 700, width: 120, height: 24 },
-        href: "https://example.com",
+        target: { kind: "url", href: "https://example.com" },
         createdAt: 1,
       },
       // Second safe link: Annots now exists -> push() branch.
@@ -698,7 +698,7 @@ describe("PdfEngine.savePdf – links Annots branches", () => {
         type: "link",
         pageIndex: 0,
         rect: { x: 40, y: 660, width: 120, height: 24 },
-        href: "mailto:akki@example.com",
+        target: { kind: "email", href: "mailto:akki@example.com" },
         createdAt: 2,
       },
       // Dangerous scheme -> dropped (continue).
@@ -707,13 +707,169 @@ describe("PdfEngine.savePdf – links Annots branches", () => {
         type: "link",
         pageIndex: 0,
         rect: { x: 40, y: 620, width: 120, height: 24 },
-        href: "javascript:alert(1)",
+        target: { kind: "url", href: "javascript:alert(1)" },
         createdAt: 3,
       },
     ];
     const out = await pdfEngine.savePdf(original, operations);
     const reloaded = await PDFDocument.load(out);
     expect(reloaded.getPage(0).node.Annots()?.size() ?? 0).toBe(2);
+  });
+});
+
+describe("PdfEngine.savePdf – link target kinds", () => {
+  it("writes a GoTo action with an explicit XYZ destination for internal-page links", async () => {
+    const original = await blankPdfBytes(3);
+    const operations: EditOperation[] = [
+      {
+        id: "link_page",
+        type: "link",
+        pageIndex: 0,
+        rect: { x: 40, y: 700, width: 120, height: 24 },
+        target: { kind: "page", pageIndex: 2 },
+        createdAt: 1,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    const annots = reloaded.getPage(0).node.Annots();
+    expect(annots?.size()).toBe(1);
+    const annotation = annots!.lookup(0, PDFDict);
+    const action = annotation.lookup(PDFName.of("A"), PDFDict);
+    expect(action.get(PDFName.of("S"))).toEqual(PDFName.of("GoTo"));
+    const dest = action.lookup(PDFName.of("D"), PDFArray);
+    expect(dest.size()).toBe(5);
+    expect(reloaded.context.lookup(dest.get(0))).toBe(reloaded.getPage(2).node);
+    expect(dest.get(1)).toEqual(PDFName.of("XYZ"));
+  });
+
+  it("skips an internal-page link whose target page is out of range", async () => {
+    const original = await blankPdfBytes(2);
+    const operations: EditOperation[] = [
+      {
+        id: "link_gone",
+        type: "link",
+        pageIndex: 0,
+        rect: { x: 40, y: 700, width: 120, height: 24 },
+        target: { kind: "page", pageIndex: 7 },
+        createdAt: 1,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    expect(reloaded.getPage(0).node.Annots()?.size() ?? 0).toBe(0);
+  });
+
+  it("writes a tel: URI action for phone links", async () => {
+    const original = await blankPdfBytes();
+    const operations: EditOperation[] = [
+      {
+        id: "link_phone",
+        type: "link",
+        pageIndex: 0,
+        rect: { x: 40, y: 700, width: 120, height: 24 },
+        target: { kind: "phone", href: "+1 (555) 000-1234" },
+        createdAt: 1,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    const annotation = reloaded.getPage(0).node.Annots()!.lookup(0, PDFDict);
+    const action = annotation.lookup(PDFName.of("A"), PDFDict);
+    expect(action.get(PDFName.of("S"))).toEqual(PDFName.of("URI"));
+    expect(String(action.get(PDFName.of("URI")))).toContain("tel:+15550001234");
+  });
+
+  it("writes imported links without painting the editor's visible frame", async () => {
+    const original = await blankPdfBytes();
+    const importedOp: LinkOperation = {
+      id: "link_imported",
+      type: "link",
+      pageIndex: 0,
+      rect: { x: 40, y: 700, width: 120, height: 24 },
+      target: { kind: "url", href: "https://example.com" },
+      imported: true,
+      annotationRef: "99R",
+      createdAt: 1,
+    };
+    // The editor's visible frame strokes a 0.75pt border; its absence means no ink was added.
+    const importedOut = await PDFDocument.load(await pdfEngine.savePdf(original, [importedOp]));
+    expect(importedOut.getPage(0).node.Annots()?.size()).toBe(1);
+    expect(decodePageContentText(importedOut, importedOut.getPage(0))).not.toContain("0.75 w");
+
+    const fresh: LinkOperation = { ...importedOp, imported: undefined, annotationRef: undefined };
+    const freshOut = await PDFDocument.load(await pdfEngine.savePdf(original, [fresh]));
+    expect(decodePageContentText(freshOut, freshOut.getPage(0))).toContain("0.75 w");
+  });
+});
+
+describe("PdfEngine.savePdf – imported link annotation suppression", () => {
+  async function pdfWithLinkAnnotations(): Promise<{ bytes: Uint8Array; ids: string[] }> {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([612, 792]);
+    const makeAnnotation = (url: string) =>
+      pdf.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [10, 10, 100, 30],
+        Border: [0, 0, 0],
+        A: { Type: "Action", S: "URI", URI: PDFString.of(url) },
+      });
+    const refA = pdf.context.register(makeAnnotation("https://a.example"));
+    const refB = pdf.context.register(makeAnnotation("https://b.example"));
+    page.node.set(PDFName.of("Annots"), pdf.context.obj([refA, refB]));
+    const bytes = new Uint8Array(await pdf.save({ useObjectStreams: false }));
+    return { bytes, ids: [refA, refB].map((ref) => `${ref.objectNumber}R${ref.generationNumber === 0 ? "" : ref.generationNumber}`) };
+  }
+
+  it("strips suppressed imported link annotations and keeps unmatched ones", async () => {
+    const { bytes, ids } = await pdfWithLinkAnnotations();
+    const out = await pdfEngine.savePdf(bytes, [], undefined, { suppressLinkAnnotationIds: [ids[0]] });
+    const reloaded = await PDFDocument.load(out);
+    const annots = reloaded.getPage(0).node.Annots();
+    expect(annots?.size()).toBe(1);
+    const survivor = annots!.lookup(0, PDFDict);
+    const action = survivor.lookup(PDFName.of("A"), PDFDict);
+    expect(String(action.get(PDFName.of("URI")))).toContain("b.example");
+  });
+
+  it("suppresses originals while their re-emitted operations are written back", async () => {
+    const { bytes, ids } = await pdfWithLinkAnnotations();
+    const operations: EditOperation[] = [
+      {
+        id: "link_reemitted",
+        type: "link",
+        pageIndex: 0,
+        rect: { x: 10, y: 10, width: 90, height: 20 },
+        target: { kind: "url", href: "https://a-edited.example" },
+        imported: true,
+        annotationRef: ids[0],
+        createdAt: 1,
+      },
+    ];
+    const out = await pdfEngine.savePdf(bytes, operations, undefined, { suppressLinkAnnotationIds: ids });
+    const reloaded = await PDFDocument.load(out);
+    const annots = reloaded.getPage(0).node.Annots();
+    // Both originals stripped, one edited copy re-emitted.
+    expect(annots?.size()).toBe(1);
+    const survivor = annots!.lookup(0, PDFDict);
+    const action = survivor.lookup(PDFName.of("A"), PDFDict);
+    expect(String(action.get(PDFName.of("URI")))).toContain("a-edited.example");
+  });
+
+  it("leaves pages untouched when no suppressed id matches and skips pages without Annots", async () => {
+    const { bytes } = await pdfWithLinkAnnotations();
+    const twoPage = await PDFDocument.load(bytes);
+    twoPage.addPage([612, 792]);
+    const twoPageBytes = new Uint8Array(await twoPage.save({ useObjectStreams: false }));
+    // "garbage" is not an object-reference id (dropped), "5R2" exercises the
+    // explicit-generation form, "12345R" parses but matches nothing.
+    const out = await pdfEngine.savePdf(twoPageBytes, [], undefined, {
+      suppressLinkAnnotationIds: ["garbage", "5R2", "12345R"],
+    });
+    const reloaded = await PDFDocument.load(out);
+    expect(reloaded.getPage(0).node.Annots()?.size()).toBe(2);
+    expect(reloaded.getPage(1).node.Annots()).toBeUndefined();
   });
 });
 
@@ -811,7 +967,7 @@ describe("PdfEngine.savePdf – export validity (writer registry regression)", (
         type: "link",
         pageIndex: 1,
         rect: { x: 72, y: 400, width: 120, height: 24 },
-        href: "https://example.com",
+        target: { kind: "url", href: "https://example.com" },
         createdAt: 6,
       },
       {

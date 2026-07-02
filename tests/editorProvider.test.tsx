@@ -13,7 +13,7 @@ vi.mock("../src/engine/pdfEngine", () => ({
     loadDocument: vi.fn(),
     createBlankDocument: vi.fn(),
     getPageSizes: vi.fn().mockResolvedValue([{ width: 612, height: 792 }]),
-    extractTextAndFonts: vi.fn().mockResolvedValue({ items: [], fonts: {} }),
+    extractTextAndFonts: vi.fn().mockResolvedValue({ items: [], fonts: {}, links: [] }),
     insertBlankPage: vi.fn(),
     deletePage: vi.fn(),
     rotatePage: vi.fn(),

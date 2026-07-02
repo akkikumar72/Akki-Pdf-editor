@@ -102,6 +102,7 @@ export function EditorRoute() {
         <Inspector
           operation={editor.selectedOperation}
           operationCount={editState.operations.length}
+          pageCount={document.pageCount}
           pageTextItems={editor.pageTextItems}
           onExport={editor.runExport}
           onUpdate={editor.updateOperation}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { importedLinkOperation } from "../editor/linkTarget";
 import { shiftOperationsForDeletedPage, shiftOperationsForInsertedPage } from "../editor/pageOperations";
 import { exportPipeline } from "../engine/exportPipeline";
 import { pdfEngine } from "../engine/pdfEngine";
@@ -14,6 +15,7 @@ export function useEditorController() {
   const [textItems, setTextItems] = useState<TextItem[]>([]);
   const [documentFonts, setDocumentFonts] = useState<DocumentFonts>({});
   const [pageSizes, setPageSizes] = useState<Array<{ width: number; height: number }>>([]);
+  const [importedLinkAnnotationIds, setImportedLinkAnnotationIds] = useState<string[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [scale, setScale] = useState(1.18);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
@@ -49,9 +51,17 @@ export function useEditorController() {
     setTextItems(content.items);
     setDocumentFonts(content.fonts);
     setPageSizes(sizes);
+    // The full imported-annotation id list (not just surviving ops) so a deleted
+    // imported link still suppresses its original annotation at export.
+    setImportedLinkAnnotationIds(
+      content.links.map((link) => link.annotationRef).filter((ref): ref is string => typeof ref === "string"),
+    );
+    // Fresh opens seed the baseline with the document's own links (editable,
+    // not undoable below the baseline). Restored sessions / page mutations
+    // already carry them inside their saved operations.
     dispatch({
       type: "reset",
-      operations: savedEditState?.operations,
+      operations: savedEditState ? savedEditState.operations : content.links.map(importedLinkOperation),
       past: savedEditState?.past,
       future: savedEditState?.future,
     });
@@ -230,6 +240,7 @@ export function useEditorController() {
     setTextItems([]);
     setDocumentFonts({});
     setPageSizes([]);
+    setImportedLinkAnnotationIds([]);
     setPageIndex(0);
     setRotation(0);
     setActiveTool("select");
@@ -354,6 +365,7 @@ export function useEditorController() {
         operations: editState.operations,
         textItems,
         fonts: documentFonts,
+        suppressLinkAnnotationIds: importedLinkAnnotationIds,
       });
       setStatus(`${format.toUpperCase()} exported`);
     } catch (error) {
@@ -361,7 +373,7 @@ export function useEditorController() {
     } finally {
       setIsBusy(false);
     }
-  }, [document, documentFonts, editState.operations, textItems]);
+  }, [document, documentFonts, editState.operations, importedLinkAnnotationIds, textItems]);
 
   return {
     document,

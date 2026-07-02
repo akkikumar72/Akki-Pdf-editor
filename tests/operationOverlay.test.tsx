@@ -597,13 +597,31 @@ describe("OperationOverlay - non-text branches", () => {
     expect(el.textContent).toBe("note");
   });
 
-  it("renders a link with its href", () => {
+  it("renders a link with a kind-aware label per target", () => {
+    const cases: Array<[LinkOperation["target"], string]> = [
+      [{ kind: "url", href: "https://example.com/deep/path" }, "example.com"],
+      [{ kind: "email", href: "mailto:you@example.com" }, "you@example.com"],
+      [{ kind: "phone", href: "tel:+1234567890" }, "+1234567890"],
+      [{ kind: "page", pageIndex: 1 }, "Page 2"],
+    ];
+    for (const [target, label] of cases) {
+      const op: LinkOperation = { id: `link-${target.kind}`, type: "link", pageIndex: 0, rect: RECT, createdAt: 1, target };
+      const { container, unmount } = renderOverlay(op);
+      const el = container.querySelector(".operation--link span") as HTMLSpanElement;
+      expect(el.textContent).toBe(label);
+      unmount();
+    }
+  });
+
+  it("renders an imported link as a quiet dashed box without a label", () => {
     const op: LinkOperation = {
-      id: "link", type: "link", pageIndex: 0, rect: RECT, createdAt: 1, href: "https://example.com",
+      id: "link-imported", type: "link", pageIndex: 0, rect: RECT, createdAt: 1,
+      target: { kind: "url", href: "https://example.com" }, imported: true, annotationRef: "13R",
     };
     const { container } = renderOverlay(op);
-    const el = container.querySelector(".operation--link span") as HTMLSpanElement;
-    expect(el.textContent).toBe("https://example.com");
+    const el = container.querySelector(".operation--link") as HTMLDivElement;
+    expect(el.classList.contains("operation--link-imported")).toBe(true);
+    expect(el.querySelector("span")).toBeNull();
   });
 
   it("renders a checked form-field showing the check and value", () => {

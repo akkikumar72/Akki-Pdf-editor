@@ -1601,6 +1601,66 @@ select:disabled {
   gap: var(--space-xs);
 }
 
+.link-popover {
+  width: min(21rem, calc(100% - 1rem));
+}
+
+.link-popover__kinds {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.link-popover__kind {
+  display: grid;
+  gap: var(--space-3xs, 0.2rem);
+}
+
+.link-popover__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs, 0.35rem);
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+.link-popover__kind.is-active .link-popover__choice {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.link-popover__kind input[type="text"],
+.link-popover__kind input[type="number"] {
+  height: 2rem;
+  padding: 0 var(--space-xs);
+  border: var(--rule-hair) solid var(--color-rule-2);
+  border-radius: var(--radius-xs);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+
+.link-popover__kind:not(.is-active) input[type="text"],
+.link-popover__kind:not(.is-active) input[type="number"] {
+  opacity: 0.55;
+}
+
+.link-popover__kind input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.link-popover__error {
+  margin: 0;
+  color: oklch(54% 0.19 27);
+  font-size: var(--text-xs);
+}
+
+.link-popover__delete {
+  margin-right: auto;
+  color: oklch(54% 0.19 27);
+}
+
 .history-dialog__backdrop {
   position: fixed;
   z-index: 1000;
@@ -2139,6 +2199,19 @@ select:disabled {
   color: var(--color-accent);
   background: color-mix(in oklch, var(--color-accent-soft) 65%, transparent);
   font-size: var(--text-xs);
+}
+
+/* A link imported from the source PDF: keep the original page content visible
+   and only hint at editability with a subtle dashed outline (Sejda parity). */
+.operation--link-imported {
+  border-color: color-mix(in oklch, var(--color-accent) 34%, transparent);
+  background: transparent;
+}
+
+.operation--link-imported:hover,
+.operation--link-imported.is-selected {
+  border-color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent-soft) 35%, transparent);
 }
 
 .operation--stamp {

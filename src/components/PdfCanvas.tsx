@@ -27,6 +27,8 @@ import {
 } from "../editor/signaturePlacement";
 import { CanvasHintBanner } from "./CanvasHintBanner";
 import { InlineInputPopover, type PendingInputRequest } from "./InlineInputPopover";
+import { LinkPropertiesDialog, type LinkDialogRequest } from "./LinkPropertiesDialog";
+import { createLinkOperation } from "../editor/linkTarget";
 import { SignatureModal } from "./SignatureModal";
 import { SignaturePicker } from "./SignaturePicker";
 import { pdfRectToViewport, viewportPointToPdf, viewportRectToPdf } from "../utils/coordinates";
@@ -42,7 +44,6 @@ import {
 import { deleteSignature, listSignatures, saveSignature, type SavedSignature } from "../utils/storage";
 import { findNearbyTextRunForStyle, groupEditableTextRuns } from "../utils/textRunGrouping";
 import { annotationRectsForClick, annotationRectsForMarquee } from "../utils/textSelection";
-import { sanitizeUrl } from "../utils/url";
 import { viewportRectsOverlap } from "../utils/textMetrics";
 import { safeImageSrc } from "../utils/safeImage";
 import { FloatingOperationToolbar } from "./FloatingOperationToolbar";
@@ -143,6 +144,7 @@ export function PdfCanvas({
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
   const [pendingInput, setPendingInput] = useState<PendingInputRequest | null>(null);
+  const [pendingLink, setPendingLink] = useState<LinkDialogRequest | null>(null);
   const [isPageRendered, setIsPageRendered] = useState(false);
   const pageWidth = pageSize?.width ?? 612;
   const pageHeight = pageSize?.height ?? 792;
@@ -170,6 +172,7 @@ export function PdfCanvas({
     // it goes stale the moment any of those change. Same for the signature
     // picker's anchor and the image ghost's viewport position.
     setPendingInput(null);
+    setPendingLink(null);
     setSignatureRequest(null);
     setPendingImage(null);
     setGhostPoint(null);
@@ -177,6 +180,7 @@ export function PdfCanvas({
 
   useEffect(() => {
     setPendingInput(null);
+    setPendingLink(null);
     setSignatureRequest(null);
     setPendingImage(null);
     setGhostPoint(null);
@@ -329,6 +333,24 @@ export function PdfCanvas({
       setSignatureRequest({ point, saved, view: saved.length > 0 ? "chooser" : "modal" });
       return;
     }
+    if (activeTool === "link") {
+      // The link tool routes through the kind-aware properties dialog instead
+      // of the generic inline popover.
+      const rect = viewportRectToPdf(viewportRect, pageHeight, scale);
+      setPendingLink({
+        anchor: viewportRect,
+        onConfirm: (target) => {
+          setPendingLink(null);
+          const created = createLinkOperation({ target, pageIndex, rect, enforceMinSize: true });
+          /* v8 ignore next -- the dialog only confirms already-sanitized targets, so createLinkOperation never rejects here */
+          if (!created) return;
+          onOperationAdd(created);
+          onOperationSelect(created.id);
+        },
+        onCancel: () => setPendingLink(null),
+      });
+      return;
+    }
     // Sejda-style text snapping: with an annotate tool armed, a marquee becomes
     // one annotation per intersected text-run line (clipped to the marquee) and
     // a plain click annotates the whole run under it. No text hit -> fall
@@ -398,37 +420,28 @@ export function PdfCanvas({
   };
 
   const addLinkForOperation = (operation: EditOperation) => {
-    const isExistingLink = operation.type === "link";
-    const defaultHref = operation.type === "link" ? operation.href : "https://";
-    setPendingInput({
-      title: isExistingLink ? "Edit link" : "Add link",
-      confirmLabel: isExistingLink ? "Save link" : "Add link",
-      fields: [{ key: "href", label: "Link URL", defaultValue: defaultHref }],
+    const existing = operation.type === "link" ? operation : undefined;
+    setPendingLink({
       anchor: pdfRectToViewport(operation.rect, pageHeight, scale),
-      onConfirm: (values) => {
-        setPendingInput(null);
-        const href = values.href?.trim();
-        if (!href) return;
-        const safeHref = sanitizeUrl(href);
-        if (!safeHref) {
-          onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
+      target: existing?.target,
+      onConfirm: (target) => {
+        setPendingLink(null);
+        if (existing) {
+          onOperationUpdate(existing.id, { target } as Partial<EditOperation>);
           return;
         }
-        if (isExistingLink) {
-          onOperationUpdate(operation.id, { href: safeHref } as Partial<EditOperation>);
-          return;
-        }
-        onOperationAdd({
-          id: createId("link"),
-          type: "link",
-          pageIndex: operation.pageIndex,
-          rect: { ...operation.rect },
-          href: safeHref,
-          opacity: 1,
-          createdAt: Date.now(),
-        });
+        const created = createLinkOperation({ target, pageIndex: operation.pageIndex, rect: operation.rect });
+        /* v8 ignore next -- the dialog only confirms already-sanitized targets, so createLinkOperation never rejects here */
+        if (!created) return;
+        onOperationAdd(created);
       },
-      onCancel: () => setPendingInput(null),
+      onDelete: existing
+        ? () => {
+            setPendingLink(null);
+            onOperationRemove(existing.id);
+          }
+        : undefined,
+      onCancel: () => setPendingLink(null),
     });
   };
 
@@ -696,6 +709,9 @@ export function PdfCanvas({
             ) : null}
             {pendingInput ? (
               <InlineInputPopover request={pendingInput} pageWidth={pageWidth} scale={scale} />
+            ) : null}
+            {pendingLink ? (
+              <LinkPropertiesDialog request={pendingLink} pageCount={document.pageCount} pageWidth={pageWidth} scale={scale} />
             ) : null}
             {operations.map((operation) => (
               <OperationOverlay

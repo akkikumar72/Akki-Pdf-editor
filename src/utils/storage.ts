@@ -1,5 +1,6 @@
 import type { EditOperation } from "../types/editor";
 import type { EditState } from "../state/editModel";
+import { normalizeLegacyOperations } from "../editor/linkTarget";
 
 const DB_NAME = "akki-pdf-editor";
 const STORE = "sessions";
@@ -37,6 +38,26 @@ export type SessionSaveInput = {
   editState: Pick<EditState, "operations" | "past" | "future">;
   operations: EditOperation[];
 };
+
+/**
+ * Sessions saved before link targets became a kind union stored `{ href }`
+ * links. Normalize every operation list (current, undo, redo) on the way out
+ * of IndexedDB so old data keeps loading.
+ */
+function normalizeSession(session: SavedSession | undefined): SavedSession | undefined {
+  if (!session) return session;
+  return {
+    ...session,
+    operations: session.operations ? normalizeLegacyOperations(session.operations) : session.operations,
+    editState: session.editState
+      ? {
+          operations: normalizeLegacyOperations(session.editState.operations),
+          past: session.editState.past.map((entry) => ({ ...entry, operations: normalizeLegacyOperations(entry.operations) })),
+          future: session.editState.future.map((entry) => ({ ...entry, operations: normalizeLegacyOperations(entry.operations) })),
+        }
+      : session.editState,
+  };
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -95,7 +116,7 @@ export async function getLatestSession(): Promise<SavedSession | undefined> {
     request.onerror = () => reject(request.error);
   });
   db.close();
-  return sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  return normalizeSession(sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0]);
 }
 
 export async function getSession(id: string): Promise<SavedSession | undefined> {
@@ -107,7 +128,7 @@ export async function getSession(id: string): Promise<SavedSession | undefined> 
     request.onerror = () => reject(request.error);
   });
   db.close();
-  return session;
+  return normalizeSession(session);
 }
 
 export async function deleteSession(id: string) {

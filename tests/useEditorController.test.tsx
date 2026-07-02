@@ -94,7 +94,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Sensible defaults; individual tests override.
   mockedEngine.getPageSizes.mockResolvedValue(sizes);
-  mockedEngine.extractTextAndFonts.mockResolvedValue({ items: [], fonts: {} });
+  mockedEngine.extractTextAndFonts.mockResolvedValue({ items: [], fonts: {}, links: [] });
   mockedEngine.loadDocument.mockResolvedValue(makeLoaded());
   mockedEngine.createBlankDocument.mockResolvedValue(makeLoaded({ name: "blank.pdf" }));
   mockedEngine.insertBlankPage.mockResolvedValue(new Uint8Array([9]));
@@ -505,6 +505,7 @@ describe("pageTextItems", () => {
         { str: "b", pageIndex: 1, rect: { x: 0, y: 0, width: 1, height: 1 } },
       ],
       fonts: {},
+      links: [],
     });
     mockedEngine.loadDocument.mockResolvedValue(makeLoaded({ pageCount: 2 }));
     mockedEngine.getPageSizes.mockResolvedValue([sizes[0], sizes[0]]);
@@ -823,6 +824,66 @@ describe("runExport", () => {
       await result.current.runExport("csv");
     });
     expect(result.current.status).toBe("Could not export csv.");
+  });
+});
+
+describe("imported PDF links", () => {
+  const importedLink = {
+    pageIndex: 0,
+    rect: { x: 10, y: 20, width: 100, height: 30 },
+    target: { kind: "url" as const, href: "https://imported.example/" },
+    annotationRef: "13R",
+  };
+
+  it("seeds imported links as editable operations on a fresh open", async () => {
+    mockedEngine.extractTextAndFonts.mockResolvedValue({
+      items: [],
+      fonts: {},
+      links: [importedLink, { ...importedLink, annotationRef: undefined }],
+    });
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    expect(result.current.editState.operations).toHaveLength(2);
+    const op = result.current.editState.operations[0];
+    expect(op.type).toBe("link");
+    expect(op).toMatchObject({ imported: true, annotationRef: "13R", target: importedLink.target });
+    // Baseline seed: importing must not create undo history.
+    expect(result.current.editState.past).toHaveLength(0);
+  });
+
+  it("does not re-seed imported links when restoring a saved session", async () => {
+    mockedEngine.extractTextAndFonts.mockResolvedValue({ items: [], fonts: {}, links: [importedLink] });
+    mockedGetLatest.mockResolvedValue({
+      id: "s1",
+      name: "saved.pdf",
+      updatedAt: 5,
+      bytes: new Uint8Array([1]),
+      editState: { operations: [textOp()], past: [], future: [] },
+      operations: [textOp()],
+    } as SavedSession);
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      await result.current.restoreLatestSession();
+    });
+    expect(result.current.editState.operations).toHaveLength(1);
+    expect(result.current.editState.operations[0].type).toBe("text");
+  });
+
+  it("forwards imported annotation ids to the export pipeline for suppression", async () => {
+    mockedEngine.extractTextAndFonts.mockResolvedValue({
+      items: [],
+      fonts: {},
+      links: [importedLink, { ...importedLink, annotationRef: undefined }],
+    });
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      await result.current.runExport("pdf");
+    });
+    expect(mockedExport.export).toHaveBeenCalledWith(
+      "pdf",
+      expect.objectContaining({ suppressLinkAnnotationIds: ["13R"] }),
+    );
   });
 });
 

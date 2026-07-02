@@ -357,19 +357,8 @@ describe("operation factory", () => {
     expect(ink.points).toHaveLength(4);
   });
 
-  it("creates a link, and bails for empty or unsafe URLs", () => {
-    const [link] = createOperationsForTool({
-      ...baseInput,
-      activeTool: "link",
-      resolvedFields: { href: "https://example.com" },
-    });
-    if (link.type !== "link") throw new Error("Expected link");
-    expect(link.href).toContain("example.com");
-
+  it("creates nothing for the link tool (routed through the link properties dialog)", () => {
     expect(createOperationsForTool({ ...baseInput, activeTool: "link" })).toEqual([]);
-    expect(
-      createOperationsForTool({ ...baseInput, activeTool: "link", resolvedFields: { href: "javascript:alert(1)" } }),
-    ).toEqual([]);
   });
 
   it("creates a stamp when labelled, and bails when the label is empty", () => {
@@ -501,16 +490,11 @@ describe("operation factory", () => {
 });
 
 describe("describeInlineInput", () => {
-  it("describes popovers for annotate-text, link, and stamp", () => {
+  it("describes popovers for annotate-text and stamp", () => {
     expect(describeInlineInput("annotate-text", [])).toEqual({
       title: "Annotation note",
       confirmLabel: "Add note",
       fields: [{ key: "text", label: "Note", defaultValue: "Note" }],
-    });
-    expect(describeInlineInput("link", [])).toEqual({
-      title: "Add link",
-      confirmLabel: "Add link",
-      fields: [{ key: "href", label: "Link URL", defaultValue: "https://" }],
     });
     const stamp = describeInlineInput("stamp", []);
     expect(stamp?.title).toBe("Add stamp");
@@ -556,7 +540,7 @@ describe("describeInlineInput", () => {
   });
 
   it("returns null for tools that create immediately with no text input", () => {
-    for (const tool of ["select", "text", "whiteout", "highlight", "shape", "ink", "mark-check", "image", "table-region"] as const) {
+    for (const tool of ["select", "text", "whiteout", "highlight", "shape", "ink", "mark-check", "image", "link", "table-region"] as const) {
       expect(describeInlineInput(tool, [])).toBeNull();
     }
   });
