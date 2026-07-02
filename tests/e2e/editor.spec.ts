@@ -76,7 +76,14 @@ test("imports a PDF and adds a text overlay", async ({ page }, testInfo) => {
     .getByRole("region", { name: "PDF editor canvas" })
     .locator(".react-pdf__Page__canvas")
     .click({ position: { x: 320, y: 360 } });
-  await expect(page.getByRole("region", { name: "PDF editor canvas" }).getByText("New text")).toBeVisible();
+  // Sejda-parity placement: the box appears instantly with the placeholder
+  // fully selected, so typing replaces it without any select-and-delete.
+  await expect(page.getByRole("region", { name: "PDF editor canvas" }).getByText("Type your text")).toBeVisible();
+  const styledEditor = page
+    .getByRole("region", { name: "PDF editor canvas" })
+    .locator(".operation--text[contenteditable='true']");
+  await styledEditor.pressSequentially("Styled text");
+  await expect(page.getByRole("region", { name: "PDF editor canvas" }).getByText("Styled text")).toBeVisible();
   const inlineToolbar = page.getByRole("toolbar", { name: "Inline edit tools" });
   await expect(inlineToolbar).toBeVisible();
   await inlineToolbar.getByRole("button", { name: "Bold" }).click();
@@ -143,9 +150,7 @@ test("replacement hides overlapping PDF.js text-layer spans", async ({ page }, t
   await expect(canvas.locator(".operation--text").filter({ hasText: "Invoice total" })).toBeVisible();
 
   await expect
-    .poll(async () =>
-      canvas.locator(".react-pdf__Page__textContent span[data-akki-suppressed='true']").count(),
-    )
+    .poll(async () => canvas.locator(".react-pdf__Page__textContent span[data-akki-suppressed='true']").count())
     .toBeGreaterThan(0);
 });
 
@@ -162,13 +167,16 @@ test("local save restores the PDF session after reload and can return home", asy
     .getByRole("region", { name: "PDF editor canvas" })
     .locator(".react-pdf__Page__canvas")
     .click({ position: { x: 320, y: 360 } });
-  await expect(page.locator(".operation--text").filter({ hasText: "New text" })).toBeVisible();
+  const savedEditor = page.locator(".operation--text[contenteditable='true']");
+  await savedEditor.pressSequentially("Saved note");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".operation--text").filter({ hasText: "Saved note" })).toBeVisible();
 
   await page.waitForTimeout(900);
 
   await page.reload();
   await expect(page.getByText(/local-save\.pdf restored from this browser/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator(".operation--text").filter({ hasText: "New text" })).toBeVisible();
+  await expect(page.locator(".operation--text").filter({ hasText: "Saved note" })).toBeVisible();
 
   await page.getByRole("button", { name: "AkkiPDF home" }).click();
   await expect(page.getByRole("heading", { name: /lighter touch/i })).toBeVisible();
@@ -281,7 +289,7 @@ test("new text added near an existing line inherits that line style", async ({ p
   await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
   await page.mouse.click(sourceBox.x + sourceBox.width + 24, sourceBox.y + sourceBox.height / 2);
 
-  const newText = page.locator(".operation--text").filter({ hasText: "New text" });
+  const newText = page.locator(".operation--text").filter({ hasText: "Type your text" });
   await expect(newText).toBeVisible();
   await expect(newText).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   const textColor = parseRgb(await newText.evaluate((node) => getComputedStyle(node).color));
@@ -342,6 +350,9 @@ test("aligns the inline toolbar with text and supports drag move with guides", a
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 140, y: 420 } });
   const textOverlay = canvas.locator(".operation--text").last();
   await expect(textOverlay).toBeVisible();
+  // An untouched placeholder box is discarded on commit (Sejda-style cleanup),
+  // so give it real content before ending the edit session.
+  await canvas.locator(".operation--text[contenteditable='true']").pressSequentially("Guides anchor");
   await page.keyboard.press("Escape");
   await expect(textOverlay).not.toHaveClass(/is-editing/);
 
@@ -364,7 +375,10 @@ test("aligns the inline toolbar with text and supports drag move with guides", a
   expect(placement.verticalGap).toBeLessThanOrEqual(20);
 
   // Move-drag lives in the Select tool; with the Text tool active a click would edit instead.
-  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Select", exact: true }).click();
+  await page
+    .getByRole("toolbar", { name: "Editing tools" })
+    .getByRole("button", { name: "Select", exact: true })
+    .click();
 
   const startBox = await textOverlay.boundingBox();
   expect(startBox).not.toBeNull();
@@ -382,9 +396,7 @@ test("aligns the inline toolbar with text and supports drag move with guides", a
   expect(startBox!.y - endBox!.y).toBeGreaterThan(20);
 });
 
-test("keeps the inline toolbar inside the page when the overlay is near the right edge", async ({
-  page,
-}, testInfo) => {
+test("keeps the inline toolbar inside the page when the overlay is near the right edge", async ({ page }, testInfo) => {
   const pdfPath = testInfo.outputPath("right-edge.pdf");
   await makeSamplePdf(pdfPath);
 
@@ -401,6 +413,7 @@ test("keeps the inline toolbar inside the page when the overlay is near the righ
   expect(stageBox).not.toBeNull();
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: stageBox!.width - 12, y: 360 } });
   await expect(canvas.locator(".operation--text").last()).toBeVisible();
+  await canvas.locator(".operation--text[contenteditable='true']").pressSequentially("Edge text");
   await page.keyboard.press("Escape");
 
   const inlineToolbar = page.getByRole("toolbar", { name: "Inline edit tools" });
@@ -494,6 +507,7 @@ test("text tool click on a text overlay edits it in place without moving", async
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 420 } });
   const overlay = canvas.locator(".operation--text").last();
   await expect(overlay).toBeVisible();
+  await canvas.locator(".operation--text[contenteditable='true']").pressSequentially("Anchored");
   await page.keyboard.press("Escape");
   await expect(overlay).not.toHaveClass(/is-editing/);
 

@@ -35,9 +35,7 @@ describe("operation factory", () => {
     expect(operation.color).toBe("#f8fafc");
     expect(operation.whiteout).toBe(true);
     expect(operation.whiteoutColor).toBe("#d7ecff");
-    expect(operation.sourceCoverRect).toEqual(
-      padReplacementCoverRect({ x: 72, y: 700, width: 110, height: 20 }, 20),
-    );
+    expect(operation.sourceCoverRect).toEqual(padReplacementCoverRect({ x: 72, y: 700, width: 110, height: 20 }, 20));
   });
 
   it("does not set a source cover rect for plain new text", () => {
@@ -99,7 +97,7 @@ describe("operation factory", () => {
 
     expect(operation.type).toBe("text");
     if (operation.type !== "text") throw new Error("Expected text operation");
-    expect(operation.text).toBe("New text");
+    expect(operation.text).toBe("Type your text");
     expect(operation.fontFamily).toBe("Helvetica");
     expect(operation.cssFontFamily?.startsWith('"g_d1_f1", sans-serif')).toBe(true);
     expect(operation.color).toBe("#ffffff");
@@ -183,7 +181,7 @@ describe("operation factory", () => {
       activeTool: "text",
     });
     if (operation.type !== "text") throw new Error("Expected text operation");
-    expect(operation.text).toBe("New text");
+    expect(operation.text).toBe("Type your text");
     expect(operation.fontSize).toBe(14);
     expect(operation.color).toBe("#111827");
     expect(operation.bold).toBeUndefined();
@@ -195,10 +193,11 @@ describe("operation factory", () => {
     // Height must track the font's own line height (not a flat constant unrelated to
     // fontSize) so the caret lands at the click point instead of visibly below it.
     expect(operation.rect.height).toBeCloseTo(operation.fontSize * 1.15, 5);
-    // The click's top edge (pageHeight - viewportRect.top, here 792 - 50) must be
-    // preserved even though height shrank — PDF rects anchor at the bottom-left, so a
-    // naive height change without adjusting `y` would shift the box down on screen.
-    expect(operation.rect.y + operation.rect.height).toBeCloseTo(792 - 50, 5);
+    // Reference parity (Sejda): the box is centered vertically ON the click point
+    // (PDF-space click Y = pageHeight - viewportRect.top, here 792 - 50), so the
+    // text originates at the cursor instead of hanging below it.
+    const boxCenterY = operation.rect.y + operation.rect.height / 2;
+    expect(boxCenterY).toBeCloseTo(792 - 50, 5);
   });
 
   it("clamps to the sampled weight when no detected weight exists (generic font)", () => {

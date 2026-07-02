@@ -290,12 +290,20 @@ export function useStagePointerGestures({
     // A press-and-release with no movement in between is a click, not a
     // completed (no-op) move — resolve it to whatever a plain click on this
     // overlay/tool combination means, instead of leaving the gesture inert.
-    if (drag && !dragMoved.current) {
-      const pressedOperation = operations.find((operation) => operation.id === drag.id);
-      if (activeTool === "text" && pressedOperation?.type === "text" && editingTextId !== pressedOperation.id) {
-        // Reference-style click-to-edit: only fires when the click didn't drag.
-        setEditingTextId(pressedOperation.id);
+    if (drag) {
+      if (!dragMoved.current) {
+        const pressedOperation = operations.find((operation) => operation.id === drag.id);
+        if (activeTool === "text" && pressedOperation?.type === "text" && editingTextId !== pressedOperation.id) {
+          // Reference-style click-to-edit: only fires when the click didn't drag.
+          setEditingTextId(pressedOperation.id);
+        }
       }
+      // Consume the synthetic click that follows this pointerup. Pointer
+      // capture retargets it to the stage, so a press that started on an
+      // overlay would otherwise read as "click on empty canvas" and place
+      // a stray NEW operation at the release point (with the Text tool this
+      // dropped a second placeholder box on top of the one being edited).
+      dragMoved.current = true;
     }
     finishGesture();
   };

@@ -12,7 +12,7 @@ import type {
   TextItem,
   ViewportRect,
 } from "../types/editor";
-import { createOperationsForTool, describeInlineInput } from "../editor/operationFactory";
+import { createOperationsForTool, describeInlineInput, NEW_TEXT_PLACEHOLDER } from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
 import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
 import { CanvasHintBanner } from "./CanvasHintBanner";
@@ -131,6 +131,23 @@ export function PdfCanvas({
   useEffect(() => {
     if (editingTextId && selectedId !== editingTextId) setEditingTextId(undefined);
   }, [editingTextId, selectedId]);
+
+  // Sejda-style unused-edit cleanup: whenever a text edit session ends (commit,
+  // Escape, click-away, selection change), a freshly placed box that is still
+  // empty or still holds the untouched placeholder is discarded — abandoned
+  // "Type your text" boxes never pollute the document or the export.
+  // Replacements (sourceCoverRect) are exempt: clearing an existing run to
+  // empty is the legitimate "delete this text" gesture.
+  const previousEditingTextId = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const previous = previousEditingTextId.current;
+    previousEditingTextId.current = editingTextId;
+    if (!previous || previous === editingTextId) return;
+    const edited = operations.find((operation) => operation.id === previous);
+    if (!edited || edited.type !== "text" || edited.sourceCoverRect) return;
+    const text = edited.text.trim();
+    if (text === "" || text === NEW_TEXT_PLACEHOLDER) onOperationRemove(edited.id);
+  }, [editingTextId, operations, onOperationRemove]);
 
   useEffect(() => {
     if (editingTextId && editingTextId === moveModeOperationId) setMoveModeOperationId(undefined);
@@ -509,6 +526,7 @@ export function PdfCanvas({
             {selectedOperation && liveSelectedOperation && editingTextId !== selectedOperation.id && isResizableOperation(selectedOperation) ? (
               <ResizeHandles
                 rect={pdfRectToViewport(liveSelectedOperation.rect, pageHeight, scale)}
+                interacting={Boolean(drag) || Boolean(resize)}
                 onResizeStart={(handle, event) => handleResizeStart(handle, event, selectedOperation)}
               />
             ) : null}
