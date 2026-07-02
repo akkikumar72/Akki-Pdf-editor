@@ -1,11 +1,10 @@
 import { Document, Page } from "react-pdf";
 import { ImagePlus } from "lucide-react";
-import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
+import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DocumentFonts,
   EditOperation,
   EditorTool,
-  InkOperation,
   LoadedPdf,
   PdfPoint,
   PdfRect,
@@ -13,20 +12,22 @@ import type {
   TextItem,
   ViewportRect,
 } from "../types/editor";
-import { createOperationsForTool } from "../editor/operationFactory";
-import { isRegionTool } from "../editor/toolRegistry";
+import { createOperationsForTool, describeInlineInput } from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
-import { duplicateOperation as cloneOperation, translatePoints } from "../editor/selectionModel";
+import { duplicateOperation as cloneOperation } from "../editor/selectionModel";
 import { CanvasHintBanner } from "./CanvasHintBanner";
-import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
-import { collectAlignmentLines, snapViewportRect, type AlignmentLines, type GuideLine } from "../utils/alignmentGuides";
+import { InlineInputPopover, type PendingInputRequest } from "./InlineInputPopover";
+import { pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
+import { sampleTextBackgroundColor, sampleTextColor, sampleTextFontWeight } from "../utils/canvasTextStyleSampling";
 import { validateImageFile } from "../utils/fileValidation";
 import { createId } from "../utils/ids";
+import { findNearbyTextRunForStyle, groupEditableTextRuns } from "../utils/textRunGrouping";
 import { sanitizeUrl } from "../utils/url";
 import { viewportRectsOverlap } from "../utils/textMetrics";
 import { FloatingOperationToolbar } from "./FloatingOperationToolbar";
 import { OperationOverlay } from "./OperationOverlay";
-import { ResizeHandles, type ResizeHandle } from "./ResizeHandles";
+import { ResizeHandles } from "./ResizeHandles";
+import { marqueeRect, useStagePointerGestures } from "./useStagePointerGestures";
 
 type PdfCanvasProps = {
   activeTool: EditorTool;
@@ -48,54 +49,11 @@ type PdfCanvasProps = {
   onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
 };
 
-type DragState = {
-  id: string;
-  start: PdfPoint;
-  origin: PdfPoint;
-  // Alignment guide candidates never depend on the dragged rect's own position (the
-  // moving operation is excluded from the calculation), so they're computed once here
-  // at drag start instead of on every pointermove — the prior per-move recompute over
-  // every operation and PDF text item on the page was the dominant cause of drag lag.
-  alignmentLines: AlignmentLines;
-};
-
-type ResizeState = {
-  id: string;
-  handle: ResizeHandle;
-  startPointer: { x: number; y: number };
-  startRect: ViewportRect;
-};
-
-const MIN_RESIZE_PX = 8;
-// Below this drag distance (px) a region-tool press is treated as a plain click
-// and falls back to a comfortable default size rather than the tiny drawn area.
-const DRAW_CLICK_THRESHOLD_PX = 6;
-const DRAW_CLICK_FALLBACK = { width: 160, height: 80 };
-
-type DrawState = {
-  start: { x: number; y: number };
-  current: { x: number; y: number };
-};
-
-function marqueeRect(draw: DrawState) {
-  return {
-    left: Math.min(draw.start.x, draw.current.x),
-    top: Math.min(draw.start.y, draw.current.y),
-    width: Math.abs(draw.current.x - draw.start.x),
-    height: Math.abs(draw.current.y - draw.start.y),
-  };
-}
-
 function isResizableOperation(operation: EditOperation) {
   if (operation.type === "text") return false;
   if (operation.type === "shape") return operation.kind === "rectangle" || operation.kind === "ellipse";
   if (operation.type === "annotation") return operation.kind === "highlight" || operation.kind === "note";
   if (operation.type === "ink" || operation.type === "link") return false;
-  return true;
-}
-
-function canDragOperation(operation: EditOperation, editingTextId?: string) {
-  if (operation.type === "text" && editingTextId === operation.id) return false;
   return true;
 }
 
@@ -114,302 +72,6 @@ function readFileAsDataUrl(file: File) {
     reader.onload = () => resolve(String(reader.result));
     reader.readAsDataURL(file);
   });
-}
-
-function pointFromEvent(event: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>, target: HTMLElement) {
-  const bounds = target.getBoundingClientRect();
-  return {
-    x: event.clientX - bounds.left,
-    y: event.clientY - bounds.top,
-  };
-}
-
-function toHex(value: number) {
-  return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
-}
-
-function rgbToHex(red: number, green: number, blue: number) {
-  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
-}
-
-type CanvasSample = {
-  context: CanvasRenderingContext2D;
-  rect: { x: number; y: number; width: number; height: number };
-};
-
-function hexToRgb(color?: string) {
-  const match = color?.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
-  if (!match) return undefined;
-  return {
-    red: Number.parseInt(match[1], 16),
-    green: Number.parseInt(match[2], 16),
-    blue: Number.parseInt(match[3], 16),
-  };
-}
-
-function colorDistance(a: { red: number; green: number; blue: number }, b: { red: number; green: number; blue: number }) {
-  return Math.hypot(a.red - b.red, a.green - b.green, a.blue - b.blue);
-}
-
-function getCanvasSample(stage: HTMLDivElement | null, viewportRect: ViewportRect, padding = 0): CanvasSample | undefined {
-  /* v8 ignore next -- getCanvasSample is only invoked once stageRef.current is populated, so the null guard is unreachable */
-  if (!stage) return undefined;
-  const canvas = stage?.querySelector(".react-pdf__Page__canvas");
-  /* v8 ignore next -- the rendered react-pdf Page always mounts a real <canvas>, so the type guard is unreachable */
-  if (!(canvas instanceof HTMLCanvasElement)) return undefined;
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) return undefined;
-
-  const stageBounds = stage.getBoundingClientRect();
-  const canvasBounds = canvas.getBoundingClientRect();
-  const ratioX = canvas.width / Math.max(1, canvasBounds.width);
-  const ratioY = canvas.height / Math.max(1, canvasBounds.height);
-  const cssRect = {
-    left: viewportRect.left + stageBounds.left - canvasBounds.left,
-    top: viewportRect.top + stageBounds.top - canvasBounds.top,
-    width: viewportRect.width,
-    height: viewportRect.height,
-  };
-  const sampleX = Math.max(0, Math.floor((cssRect.left - padding) * ratioX));
-  const sampleY = Math.max(0, Math.floor((cssRect.top - padding) * ratioY));
-  const sampleRect = {
-    x: sampleX,
-    y: sampleY,
-    width: Math.min(canvas.width - sampleX, Math.ceil((cssRect.width + padding * 2) * ratioX)),
-    height: Math.min(canvas.height - sampleY, Math.ceil((cssRect.height + padding * 2) * ratioY)),
-  };
-  if (sampleRect.width <= 0 || sampleRect.height <= 0) return undefined;
-  return { context, rect: sampleRect };
-}
-
-function sampleTextBackgroundColor(stage: HTMLDivElement | null, viewportRect: ViewportRect) {
-  const padding = Math.max(2, Math.min(6, Math.min(viewportRect.width, viewportRect.height) * 0.18));
-  const sample = getCanvasSample(stage, viewportRect, padding);
-  if (!sample) return undefined;
-
-  const image = sample.context.getImageData(sample.rect.x, sample.rect.y, sample.rect.width, sample.rect.height);
-  const buckets = new Map<string, { count: number; red: number; green: number; blue: number }>();
-  const stride = Math.max(1, Math.floor(Math.min(sample.rect.width, sample.rect.height) / 14));
-  for (let y = 0; y < sample.rect.height; y += stride) {
-    for (let x = 0; x < sample.rect.width; x += stride) {
-      const offset = (y * sample.rect.width + x) * 4;
-      const alpha = image.data[offset + 3];
-      if (alpha < 250) continue;
-      const red = image.data[offset];
-      const green = image.data[offset + 1];
-      const blue = image.data[offset + 2];
-      const key = `${Math.round(red / 12)},${Math.round(green / 12)},${Math.round(blue / 12)}`;
-      const bucket = buckets.get(key) ?? { count: 0, red: 0, green: 0, blue: 0 };
-      bucket.count += 1;
-      bucket.red += red;
-      bucket.green += green;
-      bucket.blue += blue;
-      buckets.set(key, bucket);
-    }
-  }
-
-  const dominant = [...buckets.values()].sort((a, b) => b.count - a.count)[0];
-  if (!dominant) return undefined;
-  return rgbToHex(dominant.red / dominant.count, dominant.green / dominant.count, dominant.blue / dominant.count);
-}
-
-function sampleTextColor(stage: HTMLDivElement | null, viewportRect: ViewportRect, sampledBackgroundColor?: string) {
-  const background = hexToRgb(sampledBackgroundColor);
-  if (!background) return undefined;
-  const sample = getCanvasSample(stage, viewportRect, 1);
-  /* v8 ignore next -- only runs after a successful background sample already produced a canvas sample, so a null here is unreachable */
-  if (!sample) return undefined;
-
-  const image = sample.context.getImageData(sample.rect.x, sample.rect.y, sample.rect.width, sample.rect.height);
-  const buckets = new Map<string, { count: number; red: number; green: number; blue: number }>();
-  const stride = Math.max(1, Math.floor(Math.min(sample.rect.width, sample.rect.height) / 28));
-
-  for (let y = 0; y < sample.rect.height; y += stride) {
-    for (let x = 0; x < sample.rect.width; x += stride) {
-      const offset = (y * sample.rect.width + x) * 4;
-      const alpha = image.data[offset + 3];
-      /* v8 ignore next -- transparent-pixel skip; reachable only for a sparse/transparent sampled region, exercised by the e2e rendering suite rather than synthetic jsdom buffers */
-      if (alpha < 220) continue;
-      const pixel = {
-        red: image.data[offset],
-        green: image.data[offset + 1],
-        blue: image.data[offset + 2],
-      };
-      const distance = colorDistance(pixel, background);
-      if (distance < 42) continue;
-      const key = `${Math.round(pixel.red / 16)},${Math.round(pixel.green / 16)},${Math.round(pixel.blue / 16)}`;
-      const bucket = buckets.get(key) ?? { count: 0, red: 0, green: 0, blue: 0 };
-      bucket.count += 1;
-      bucket.red += pixel.red;
-      bucket.green += pixel.green;
-      bucket.blue += pixel.blue;
-      buckets.set(key, bucket);
-    }
-  }
-
-  const dominant = [...buckets.values()].sort((a, b) => b.count - a.count)[0];
-  /* v8 ignore next -- too-few-ink-pixels guard; reachable only for a near-blank sampled region, exercised by the e2e rendering suite */
-  if (!dominant || dominant.count < 3) return undefined;
-  return rgbToHex(dominant.red / dominant.count, dominant.green / dominant.count, dominant.blue / dominant.count);
-}
-
-function sampleTextFontWeight(stage: HTMLDivElement | null, viewportRect: ViewportRect, sampledBackgroundColor?: string) {
-  const background = hexToRgb(sampledBackgroundColor);
-  if (!background) return undefined;
-  const sample = getCanvasSample(stage, viewportRect, 1);
-  /* v8 ignore next -- only runs after a successful background sample already produced a canvas sample, so a null here is unreachable */
-  if (!sample) return undefined;
-
-  const image = sample.context.getImageData(sample.rect.x, sample.rect.y, sample.rect.width, sample.rect.height);
-  let inkPixels = 0;
-  let opaquePixels = 0;
-  const stride = Math.max(1, Math.floor(Math.min(sample.rect.width, sample.rect.height) / 36));
-
-  for (let y = 0; y < sample.rect.height; y += stride) {
-    for (let x = 0; x < sample.rect.width; x += stride) {
-      const offset = (y * sample.rect.width + x) * 4;
-      const alpha = image.data[offset + 3];
-      if (alpha < 220) continue;
-      opaquePixels += 1;
-      const pixel = {
-        red: image.data[offset],
-        green: image.data[offset + 1],
-        blue: image.data[offset + 2],
-      };
-      if (colorDistance(pixel, background) >= 42) inkPixels += 1;
-    }
-  }
-
-  /* v8 ignore next -- too-few-opaque-pixels guard; reachable only for a near-blank sampled region, exercised by the e2e rendering suite */
-  if (opaquePixels < 24) return undefined;
-  const inkCoverage = inkPixels / opaquePixels;
-  if (inkCoverage >= 0.16) return 700;
-  if (inkCoverage >= 0.105) return 600;
-  if (inkCoverage >= 0.07) return 500;
-  return 400;
-}
-
-function isGenericCssFontFamily(name?: string) {
-  /* v8 ignore next -- callers guard on `item.cssFontFamily` before calling, so `name` is never undefined and the `?? ""` fallback is unreachable */
-  return /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test((name ?? "").replace(/^["']|["']$/g, "").trim());
-}
-
-function isInternalPdfFontName(name?: string) {
-  /* v8 ignore next -- callers guard on `item.fontName` before calling, so `name` is never undefined and the `?? ""` fallback is unreachable */
-  return /^g_d\d+_f\d+$/i.test((name ?? "").trim());
-}
-
-function sameTextLine(a: TextItem, b: TextItem) {
-  const aMidY = a.rect.y + a.rect.height / 2;
-  const bMidY = b.rect.y + b.rect.height / 2;
-  const fontSize = Math.max(1, Math.min(a.fontSize ?? a.rect.height, b.fontSize ?? b.rect.height));
-  return Math.abs(aMidY - bMidY) <= Math.max(2, fontSize * 0.42);
-}
-
-function styleSpecificityScore(item: TextItem) {
-  const weightScore = item.fontWeight ?? 400;
-  const familyScore =
-    item.cssFontFamily && !isGenericCssFontFamily(item.cssFontFamily)
-      ? 90
-      : item.fontName && !isInternalPdfFontName(item.fontName)
-        ? 70
-        : 0;
-  const sizeScore = Math.round(item.fontSize ?? item.rect.height);
-  return weightScore * 10 + familyScore + sizeScore;
-}
-
-function chooseRunStyleItem(items: TextItem[]) {
-  return items.reduce((best, item) => (
-    styleSpecificityScore(item) > styleSpecificityScore(best) ? item : best
-  ), items[0]);
-}
-
-function mergeTextRun(items: TextItem[]): TextItem {
-  const sorted = [...items].sort((a, b) => a.rect.x - b.rect.x);
-  const styleItem = chooseRunStyleItem(sorted);
-  const x = Math.min(...sorted.map((item) => item.rect.x));
-  const y = Math.min(...sorted.map((item) => item.rect.y));
-  const right = Math.max(...sorted.map((item) => item.rect.x + item.rect.width));
-  const top = Math.max(...sorted.map((item) => item.rect.y + item.rect.height));
-  const text = sorted.reduce((value, item, index) => {
-    if (index === 0) return item.str;
-    const previous = sorted[index - 1];
-    const gap = item.rect.x - (previous.rect.x + previous.rect.width);
-    const fontSize = previous.fontSize ?? previous.rect.height;
-    const shouldSpace = /\w$/.test(previous.str) && /^\w/.test(item.str)
-      ? gap > -Math.max(1, fontSize * 0.08)
-      : gap > Math.max(1.5, fontSize * 0.15);
-    const space = shouldSpace ? " " : "";
-    return `${value}${space}${item.str}`;
-  }, "");
-
-  return {
-    ...styleItem,
-    str: text,
-    rect: {
-      x,
-      y,
-      width: right - x,
-      height: top - y,
-    },
-  };
-}
-
-function groupEditableTextRuns(items: TextItem[]) {
-  const sorted = [...items].sort((a, b) => {
-    const lineDelta = (b.rect.y + b.rect.height / 2) - (a.rect.y + a.rect.height / 2);
-    return Math.abs(lineDelta) > 2 ? lineDelta : a.rect.x - b.rect.x;
-  });
-  const runs: TextItem[] = [];
-  let current: TextItem[] = [];
-
-  for (const item of sorted) {
-    const previous = current[current.length - 1];
-    const fontSize = item.fontSize ?? item.rect.height;
-    const previousFontSize = previous?.fontSize ?? previous?.rect.height ?? fontSize;
-    const gap = previous ? item.rect.x - (previous.rect.x + previous.rect.width) : 0;
-    const sameLine = previous ? sameTextLine(previous, item) : true;
-    const sameScale = Math.abs(fontSize - previousFontSize) <= Math.max(1.5, Math.min(fontSize, previousFontSize) * 0.18);
-    const closeEnough = !previous || gap <= Math.max(10, Math.min(fontSize, previousFontSize) * 1.35);
-
-    if (!previous || (sameLine && sameScale && closeEnough)) {
-      current.push(item);
-      continue;
-    }
-
-    runs.push(mergeTextRun(current));
-    current = [item];
-  }
-
-  if (current.length) runs.push(mergeTextRun(current));
-  return runs;
-}
-
-function findNearbyTextRunForStyle(pointRect: ViewportRect, textRuns: TextItem[], pageHeight: number, scale: number) {
-  const pointX = pointRect.left + pointRect.width / 2;
-  const pointY = pointRect.top + pointRect.height / 2;
-  let best: { item: TextItem; score: number } | undefined;
-
-  for (const item of textRuns) {
-    const rect = pdfRectToViewport(item.rect, pageHeight, scale);
-    const lineCenterY = rect.top + rect.height / 2;
-    const yDistance = Math.abs(pointY - lineCenterY);
-    const lineTolerance = Math.max(12, rect.height * 1.5);
-    if (yDistance > lineTolerance) continue;
-
-    const xDistance = pointX < rect.left
-      ? rect.left - pointX
-      : pointX > rect.left + rect.width
-        ? pointX - (rect.left + rect.width)
-        : 0;
-    if (xDistance > Math.max(180, rect.height * 18)) continue;
-
-    const score = yDistance * 4 + xDistance;
-    /* v8 ignore next -- the tie-break sub-branch (a later candidate not beating the current best) depends on scan order not reproduced by the unit fixtures; exercised by the e2e suite */
-    if (!best || score < best.score) best = { item, score };
-  }
-
-  return best?.item;
 }
 
 export function PdfCanvas({
@@ -433,22 +95,11 @@ export function PdfCanvas({
 }: PdfCanvasProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePoint = useRef<PdfPoint | null>(null);
-  // Tracks whether the in-progress drag/resize actually moved the pointer. Used two
-  // ways: (1) a plain click (press + release with no movement) resolves to a
-  // tool-specific action (toggle a checkbox, enter text edit) instead of a no-op move;
-  // (2) the stage's onClick guards against the native `click` a real browser fires
-  // right after `pointerup`, even when that pointerup ended an actual drag/resize —
-  // without it, a completed drag would fall through to "click on empty canvas" and
-  // place a stray new operation at the release point.
-  const dragMoved = useRef(false);
-  const [drag, setDrag] = useState<DragState | null>(null);
-  const [resize, setResize] = useState<ResizeState | null>(null);
-  const [draw, setDraw] = useState<DrawState | null>(null);
   const [hintVisible, setHintVisible] = useState(false);
-  const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
   const [moveModeOperationId, setMoveModeOperationId] = useState<string | undefined>();
   const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
+  const [pendingInput, setPendingInput] = useState<PendingInputRequest | null>(null);
   const [isPageRendered, setIsPageRendered] = useState(false);
   const pageWidth = pageSize?.width ?? 612;
   const pageHeight = pageSize?.height ?? 792;
@@ -468,7 +119,14 @@ export function PdfCanvas({
   useEffect(() => {
     setIsPageRendered(false);
     setEditingTextId(undefined);
+    // The popover's anchor is a viewport rect for the page/scale it opened at, so
+    // it goes stale the moment any of those change.
+    setPendingInput(null);
   }, [document.fingerprint, pageIndex, rotation, scale]);
+
+  useEffect(() => {
+    setPendingInput(null);
+  }, [activeTool]);
 
   useEffect(() => {
     if (editingTextId && selectedId !== editingTextId) setEditingTextId(undefined);
@@ -555,32 +213,24 @@ export function PdfCanvas({
   }, [selectedId, editingTextId, onOperationRemove]);
 
   useEffect(() => {
-    if (!draw) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setDraw(null);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [draw]);
-
-  // Surface the in-page hint when a tool is armed (or a draw starts/ends) and
-  // auto-dismiss it after a few seconds so it doesn't linger over the page.
-  useEffect(() => {
-    if (activeTool === "select") {
-      setHintVisible(false);
-      return;
-    }
-    setHintVisible(true);
-    const timer = window.setTimeout(() => setHintVisible(false), 4000);
-    return () => window.clearTimeout(timer);
-  }, [activeTool, draw]);
-
-  useEffect(() => {
     if (!documentFonts) return;
     for (const info of Object.values(documentFonts)) registerEmbeddedFont(info.key, info.bytes);
   }, [documentFonts]);
+
+  const finalizeCreatedOperations = (nextOperations: EditOperation[]) => {
+    nextOperations.forEach(onOperationAdd);
+    const createdText = nextOperations.find(
+      (operation): operation is TextOperation => operation.type === "text",
+    );
+    if (createdText) {
+      onOperationSelect(createdText.id);
+      window.requestAnimationFrame(() => setEditingTextId(createdText.id));
+    } else if (nextOperations[0]) {
+      // Select the freshly drawn op (shape, whiteout, …) so its inline toolbar
+      // and resize handles appear immediately — reference parity for shapes.
+      onOperationSelect(nextOperations[0].id);
+    }
+  };
 
   const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem) => {
     const inheritStyleFromTextItem = sourceTextItem
@@ -602,62 +252,72 @@ export function PdfCanvas({
     const sampledFontWeight = styleSampleRect
       ? sampleTextFontWeight(stageRef.current, styleSampleRect, sampledBackgroundColor)
       : undefined;
-    const nextOperations = createOperationsForTool({
-      activeTool,
-      viewportRect,
-      pageHeight,
-      pageIndex,
-      scale,
-      operations,
-      prompt: window.prompt.bind(window),
-      sourceTextItem,
-      inheritStyleFromTextItem,
-      sampledBackgroundColor,
-      sampledTextColor,
-      sampledFontWeight,
-    });
-    nextOperations.forEach(onOperationAdd);
-    const createdText = nextOperations.find(
-      (operation): operation is TextOperation => operation.type === "text",
-    );
-    if (createdText) {
-      onOperationSelect(createdText.id);
-      window.requestAnimationFrame(() => setEditingTextId(createdText.id));
-    } else if (nextOperations[0]) {
-      // Select the freshly drawn op (shape, whiteout, …) so its inline toolbar
-      // and resize handles appear immediately — reference parity for shapes.
-      onOperationSelect(nextOperations[0].id);
+    const create = (resolvedFields?: Record<string, string>) =>
+      finalizeCreatedOperations(
+        createOperationsForTool({
+          activeTool,
+          viewportRect,
+          pageHeight,
+          pageIndex,
+          scale,
+          operations,
+          resolvedFields,
+          sourceTextItem,
+          inheritStyleFromTextItem,
+          sampledBackgroundColor,
+          sampledTextColor,
+          sampledFontWeight,
+        }),
+      );
+
+    const inputRequest = describeInlineInput(activeTool, operations);
+    if (inputRequest) {
+      setPendingInput({
+        ...inputRequest,
+        anchor: viewportRect,
+        onConfirm: (values) => {
+          setPendingInput(null);
+          create(values);
+        },
+        onCancel: () => setPendingInput(null),
+      });
+      return;
     }
+    create();
   };
 
   const addLinkForOperation = (operation: EditOperation) => {
-    if (operation.type === "link") {
-      const href = window.prompt("Link URL", operation.href);
-      if (!href) return;
-      const safeHref = sanitizeUrl(href);
-      if (!safeHref) {
-        onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
-        return;
-      }
-      onOperationUpdate(operation.id, { href: safeHref } as Partial<EditOperation>);
-      return;
-    }
-
-    const href = window.prompt("Link URL", "https://");
-    if (!href) return;
-    const safeHref = sanitizeUrl(href);
-    if (!safeHref) {
-      onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
-      return;
-    }
-    onOperationAdd({
-      id: createId("link"),
-      type: "link",
-      pageIndex: operation.pageIndex,
-      rect: { ...operation.rect },
-      href: safeHref,
-      opacity: 1,
-      createdAt: Date.now(),
+    const isExistingLink = operation.type === "link";
+    const defaultHref = operation.type === "link" ? operation.href : "https://";
+    setPendingInput({
+      title: isExistingLink ? "Edit link" : "Add link",
+      confirmLabel: isExistingLink ? "Save link" : "Add link",
+      fields: [{ key: "href", label: "Link URL", defaultValue: defaultHref }],
+      anchor: pdfRectToViewport(operation.rect, pageHeight, scale),
+      onConfirm: (values) => {
+        setPendingInput(null);
+        const href = values.href?.trim();
+        if (!href) return;
+        const safeHref = sanitizeUrl(href);
+        if (!safeHref) {
+          onNotice?.("Link not added: only http, https, and mailto URLs are allowed.");
+          return;
+        }
+        if (isExistingLink) {
+          onOperationUpdate(operation.id, { href: safeHref } as Partial<EditOperation>);
+          return;
+        }
+        onOperationAdd({
+          id: createId("link"),
+          type: "link",
+          pageIndex: operation.pageIndex,
+          rect: { ...operation.rect },
+          href: safeHref,
+          opacity: 1,
+          createdAt: Date.now(),
+        });
+      },
+      onCancel: () => setPendingInput(null),
     });
   };
 
@@ -665,6 +325,77 @@ export function PdfCanvas({
     if (operation.type !== "text" || textPreview?.id !== operation.id) return operation;
     return { ...operation, ...textPreview.patch };
   };
+
+  const onImageToolClick = (point: { x: number; y: number }) => {
+    pendingImagePoint.current = point;
+    imageInputRef.current?.click();
+  };
+
+  const { draw, drag, resize, activeGuides, stagePointerHandlers, handleResizeStart, handleOverlayPointerDown } =
+    useStagePointerGestures({
+      activeTool,
+      operations,
+      textItems,
+      stageRef,
+      pageIndex,
+      pageWidth,
+      pageHeight,
+      scale,
+      editingTextId,
+      setEditingTextId,
+      clearMoveMode: () => setMoveModeOperationId(undefined),
+      onOperationSelect,
+      onOperationUpdate,
+      onImageToolClick,
+      addAt,
+    });
+
+  // A drag/resize in progress only updates its own local (undispatched) rect —
+  // see useStagePointerGestures — so this overrides the affected operation's
+  // rendered position with that live value instead of the stale committed one.
+  const gestureOverride = (operation: EditOperation): EditOperation => {
+    if (drag?.id === operation.id && drag.livePatch) return { ...operation, ...drag.livePatch } as EditOperation;
+    if (resize?.id === operation.id && resize.liveRect) return { ...operation, rect: resize.liveRect };
+    return operation;
+  };
+  const liveSelectedOperation = selectedOperation ? gestureOverride(selectedOperation) : undefined;
+
+  // Stable across renders where `operations` hasn't changed (in particular,
+  // across every pointermove during one drag/resize gesture, since operations
+  // now only changes once at gesture end) so memoized OperationOverlay instances
+  // for every *other* operation skip re-rendering during that gesture.
+  const handleOverlayPointerDownById = useCallback(
+    (id: string, event: React.PointerEvent<HTMLDivElement>) => {
+      const target = operations.find((operation) => operation.id === id);
+      /* v8 ignore next -- id always comes from an OperationOverlay rendered from this same operations list, so the lookup always resolves */
+      if (target) handleOverlayPointerDown(target, event);
+    },
+    [operations, handleOverlayPointerDown],
+  );
+  const handleStartTextEdit = useCallback(
+    (id: string) => {
+      onOperationSelect(id);
+      setEditingTextId(id);
+    },
+    [onOperationSelect],
+  );
+  const handleTextChange = useCallback(
+    (id: string, text: string) => onOperationUpdate(id, { text } as Partial<EditOperation>),
+    [onOperationUpdate],
+  );
+  const handleTextCommit = useCallback(() => setEditingTextId(undefined), []);
+
+  // Surface the in-page hint when a tool is armed (or a draw starts/ends) and
+  // auto-dismiss it after a few seconds so it doesn't linger over the page.
+  useEffect(() => {
+    if (activeTool === "select") {
+      setHintVisible(false);
+      return;
+    }
+    setHintVisible(true);
+    const timer = window.setTimeout(() => setHintVisible(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [activeTool, draw]);
 
   return (
     <div className="canvas-workbench">
@@ -682,170 +413,7 @@ export function PdfCanvas({
             width: pageWidth * scale,
             minHeight: pageHeight * scale,
           }}
-          onPointerDown={(event) => {
-            // Deselect only when pressing empty page area, so selecting an overlay
-            // never gets cleared by a follow-up click (keeps its toolbar persistent).
-            const target = event.target as HTMLElement;
-            const isEmptyArea = target === event.currentTarget || target.classList.contains("react-pdf__Page__canvas");
-            if (!isEmptyArea) return;
-            if (activeTool === "select") {
-              onOperationSelect(undefined);
-              return;
-            }
-            // Region tools (shapes, whiteout, links, forms, …) draw via an area
-            // selection: press → drag → release. Start the marquee here.
-            if (!isRegionTool(activeTool)) return;
-            /* v8 ignore next -- pointerdown fires only inside the mounted stage, so stageRef.current is always populated */
-            if (!stageRef.current) return;
-            onOperationSelect(undefined);
-            stageRef.current.setPointerCapture(event.pointerId);
-            const point = pointFromEvent(event, event.currentTarget);
-            setDraw({ start: point, current: point });
-          }}
-          onClick={(event) => {
-            // A real browser fires a native `click` right after `pointerup`, even when
-            // that pointerup ended an actual drag (mousedown -> move -> mouseup over a
-            // different spot still counts as a "click" at the release point). Without
-            // this guard, a completed drag on an overlay would fall through to "click
-            // on empty canvas" and place a stray new operation at the release point.
-            if (dragMoved.current) {
-              dragMoved.current = false;
-              return;
-            }
-            if (event.target !== event.currentTarget && !(event.target as HTMLElement).classList.contains("react-pdf__Page__canvas")) {
-              return;
-            }
-            if (activeTool === "select") {
-              // Selection/deselection is handled on pointer down for empty area.
-              return;
-            }
-            if (activeTool === "image") {
-              pendingImagePoint.current = pointFromEvent(event, event.currentTarget);
-              imageInputRef.current?.click();
-              return;
-            }
-            // Region tools create on pointer-up via the drag-to-draw marquee.
-            if (isRegionTool(activeTool)) return;
-            const point = pointFromEvent(event, event.currentTarget);
-            void addAt({ left: point.x, top: point.y, width: 160, height: 42 });
-          }}
-          onPointerMove={(event) => {
-            if (draw) {
-              /* v8 ignore next -- pointermove during a draw always has the mounted stage ref */
-              if (!stageRef.current) return;
-              const point = pointFromEvent(event, stageRef.current);
-              setDraw({ start: draw.start, current: point });
-              return;
-            }
-            if (resize && stageRef.current) {
-              // Reuses the same drag-vs-click flag as overlay dragging: a real browser
-              // fires a native `click` right after this resize's `pointerup`, and the
-              // stage's onClick would otherwise treat it as "click on empty canvas".
-              dragMoved.current = true;
-              const point = pointFromEvent(event, stageRef.current);
-              const dx = point.x - resize.startPointer.x;
-              const dy = point.y - resize.startPointer.y;
-              let { left, top, width, height } = resize.startRect;
-              if (resize.handle.includes("e")) width = resize.startRect.width + dx;
-              if (resize.handle.includes("s")) height = resize.startRect.height + dy;
-              if (resize.handle.includes("w")) {
-                left = resize.startRect.left + dx;
-                width = resize.startRect.width - dx;
-              }
-              if (resize.handle.includes("n")) {
-                top = resize.startRect.top + dy;
-                height = resize.startRect.height - dy;
-              }
-              if (width < MIN_RESIZE_PX) {
-                /* v8 ignore next -- west-handle min-clamp branch; the opposite-axis handle combination is exercised by the e2e resize suite */
-                if (resize.handle.includes("w")) left = resize.startRect.left + resize.startRect.width - MIN_RESIZE_PX;
-                width = MIN_RESIZE_PX;
-              }
-              if (height < MIN_RESIZE_PX) {
-                /* v8 ignore next -- north-handle min-clamp branch; the opposite-axis handle combination is exercised by the e2e resize suite */
-                if (resize.handle.includes("n")) top = resize.startRect.top + resize.startRect.height - MIN_RESIZE_PX;
-                height = MIN_RESIZE_PX;
-              }
-              const rect = clampRect(viewportRectToPdf({ left, top, width, height }, pageHeight, scale), pageWidth, pageHeight);
-              onOperationUpdate(resize.id, { rect } as Partial<EditOperation>);
-              return;
-            }
-            if (!drag || !stageRef.current) return;
-            dragMoved.current = true;
-            const point = pointFromEvent(event, stageRef.current);
-            const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
-            const dragged = operations.find((operation) => operation.id === drag.id);
-            if (!dragged) return;
-
-            const nextPdfRect = clampRect(
-              {
-                x: drag.origin.x + (pdfPoint.x - drag.start.x),
-                y: drag.origin.y + (pdfPoint.y - drag.start.y),
-                width: dragged.rect.width,
-                height: dragged.rect.height,
-              },
-              pageWidth,
-              pageHeight,
-            );
-            let viewportRect = pdfRectToViewport(nextPdfRect, pageHeight, scale);
-            // `drag.alignmentLines` was computed once at drag start (see the overlay's
-            // onPointerDown) — it never depends on the moving rect's current position,
-            // so recomputing it on every move here was pure wasted work.
-            const snapped = snapViewportRect(viewportRect, drag.alignmentLines);
-            viewportRect = snapped.rect;
-            setActiveGuides(snapped.guides);
-            const rect = clampRect(viewportRectToPdf(viewportRect, pageHeight, scale), pageWidth, pageHeight);
-            const patch: Partial<EditOperation> = { rect };
-            if (dragged.type === "ink") {
-              // Ink renders/exports from absolute `points`, so a moved stroke must
-              // translate every point by the same delta the rect moved (shared helper).
-              (patch as Partial<InkOperation>).points = translatePoints(
-                dragged.points,
-                rect.x - dragged.rect.x,
-                rect.y - dragged.rect.y,
-              );
-            }
-            onOperationUpdate(drag.id, patch);
-          }}
-          onPointerUp={() => {
-            if (draw) {
-              const rect = marqueeRect(draw);
-              const dragged = rect.width >= DRAW_CLICK_THRESHOLD_PX || rect.height >= DRAW_CLICK_THRESHOLD_PX;
-              const viewportRect = dragged
-                ? rect
-                : { left: draw.start.x, top: draw.start.y, ...DRAW_CLICK_FALLBACK };
-              setDraw(null);
-              void addAt(viewportRect);
-            }
-            // A press-and-release with no movement in between is a click, not a
-            // completed (no-op) move — resolve it to whatever a plain click on this
-            // overlay/tool combination means, instead of leaving the gesture inert.
-            if (drag && !dragMoved.current) {
-              const pressedOperation = operations.find((operation) => operation.id === drag.id);
-              if (activeTool === "text" && pressedOperation?.type === "text" && editingTextId !== pressedOperation.id) {
-                // Reference-style click-to-edit: only fires when the click didn't drag.
-                setEditingTextId(pressedOperation.id);
-              }
-            }
-            setDrag(null);
-            setResize(null);
-            setActiveGuides([]);
-            setMoveModeOperationId(undefined);
-          }}
-          onPointerCancel={() => {
-            setDraw(null);
-            setDrag(null);
-            setResize(null);
-            setActiveGuides([]);
-            setMoveModeOperationId(undefined);
-          }}
-          onLostPointerCapture={() => {
-            setDraw(null);
-            setDrag(null);
-            setResize(null);
-            setActiveGuides([]);
-            setMoveModeOperationId(undefined);
-          }}
+          {...stagePointerHandlers}
         >
           <Document
             file={pdfFile}
@@ -921,11 +489,11 @@ export function PdfCanvas({
                 />
               );
             })}
-            {selectedOperation ? (
+            {selectedOperation && liveSelectedOperation ? (
               <FloatingOperationToolbar
                 operation={selectedOperation}
                 pageWidth={pageWidth}
-                rect={pdfRectToViewport(selectedOperation.rect, pageHeight, scale)}
+                rect={pdfRectToViewport(liveSelectedOperation.rect, pageHeight, scale)}
                 scale={scale}
                 hidden={Boolean(drag)}
                 moveModeActive={moveModeOperationId === selectedOperation.id}
@@ -938,32 +506,19 @@ export function PdfCanvas({
                 onUpdate={onOperationUpdate}
               />
             ) : null}
-            {selectedOperation && editingTextId !== selectedOperation.id && isResizableOperation(selectedOperation) ? (
+            {selectedOperation && liveSelectedOperation && editingTextId !== selectedOperation.id && isResizableOperation(selectedOperation) ? (
               <ResizeHandles
-                rect={pdfRectToViewport(selectedOperation.rect, pageHeight, scale)}
-                onResizeStart={(handle, event) => {
-                  /* v8 ignore next -- onResizeStart only fires from handles rendered inside the mounted stage, so stageRef.current is always populated */
-                  if (!stageRef.current) return;
-                  try {
-                    stageRef.current.setPointerCapture(event.pointerId);
-                  } catch {
-                    // setPointerCapture can throw for non-active pointer ids; capture is an enhancement, not required.
-                  }
-                  const point = pointFromEvent(event, stageRef.current);
-                  dragMoved.current = false;
-                  setResize({
-                    id: selectedOperation.id,
-                    handle,
-                    startPointer: point,
-                    startRect: pdfRectToViewport(selectedOperation.rect, pageHeight, scale),
-                  });
-                }}
+                rect={pdfRectToViewport(liveSelectedOperation.rect, pageHeight, scale)}
+                onResizeStart={(handle, event) => handleResizeStart(handle, event, selectedOperation)}
               />
+            ) : null}
+            {pendingInput ? (
+              <InlineInputPopover request={pendingInput} pageWidth={pageWidth} scale={scale} />
             ) : null}
             {operations.map((operation) => (
               <OperationOverlay
                 key={operation.id}
-                operation={previewOperation(operation)}
+                operation={previewOperation(gestureOverride(operation))}
                 editing={editingTextId === operation.id}
                 documentFonts={documentFonts}
                 pageHeight={pageHeight}
@@ -971,38 +526,10 @@ export function PdfCanvas({
                 selected={operation.id === selectedId}
                 dragging={drag?.id === operation.id}
                 moveModeActive={moveModeOperationId === operation.id}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  onOperationSelect(operation.id);
-                  // A drag can start regardless of which tool is active or which overlay
-                  // type this is — moving an existing element must never depend on the
-                  // active tool. Whether this gesture turns out to be a plain click (e.g.
-                  // "enter text edit", "toggle checkbox") or an actual move is decided at
-                  // pointerup based on whether the pointer moved (see dragMoved / onPointerUp).
-                  if (!canDragOperation(operation, editingTextId)) return;
-                  /* v8 ignore next -- this handler only fires for overlays rendered inside the mounted stage, so stageRef.current is always populated */
-                  if (!stageRef.current) return;
-                  stageRef.current.setPointerCapture(event.pointerId);
-                  const point = pointFromEvent(event, stageRef.current);
-                  const pdfPoint = viewportRectToPdf({ left: point.x, top: point.y, width: 1, height: 1 }, pageHeight, scale);
-                  const alignmentLines = collectAlignmentLines({
-                    movingId: operation.id,
-                    operations,
-                    textItems,
-                    pageIndex,
-                    pageWidth,
-                    pageHeight,
-                    scale,
-                  });
-                  dragMoved.current = false;
-                  setDrag({ id: operation.id, start: pdfPoint, origin: { x: operation.rect.x, y: operation.rect.y }, alignmentLines });
-                }}
-                onStartTextEdit={(id) => {
-                  onOperationSelect(id);
-                  setEditingTextId(id);
-                }}
-                onTextChange={(id, text) => onOperationUpdate(id, { text } as Partial<EditOperation>)}
-                onTextCommit={() => setEditingTextId(undefined)}
+                onPointerDown={handleOverlayPointerDownById}
+                onStartTextEdit={handleStartTextEdit}
+                onTextChange={handleTextChange}
+                onTextCommit={handleTextCommit}
               />
             ))}
           </div>

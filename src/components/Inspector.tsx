@@ -82,7 +82,17 @@ export function Inspector({ operation, operationCount, pageTextItems, onExport, 
                       const parsed = Number(event.currentTarget.value);
                       /* v8 ignore next -- the control is type="number"; the DOM coerces any entry to a finite value (Number("")===0), so the non-finite guard is unreachable */
                       if (!Number.isFinite(parsed)) return;
-                      const clamped = Math.min(96, Math.max(6, Math.round(parsed)));
+                      // Clamping here (rather than only on blur) would round-trip through the
+                      // controlled `value` on every keystroke, so typing a two-digit size below
+                      // the minimum (e.g. "24") gets its first digit force-corrected up to 6
+                      // before the second digit lands — turning "24" into "64". Clamp only once
+                      // the user is done editing.
+                      update({ fontSize: Math.round(parsed) } as Partial<EditOperation>);
+                    }}
+                    onBlur={(event) => {
+                      const parsed = Number(event.currentTarget.value);
+                      /* v8 ignore next -- the control is type="number"; the DOM coerces any entry (including empty) to a finite value, so the non-finite fallback is unreachable */
+                      const clamped = Number.isFinite(parsed) ? Math.min(96, Math.max(6, Math.round(parsed))) : 6;
                       update({ fontSize: clamped } as Partial<EditOperation>);
                     }}
                   />

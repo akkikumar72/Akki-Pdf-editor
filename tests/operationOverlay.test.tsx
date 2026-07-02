@@ -587,12 +587,12 @@ describe("OperationOverlay - non-text branches", () => {
 
   it("renders a checked form-field showing the check and value", () => {
     const op: FormFieldOperation = {
-      id: "ff", type: "form-field", kind: "checkbox", pageIndex: 0, rect: RECT, createdAt: 1,
+      id: "ff", type: "form-field", kind: "radio", pageIndex: 0, rect: RECT, createdAt: 1,
       name: "agree", value: "Yes", checked: true,
     };
     const { container } = renderOverlay(op);
     const el = container.querySelector(".operation--form-field") as HTMLDivElement;
-    expect(el.className).toContain("operation--form-checkbox");
+    expect(el.className).toContain("operation--form-radio");
     expect(el.textContent).toContain("✓");
     expect(el.textContent).toContain("Yes");
   });
