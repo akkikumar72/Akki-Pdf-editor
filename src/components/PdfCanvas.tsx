@@ -1,5 +1,4 @@
 import { Document, Page } from "react-pdf";
-import { Copy, ImagePlus, Trash2 } from "lucide-react";
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DocumentFonts,
@@ -47,6 +46,7 @@ import { annotationRectsForClick, annotationRectsForMarquee } from "../utils/tex
 import { viewportRectsOverlap } from "../utils/textMetrics";
 import { safeImageSrc } from "../utils/safeImage";
 import { FloatingOperationToolbar } from "./FloatingOperationToolbar";
+import { IconCopy, IconImage, IconTrash } from "./AppIcons";
 import { OperationOverlay } from "./OperationOverlay";
 import { ResizeHandles } from "./ResizeHandles";
 import { marqueeRect, useStagePointerGestures } from "./useStagePointerGestures";
@@ -770,14 +770,14 @@ export function PdfCanvas({
                       title="Duplicate selected"
                       onClick={() => onOperationsAdd(selectedPageOperations.map(cloneOperation))}
                     >
-                      <Copy aria-hidden="true" />
+                      <IconCopy aria-hidden="true" />
                     </button>
                     <button
                       aria-label="Delete selected"
                       title="Delete selected"
                       onClick={() => onOperationsRemove(selectedIds)}
                     >
-                      <Trash2 aria-hidden="true" />
+                      <IconTrash aria-hidden="true" />
                     </button>
                   </div>
                 ) : null}
@@ -912,7 +912,7 @@ export function PdfCanvas({
       ) : null}
 
       <button className="floating-image" disabled={activeTool !== "image"} onClick={() => imageInputRef.current?.click()}>
-        <ImagePlus aria-hidden="true" />
+              <IconImage aria-hidden="true" />
         Image
       </button>
     </div>

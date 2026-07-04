@@ -1,4 +1,4 @@
-import { Loader2, ShieldCheck } from "lucide-react";
+import { IconLoader, IconShieldCheck } from "./AppIcons";
 
 type StatusBarProps = {
   documentName?: string;
@@ -35,7 +35,7 @@ export function StatusBar({
   return (
     <div className="status-bar">
       <span className="status-bar__message">
-        {isBusy ? <Loader2 aria-hidden="true" className="spin" /> : <ShieldCheck aria-hidden="true" />}
+        {isBusy ? <IconLoader aria-hidden="true" className="spin" /> : <IconShieldCheck aria-hidden="true" />}
         {message}
       </span>
       <span>{documentName ?? "No document"}</span>

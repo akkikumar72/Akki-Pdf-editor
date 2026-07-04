@@ -1,8 +1,8 @@
-import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createReplacementOperation, createTextItemReplacementOperation } from "../editor/operationFactory";
 import type { EditOperation, PdfRect, TextItem } from "../types/editor";
 import { findMatches, isTextItemReplaced, replaceAllOccurrences } from "../utils/textSearch";
+import { IconX } from "./AppIcons";
 import { Button } from "./ui/button";
 
 export type SearchHighlight = {
@@ -150,7 +150,7 @@ export function FindReplaceDialog({
       <div className="find-replace-dialog__head">
         <h2>Find &amp; replace</h2>
         <button className="icon-button" title="Close find and replace" onClick={onClose}>
-          <X aria-hidden="true" />
+          <IconX aria-hidden="true" />
         </button>
       </div>
       <div className="find-replace-dialog__fields field-stack">

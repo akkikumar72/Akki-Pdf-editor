@@ -29,10 +29,14 @@ describe("ToolHub", () => {
 
   it("renders the hero and the trust points", () => {
     render(<ToolHub {...makeProps()} />);
-    expect(screen.getByText("Edit PDFs with a lighter touch.")).toBeInTheDocument();
-    expect(screen.getByText("Private by default")).toBeInTheDocument();
-    expect(screen.getByText("Edit in context")).toBeInTheDocument();
-    expect(screen.getByText("Export cleanly")).toBeInTheDocument();
+    const proofStrip = screen.getByLabelText("Product promises");
+    expect(screen.getByRole("heading", { name: "AkkiPDF" })).toBeInTheDocument();
+    expect(within(proofStrip).getByText("Browser-native PDF editing")).toBeInTheDocument();
+    expect(within(proofStrip).getByText("Local by default")).toBeInTheDocument();
+    expect(within(proofStrip).getByText("Web now")).toBeInTheDocument();
+    expect(within(proofStrip).getByText("Your browser")).toBeInTheDocument();
+    expect(screen.queryByText(/desktop/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ask AkkiPDF/i)).not.toBeInTheDocument();
   });
 
   it("does not render the status line without a status, and renders it with one", () => {
@@ -43,16 +47,16 @@ describe("ToolHub", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Loading...");
   });
 
-  it("opens the file picker from the nav, hero, preview, and closing CTAs", () => {
+  it("opens the file picker from the nav, hero, action row, and closing CTAs", () => {
     render(<ToolHub {...makeProps()} />);
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const clickSpy = vi.spyOn(input, "click");
 
-    // Nav "Choose file" and the preview "Choose file".
-    screen.getAllByRole("button", { name: /Choose file/ }).forEach((b) => fireEvent.click(b));
-    fireEvent.click(screen.getByRole("button", { name: /^Start editing$/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Start editing ->/ }));
-    expect(clickSpy).toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("navigation", { name: "PDF editor" })).getByRole("button", { name: "Open PDF" }));
+    fireEvent.click(screen.getByRole("button", { name: /Click or drag a PDF here/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose PDF" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start editing" }));
+    expect(clickSpy).toHaveBeenCalledTimes(4);
   });
 
   it("calls onBlank from each blank CTA", () => {
@@ -105,7 +109,8 @@ describe("ToolHub", () => {
 
   it("disables CTAs when busy", () => {
     render(<ToolHub {...makeProps({ isBusy: true })} />);
-    expect(screen.getByRole("button", { name: /^Start editing$/ })).toBeDisabled();
+    expect(within(screen.getByRole("navigation", { name: "PDF editor" })).getByRole("button", { name: "Open PDF" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Choose PDF" })).toBeDisabled();
     screen.getAllByRole("button", { name: /Blank PDF/ }).forEach((b) => expect(b).toBeDisabled());
   });
 
@@ -146,7 +151,7 @@ describe("ToolHub", () => {
       const scrollSpy = vi.fn();
       editor.scrollIntoView = scrollSpy;
 
-      fireEvent.click(within(footerNav).getByRole("button", { name: "PDF editor" }));
+      fireEvent.click(within(footerNav).getByRole("button", { name: "Open PDF" }));
       expect(scrollSpy).toHaveBeenCalled();
 
       fireEvent.click(within(footerNav).getByRole("button", { name: "Blank PDF" }));

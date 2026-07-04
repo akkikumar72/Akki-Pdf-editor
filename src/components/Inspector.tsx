@@ -1,7 +1,19 @@
-import { AlignCenter, AlignLeft, AlignRight, Check, Circle, Copy, FileSpreadsheet, FileText, SlidersHorizontal, Trash2, X } from "lucide-react";
 import type { EditOperation, ExportFormat, FormMarkOperation, LinkTarget, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
 import { sanitizeEmailToMailto, sanitizeTel, sanitizeUrl } from "../utils/url";
+import {
+  IconAlignCenter,
+  IconAlignLeft,
+  IconAlignRight,
+  IconCheck,
+  IconCircle,
+  IconCopy,
+  IconFileText,
+  IconSettings,
+  IconSpreadsheet,
+  IconTrash,
+  IconX,
+} from "./AppIcons";
 
 type InspectorProps = {
   operation?: EditOperation;
@@ -36,7 +48,7 @@ export function Inspector({
     <div className="inspector__inner">
       <div className="panel-heading">
         <span>Inspector</span>
-        <SlidersHorizontal aria-hidden="true" />
+        <IconSettings aria-hidden="true" />
       </div>
 
       {selectedCount > 1 ? (
@@ -47,10 +59,10 @@ export function Inspector({
           </div>
           <div className="group-actions">
             <button onClick={onDuplicateSelected}>
-              <Copy aria-hidden="true" /> Duplicate all
+              <IconCopy aria-hidden="true" /> Duplicate all
             </button>
             <button onClick={onRemoveSelected}>
-              <Trash2 aria-hidden="true" /> Delete all
+              <IconTrash aria-hidden="true" /> Delete all
             </button>
           </div>
         </div>
@@ -138,10 +150,10 @@ export function Inspector({
               </div>
               <div className="segmented" aria-label="Text alignment">
                 {([
-                  ["left", AlignLeft],
-                  ["center", AlignCenter],
-                  ["right", AlignRight],
-                ] as Array<[TextAlign, typeof AlignLeft]>).map(([align, Icon]) => (
+                  ["left", IconAlignLeft],
+                  ["center", IconAlignCenter],
+                  ["right", IconAlignRight],
+                ] as Array<[TextAlign, typeof IconAlignLeft]>).map(([align, Icon]) => (
                   <button
                     key={align}
                     aria-pressed={operation.align === align}
@@ -324,10 +336,10 @@ export function Inspector({
             <>
               <div className="segmented" aria-label="Mark style">
                 {([
-                  ["check", Check],
-                  ["cross", X],
-                  ["dot", Circle],
-                ] as Array<[FormMarkOperation["mark"], typeof Check]>).map(([mark, Icon]) => (
+                  ["check", IconCheck],
+                  ["cross", IconX],
+                  ["dot", IconCircle],
+                ] as Array<[FormMarkOperation["mark"], typeof IconCheck]>).map(([mark, Icon]) => (
                   <button
                     key={mark}
                     aria-pressed={operation.mark === mark}
@@ -352,10 +364,10 @@ export function Inspector({
           <strong>{operationCount} edits</strong>
         </div>
         <div className="export-grid">
-          <button onClick={() => onExport("pdf")}><FileText aria-hidden="true" /> PDF</button>
-          <button onClick={() => onExport("txt")}><FileText aria-hidden="true" /> TXT</button>
-          <button onClick={() => onExport("csv")}><FileSpreadsheet aria-hidden="true" /> CSV</button>
-          <button onClick={() => onExport("xlsx")}><FileSpreadsheet aria-hidden="true" /> XLSX</button>
+          <button onClick={() => onExport("pdf")}><IconFileText aria-hidden="true" /> PDF</button>
+          <button onClick={() => onExport("txt")}><IconFileText aria-hidden="true" /> TXT</button>
+          <button onClick={() => onExport("csv")}><IconSpreadsheet aria-hidden="true" /> CSV</button>
+          <button onClick={() => onExport("xlsx")}><IconSpreadsheet aria-hidden="true" /> XLSX</button>
         </div>
       </section>
 

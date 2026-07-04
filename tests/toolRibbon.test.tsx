@@ -144,14 +144,14 @@ describe("ToolRibbon", () => {
       expect(props.onToolChange).toHaveBeenCalledWith("select");
     });
 
-    it("renders popover menu items with the correct aria-pressed state", () => {
+    it("renders popover menu items with the correct active state", () => {
       // Active tool sits in a *different* group (shapes), so the Forms popover opens
       // and all its items report aria-pressed=false.
       render(<ToolRibbon {...makeProps({ activeTool: "shape" })} />);
       fireEvent.click(screen.getByRole("button", { name: /Forms/ }));
       const menu = screen.getByRole("menu");
-      const dropdown = within(menu).getByText("Dropdown").closest("button") as HTMLElement;
-      expect(dropdown).toHaveAttribute("aria-pressed", "false");
+      const dropdown = within(menu).getByRole("menuitem", { name: /Dropdown/ });
+      expect(dropdown).not.toHaveAttribute("data-active");
     });
   });
 
@@ -163,20 +163,19 @@ describe("ToolRibbon", () => {
       expect(props.onExport).toHaveBeenCalledWith("pdf");
     });
 
-    it("exports a chosen format and resets the select", () => {
+    it("exports a chosen format from the export menu", () => {
       const props = makeProps();
       render(<ToolRibbon {...props} />);
-      const select = screen.getByLabelText("Export format") as HTMLSelectElement;
-      fireEvent.change(select, { target: { value: "csv" } });
+      fireEvent.click(screen.getByRole("button", { name: "Export format" }));
+      const menu = screen.getByRole("menu", { name: "Export format" });
+      fireEvent.click(within(menu).getByRole("menuitem", { name: /CSV/ }));
       expect(props.onExport).toHaveBeenCalledWith("csv");
-      expect(select.value).toBe("");
     });
 
-    it("ignores the empty export selection", () => {
+    it("does not export just by opening the export menu", () => {
       const props = makeProps();
       render(<ToolRibbon {...props} />);
-      const select = screen.getByLabelText("Export format") as HTMLSelectElement;
-      fireEvent.change(select, { target: { value: "" } });
+      fireEvent.click(screen.getByRole("button", { name: "Export format" }));
       expect(props.onExport).not.toHaveBeenCalled();
     });
   });

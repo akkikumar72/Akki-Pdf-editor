@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { AuroraBackground } from "./AuroraBackground";
 import { AkkiPdfLogoLink } from "./AkkiPdfLogo";
 import {
+  LumenArrowLeftIcon,
+  LumenArrowRightIcon,
+  LumenBrainIcon,
+  LumenBranchIcon,
   LumenCloudIcon,
+  LumenDocumentEditIcon,
+  LumenMagicIcon,
+  LumenSearchIcon,
   LumenShieldNetworkIcon,
   LumenTrashIcon,
   LumenUploadIcon,
@@ -21,16 +27,142 @@ type ToolHubProps = {
   onResume: (id: string) => Promise<void>;
 };
 
-const plannedImports = ["Google Drive", "Dropbox", "Web URL"];
-
-const trustPoints = [
-  ["Private by default", "Your file stays in this browser."],
-  ["Edit in context", "Text, signatures, images, and markup."],
-  ["Export cleanly", "PDF, TXT, CSV, and XLSX."],
+const navLinks = [
+  ["Features", "features"],
+  ["Use cases", "use-cases"],
+  ["Online PDF", "editor"],
+  ["Local mode", "compare"],
+  ["FAQ", "faq"],
 ];
 
-const footerProduct = ["PDF editor", "Local sessions", "Blank PDF"];
-const footerWorkflow = ["Annotate", "Sign", "Export"];
+const quickActions = [
+  { title: "Edit", Icon: LumenDocumentEditIcon },
+  { title: "Annotate", Icon: LumenMagicIcon },
+  { title: "Sign", Icon: LumenBranchIcon },
+  { title: "Organize", Icon: LumenSearchIcon },
+  { title: "Export", Icon: LumenUploadIcon },
+  { title: "More", Icon: LumenBrainIcon },
+];
+
+const proofPoints = [
+  { title: "Powered by", description: "Browser-native PDF editing", Icon: LumenDocumentEditIcon },
+  { title: "Privacy model", description: "Local by default", Icon: LumenShieldNetworkIcon },
+  { title: "Available on", description: "Web now", Icon: LumenCloudIcon },
+  { title: "Runs in", description: "Your browser", Icon: LumenUploadIcon },
+];
+
+const featureCards = [
+  {
+    title: "Edit PDF",
+    description: "Update text, links, images, and page-level content directly on the document canvas.",
+    bullets: ["Change visible page content", "Move and resize overlays", "Undo-friendly edit model"],
+    Icon: LumenDocumentEditIcon,
+    image: "/landing/akki-pdf-feature-stack.png",
+    imageAlt: "AkkiPDF editor interface with page thumbnails, annotation tools, a signature box, and local file status",
+  },
+  {
+    title: "Annotate PDF",
+    description: "Highlight important passages, draw attention to a section, and keep review notes beside the source.",
+    bullets: ["Highlight and freehand marks", "Comments and callouts", "Review-ready exports"],
+    Icon: LumenMagicIcon,
+  },
+  {
+    title: "Sign & Fill",
+    description: "Place signatures, checkboxes, dates, and clean form answers without leaving the page.",
+    bullets: ["Signature studio", "Checkboxes and text fields", "Date stamps"],
+    Icon: LumenBranchIcon,
+  },
+  {
+    title: "Extract & Export",
+    description: "Turn document content into a finished PDF or pull text and tables into reusable files.",
+    bullets: ["PDF export", "TXT extraction", "CSV and XLSX tables"],
+    Icon: LumenSearchIcon,
+  },
+];
+
+const audienceSlides = [
+  {
+    title: "Students & educators",
+    description: "Mark up readings, keep notes attached to the source, and export clean study copies.",
+    Icon: LumenMagicIcon,
+    image: "/landing/akki-carousel-educators.png",
+    imageAlt: "Two educators reviewing research notes on a laptop in a study room",
+    widgets: ["Highlight notes", "Export study copy"],
+  },
+  {
+    title: "Operators",
+    description: "Fill forms, review invoices, extract tables, and keep repeat document work in one tab.",
+    Icon: LumenSearchIcon,
+    image: "/landing/akki-carousel-operators.png",
+    imageAlt: "Professional reviewing reports and PDF tables beside a laptop",
+    widgets: ["Extract tables", "Review invoice"],
+  },
+  {
+    title: "Founders & freelancers",
+    description: "Sign agreements, fix small PDF issues, and send a polished copy without buying a heavy suite.",
+    Icon: LumenBranchIcon,
+    image: "/landing/akki-carousel-founders.png",
+    imageAlt: "Freelancer signing a document with a tablet and laptop on a studio desk",
+    widgets: ["Place signature", "Send clean PDF"],
+  },
+  {
+    title: "Privacy-sensitive work",
+    description: "Open documents in the local browser session when uploading to a random server is not acceptable.",
+    Icon: LumenShieldNetworkIcon,
+    image: "/landing/akki-carousel-privacy.png",
+    imageAlt: "Professional working with local documents in a private office setup",
+    widgets: ["Local session", "No upload queue"],
+  },
+];
+
+const standoutCards = [
+  {
+    title: "Local-first editing",
+    description: "Open PDFs in your browser, make changes locally, and export only when you are ready.",
+    Icon: LumenShieldNetworkIcon,
+  },
+  {
+    title: "Browser-based workflow",
+    description: "Use AkkiPDF in your browser, keep work local to the session, and export only when you are ready.",
+    Icon: LumenCloudIcon,
+  },
+  {
+    title: "Edit, sign, export",
+    description: "Place text, images, signatures, and checkboxes, then export PDF, TXT, CSV, or XLSX.",
+    Icon: LumenDocumentEditIcon,
+  },
+  {
+    title: "Find and reuse content",
+    description: "Search long files, pull out useful text, and turn PDF tables into workable data files.",
+    Icon: LumenSearchIcon,
+  },
+];
+
+const browserWorkflowRows = [
+  ["PDF editing", "Overlay-based editor", "Update content without uploading the source file"],
+  ["Annotations and signatures", "Highlights, notes, fields, and signatures", "Finish common PDF tasks in one tab"],
+  ["TXT / CSV / XLSX export", "Readable text and table extraction", "Reuse document content in local files"],
+  ["Recent sessions", "Saved in this browser", "Pick up work without creating an account"],
+  ["Privacy model", "Client-side by default", "Export only when the document is ready"],
+];
+
+const faqItems = [
+  {
+    question: "Is AkkiPDF a cloud PDF editor?",
+    answer: "No. The current product is local-first and client-side. PDFs open in the browser session, and changes are written when you export.",
+  },
+  {
+    question: "What can I edit today?",
+    answer: "You can edit visible PDF content through overlays, annotate, add images, sign, fill forms, manage local sessions, and export finished files.",
+  },
+  {
+    question: "Do I need to install anything?",
+    answer: "No. AkkiPDF currently runs in your browser. Open a PDF, edit locally, and export the finished file when you are ready.",
+  },
+];
+
+const footerProduct = ["Open PDF", "Blank PDF", "Features", "FAQ"];
+const footerWorkflow = ["Edit PDFs", "Annotate PDFs", "Sign forms", "Export data"];
 
 function formatRecentTime(value: number) {
   return new Date(value).toLocaleString([], {
@@ -53,6 +185,7 @@ export function ToolHub({
 }: ToolHubProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const navRef = useRef<HTMLElement>(null);
+  const audienceCarouselRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
@@ -84,22 +217,44 @@ export function ToolHub({
     await onOpen(file);
   };
 
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const scrollAudienceCarousel = (direction: -1 | 1) => {
+    const carousel = audienceCarouselRef.current;
+    if (!carousel) return;
+    carousel.scrollBy({ left: direction * carousel.clientWidth * 0.82, behavior: "smooth" });
+  };
+
   return (
     <div className={`tool-hub lumen pdf-landing ${isDragging ? "is-dragging" : ""}`}>
       <header className="lumen-nav" id="lumen-nav" ref={navRef}>
         <nav className="lumen-nav__inner" aria-label="PDF editor">
           <AkkiPdfLogoLink className="lumen-wordmark" href="#editor" aria-label="AkkiPDF home" />
-          <button className="lumen-nav__cta" type="button" onClick={() => inputRef.current?.click()}>
-            Choose file
-            <LumenUploadIcon aria-hidden="true" />
-          </button>
+          <div className="lumen-nav__links" aria-label="Landing sections">
+            {navLinks.map(([label, id]) => (
+              <button className="lumen-nav__link" key={label} type="button" onClick={() => scrollToSection(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="lumen-nav__actions">
+            <button className="lumen-nav__secondary" type="button" onClick={() => scrollToSection("compare")}>
+              Local browser
+            </button>
+            <button className="lumen-nav__cta" type="button" disabled={isBusy} onClick={() => inputRef.current?.click()}>
+              Open PDF
+              <LumenUploadIcon aria-hidden="true" />
+            </button>
+          </div>
         </nav>
       </header>
 
       <main className="lumen-main">
         <section
           id="editor"
-          className="lumen-hero"
+          className="lumen-hero akki-hero"
           aria-label="Import PDF"
           onDragLeave={() => setIsDragging(false)}
           onDragOver={(event) => {
@@ -112,75 +267,53 @@ export function ToolHub({
             void acceptFile(event.dataTransfer.files[0]);
           }}
         >
-          <AuroraBackground
-            colorStops={["var(--color-accent-soft)", "var(--color-sky)", "var(--color-paper-3)"]}
-            speed={28}
-            amplitude={0.72}
-            blend={0.52}
-          />
-
-          <div className="pdf-landing__content">
-            <div className="pdf-landing__heading">
-              <p className="pdf-landing__eyebrow">Local-first PDF workbench</p>
-              <h1>Edit PDFs with a lighter touch.</h1>
-              <p>Open a document, make small precise changes, sign, annotate, and export without sending the file away.</p>
-              <div className="pdf-landing__actions">
-                <Button variant="primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
-                  Start editing
-                </Button>
-                <Button variant="tonal" disabled={isBusy} onClick={() => void onBlank()}>
-                  Blank PDF -&gt;
-                </Button>
+          <div className="akki-hero__inner">
+            <div className="akki-hero__brand">
+              <div className="akki-hero__title">
+                <span className="akki-hero__mark" aria-hidden="true">
+                  <LumenDocumentEditIcon />
+                </span>
+                <h1>AkkiPDF</h1>
               </div>
-              <span className="pdf-landing__drop-copy">Drop a PDF anywhere on this section.</span>
-              {status ? (
-                <p className="pdf-landing__status" role="status" aria-live="polite">{status}</p>
-              ) : null}
+              <p>Your local PDF workspace for editing, signing, and exporting.</p>
             </div>
 
-            <div className="pdf-editor-preview" aria-label="PDF editor preview">
-              <div className="pdf-editor-preview__toolbar">
-                <span>Text</span>
-                <span>Sign</span>
-                <span>Annotate</span>
-                <strong>118%</strong>
-              </div>
-              <div className="pdf-editor-preview__body">
-                <aside className="pdf-editor-preview__pages" aria-hidden="true">
+            <div className="akki-upload-shell" aria-label="Local PDF import">
+              <button
+                className="akki-upload-drop"
+                type="button"
+                disabled={isBusy}
+                onClick={() => inputRef.current?.click()}
+              >
+                <span className="akki-upload-drop__art" aria-hidden="true">
                   <span />
                   <span />
-                </aside>
-                <div className="pdf-editor-preview__page">
-                  <div className="pdf-editor-preview__doc-lines" aria-hidden="true">
-                    <strong />
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <div className="pdf-landing__dropzone">
-                    <span className="pdf-landing__drop-icon"><LumenUploadIcon aria-hidden="true" /></span>
-                    <strong>Bring in a PDF</strong>
-                    <small>or create a blank one.</small>
-                    <div className="pdf-landing__actions pdf-landing__actions--inside">
-                      <Button variant="primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
-                        Choose file
-                      </Button>
-                      <Button variant="tonal" disabled={isBusy} onClick={() => void onBlank()}>
-                        Blank PDF
-                      </Button>
-                    </div>
-                    <div className="pdf-landing__sources" aria-label="Planned import sources">
-                      {plannedImports.map((source) => (
-                        <button key={source} disabled title={`${source} import is planned after local-first v1`}>
-                          <LumenCloudIcon aria-hidden="true" />
-                          {source}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <span />
+                </span>
+                <strong><LumenUploadIcon aria-hidden="true" /> Click or drag a PDF here</strong>
+                <small>Support: PDF | Local browser session | No account required</small>
+              </button>
+
+              <div className="akki-upload-actions">
+                <div className="akki-upload-actions__left">
+                  <button
+                    className="akki-upload-icon-button"
+                    type="button"
+                    aria-label="Choose PDF"
+                    disabled={isBusy}
+                    onClick={() => inputRef.current?.click()}
+                  >
+                    <LumenUploadIcon aria-hidden="true" />
+                  </button>
+                  <Button variant="tonal" disabled={isBusy} onClick={() => void onBlank()}>
+                    Blank PDF
+                  </Button>
                 </div>
+                <span className="akki-local-mode-pill"><LumenShieldNetworkIcon aria-hidden="true" /> Local Mode</span>
               </div>
+
               <input
+                className="pdf-file-input"
                 ref={inputRef}
                 type="file"
                 accept="application/pdf"
@@ -188,12 +321,151 @@ export function ToolHub({
               />
             </div>
 
-            <div className="pdf-landing__trust" aria-label="Editor highlights">
-              {trustPoints.map(([title, description]) => (
+            {status ? (
+              <p className="akki-hero__status" role="status" aria-live="polite">{status}</p>
+            ) : null}
+
+            <div className="akki-action-chips" aria-label="Popular PDF actions">
+              {quickActions.map(({ title, Icon }) => (
+                <button
+                  key={title}
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => {
+                    if (title === "Edit" || title === "Annotate" || title === "Sign") {
+                      inputRef.current?.click();
+                    }
+                  }}
+                >
+                  <Icon aria-hidden="true" />
+                  {title}
+                </button>
+              ))}
+            </div>
+
+            <div className="akki-proof-strip" aria-label="Product promises">
+              {proofPoints.map(({ title, description, Icon }) => (
                 <div key={title}>
-                  <LumenShieldNetworkIcon aria-hidden="true" />
-                  <strong>{title}</strong>
-                  <span>{description}</span>
+                  <Icon aria-hidden="true" />
+                  <span>{title}</span>
+                  <strong>{description}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="akki-features" id="features" aria-label="AkkiPDF feature highlights">
+          <div className="akki-section-inner">
+            <header className="akki-section-head">
+              <h2>Features of AkkiPDF</h2>
+            </header>
+
+            <div className="akki-feature-grid">
+              {featureCards.map((feature, index) => (
+                <article className={`akki-feature-card ${index === 0 ? "is-wide" : ""}`} key={feature.title}>
+                  <div className="akki-feature-card__copy">
+                    <h3><feature.Icon aria-hidden="true" /> {feature.title}</h3>
+                    <p>{feature.description}</p>
+                    <ul>
+                      {feature.bullets.map((point) => (
+                        <li key={point}>{point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  {feature.image ? (
+                    <div className="akki-feature-visual akki-feature-visual--image">
+                      <img src={feature.image} alt={feature.imageAlt} width="1536" height="1024" loading={index === 0 ? "eager" : "lazy"} />
+                    </div>
+                  ) : (
+                    <div className="akki-feature-visual" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="akki-audience" id="use-cases" aria-label="AkkiPDF use cases">
+          <div className="akki-section-inner">
+            <header className="akki-section-head">
+              <h2>Who needs AkkiPDF</h2>
+            </header>
+
+            <div className="akki-audience-carousel" ref={audienceCarouselRef} aria-label="AkkiPDF workflows">
+              <div className="akki-audience-track">
+                {audienceSlides.map(({ title, description, Icon, image, imageAlt, widgets }) => (
+                  <article className="akki-audience-slide" key={title}>
+                    <img src={image} alt={imageAlt} width="1672" height="941" loading="lazy" />
+                    <div className="akki-audience-slide__shade" aria-hidden="true" />
+                    <div className="akki-audience-slide__copy">
+                      <h3><Icon aria-hidden="true" /> {title}</h3>
+                      <p>{description}</p>
+                    </div>
+                    <div className="akki-audience-slide__widgets" aria-hidden="true">
+                      {widgets.map((widget) => (
+                        <span key={widget}>{widget}</span>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="akki-audience-note">
+              <span>Watch the carousel move through local PDF workflows</span>
+              <div className="akki-audience-controls" aria-label="Carousel controls">
+                <button type="button" aria-label="Show previous workflow" onClick={() => scrollAudienceCarousel(-1)}>
+                  <LumenArrowLeftIcon aria-hidden="true" />
+                </button>
+                <button type="button" aria-label="Show next workflow" onClick={() => scrollAudienceCarousel(1)}>
+                  <LumenArrowRightIcon aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="akki-standout" aria-label="What makes AkkiPDF stand out">
+          <div className="akki-section-inner">
+            <header className="akki-section-head">
+              <h2>What makes AkkiPDF stand out</h2>
+            </header>
+
+            <div className="akki-standout-grid">
+              {standoutCards.map(({ title, description, Icon }) => (
+                <article className="akki-standout-card" key={title}>
+                  <div className="akki-standout-card__copy">
+                    <span className="akki-standout-card__icon"><Icon aria-hidden="true" /></span>
+                    <h3>{title}</h3>
+                    <p>{description}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="akki-compare" id="compare" aria-label="Local browser workflow">
+          <div className="akki-section-inner">
+            <header className="akki-section-head">
+              <h2>Built for local browser editing</h2>
+            </header>
+            <div className="akki-compare-table">
+              <div className="akki-compare-table__head">
+                <span>Workflow</span>
+                <span>AkkiPDF</span>
+                <span>Why it matters</span>
+              </div>
+              {browserWorkflowRows.map(([workflow, akki, why]) => (
+                <div className="akki-compare-table__row" key={workflow}>
+                  <span>{workflow}</span>
+                  <strong>{akki}</strong>
+                  <span>{why}</span>
                 </div>
               ))}
             </div>
@@ -201,11 +473,10 @@ export function ToolHub({
         </section>
 
         {recentSessions.length ? (
-          <section className="pdf-recent-section" aria-label="Recent local sessions">
-            <div className="pdf-recent-section__inner">
-              <header className="pdf-recent-section__head">
-                <p><span aria-hidden="true" /> Local sessions</p>
-                <h2>Pick up where you left off.</h2>
+          <section className="akki-recent-section" aria-label="Recent local sessions">
+            <div className="akki-section-inner">
+              <header className="akki-section-head">
+                <h2>Recent local sessions</h2>
               </header>
 
               <div className="lumen-recent">
@@ -225,7 +496,7 @@ export function ToolHub({
                     <div className="lumen-recent__row" key={session.id}>
                       <button disabled={isBusy} onClick={() => void onResume(session.id)}>
                         <span>{session.name}</span>
-                        <small>{session.operationCount} edits · {formatRecentTime(session.updatedAt)}</small>
+                        <small>{session.operationCount} edits | {formatRecentTime(session.updatedAt)}</small>
                       </button>
                       <button
                         type="button"
@@ -245,21 +516,34 @@ export function ToolHub({
           </section>
         ) : null}
 
-        <section className="pdf-landing__closing" aria-label="Start editing locally">
-          <div>
+        <section className="akki-faq" id="faq" aria-label="AkkiPDF FAQ">
+          <div className="akki-section-inner">
+            <header className="akki-section-head">
+              <h2>Questions before you open a PDF</h2>
+            </header>
+            <div className="akki-faq-grid">
+              {faqItems.map(({ question, answer }) => (
+                <article key={question}>
+                  <h3>{question}</h3>
+                  <p>{answer}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="akki-closing" aria-label="Start editing locally">
+          <div className="akki-section-inner">
             <h2>Start with one PDF.</h2>
-            <p>
-              Pick a file, make the small edit, and export a clean copy. No account, no upload queue, no document leaving your browser.
-            </p>
+            <p>Pick a file, make the small edit, and export a clean copy. No account, no upload queue, no document leaving your browser.</p>
             <div className="pdf-landing__closing-actions">
               <Button variant="primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
-                Start editing -&gt;
+                Start editing
               </Button>
               <Button variant="quiet" disabled={isBusy} onClick={() => void onBlank()}>
                 Blank PDF
               </Button>
             </div>
-            <small>Private by default · local sessions · export-ready</small>
           </div>
         </section>
       </main>
@@ -283,7 +567,13 @@ export function ToolHub({
                   key={item}
                   type="button"
                   disabled={isBusy}
-                  onClick={() => item === "Blank PDF" ? void onBlank() : document.getElementById("editor")?.scrollIntoView({ behavior: "smooth" })}
+                  onClick={() => {
+                    if (item === "Blank PDF") {
+                      void onBlank();
+                    } else {
+                      scrollToSection(item === "FAQ" ? "faq" : item === "Features" ? "features" : "editor");
+                    }
+                  }}
                 >
                   {item}
                 </button>
@@ -295,7 +585,7 @@ export function ToolHub({
 
             <p className="pdf-footer__col pdf-footer__copy">
               <span>© 2026 AkkiPDF</span>
-              <span>PDF · TXT · CSV · XLSX</span>
+              <span>PDF | TXT | CSV | XLSX</span>
               <span><LumenShieldNetworkIcon aria-hidden="true" /> Local unless you export</span>
             </p>
           </div>

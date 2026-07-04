@@ -1,10 +1,22 @@
-import { Bold, ChevronDown, Copy, Italic, Link2, Move, PaintBucket, Palette, Square, Trash2, Type } from "lucide-react";
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Select, { components, type GroupBase, type OptionProps, type SingleValue, type StylesConfig } from "react-select";
 import { FONT_CHOICES } from "../engine/fontResolver";
 import type { FontChoice } from "../engine/fontResolver";
 import type { EditOperation, TextOperation, ViewportRect } from "../types/editor";
 import { clampToolbarLeft, getToolbarPlacement, TOOLBAR_FALLBACK_HEIGHT_PX } from "../utils/toolbarPlacement";
+import {
+  IconBold,
+  IconChevronDown,
+  IconCopy,
+  IconItalic,
+  IconLink,
+  IconMove,
+  IconPaintBucket,
+  IconPalette,
+  IconSquare,
+  IconTrash,
+  IconType,
+} from "./AppIcons";
 
 type FloatingOperationToolbarProps = {
   operation: EditOperation;
@@ -252,7 +264,7 @@ export function FloatingOperationToolbar({
                 onUpdate,
               )}
           >
-            <Bold aria-hidden="true" />
+            <IconBold aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -271,7 +283,7 @@ export function FloatingOperationToolbar({
                 onUpdate,
               )}
           >
-            <Italic aria-hidden="true" />
+            <IconItalic aria-hidden="true" />
           </button>
           <div className="floating-toolbar__menu" title="Font size">
             <button
@@ -282,9 +294,9 @@ export function FloatingOperationToolbar({
               aria-label={`Font size ${currentFontSize}`}
               onClick={() => setOpenMenu((value) => value === "size" ? undefined : "size")}
             >
-              <Type aria-hidden="true" />
+              <IconType aria-hidden="true" />
               <span>{currentFontSize}</span>
-              <ChevronDown aria-hidden="true" />
+              <IconChevronDown aria-hidden="true" />
             </button>
             {openMenu === "size" ? (
               <div className="floating-toolbar__popover floating-toolbar__popover--size" role="menu" aria-label="Font size options">
@@ -368,7 +380,7 @@ export function FloatingOperationToolbar({
             </FontPreviewContext.Provider>
           </div>
           <label className="floating-toolbar__color" title="Text color">
-            <Palette aria-hidden="true" />
+            <IconPalette aria-hidden="true" />
             <input
               aria-label="Text color"
               type="color"
@@ -382,7 +394,7 @@ export function FloatingOperationToolbar({
       {isShape ? (
         <>
           <label className="floating-toolbar__color" title="Border color">
-            <Palette aria-hidden="true" />
+            <IconPalette aria-hidden="true" />
             <input
               aria-label="Border color"
               type="color"
@@ -391,7 +403,7 @@ export function FloatingOperationToolbar({
             />
           </label>
           <label className="floating-toolbar__color" title="Fill color">
-            <PaintBucket aria-hidden="true" />
+            <IconPaintBucket aria-hidden="true" />
             <input
               aria-label="Fill color"
               type="color"
@@ -407,7 +419,7 @@ export function FloatingOperationToolbar({
             title="No fill (transparent)"
             onClick={() => onUpdate(operation.id, { fill: "transparent" } as Partial<EditOperation>)}
           >
-            <Square aria-hidden="true" />
+            <IconSquare aria-hidden="true" />
           </button>
           <label className="floating-toolbar__width" title="Border width">
             <span className="visually-hidden">Border width</span>
@@ -425,7 +437,7 @@ export function FloatingOperationToolbar({
       ) : null}
 
       <button type="button" className="floating-toolbar__button" aria-label="Add link" title="Add link" onClick={() => onLink(operation)}>
-        <Link2 aria-hidden="true" />
+        <IconLink aria-hidden="true" />
       </button>
       <button
         type="button"
@@ -435,13 +447,13 @@ export function FloatingOperationToolbar({
         title={moveModeActive ? "Move mode on — drag to reposition" : "Move — drag overlay to reposition"}
         onClick={() => onMoveToggle?.()}
       >
-        <Move aria-hidden="true" />
+        <IconMove aria-hidden="true" />
       </button>
       <button type="button" className="floating-toolbar__button" aria-label="Duplicate" title="Duplicate" onClick={() => onDuplicate(operation)}>
-        <Copy aria-hidden="true" />
+        <IconCopy aria-hidden="true" />
       </button>
       <button type="button" className="floating-toolbar__button" aria-label="Delete" title="Delete" onClick={() => onDelete(operation.id)}>
-        <Trash2 aria-hidden="true" />
+        <IconTrash aria-hidden="true" />
       </button>
     </div>
   );

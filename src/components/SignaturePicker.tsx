@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
-import { Trash2 } from "lucide-react";
 import type { ViewportRect } from "../types/editor";
 import type { SavedSignature } from "../utils/storage";
 import { signatureCssFamily } from "../editor/signatureFonts";
 import { safeImageSrc } from "../utils/safeImage";
 import { clampToolbarLeft, getToolbarPlacement } from "../utils/toolbarPlacement";
+import { IconTrash } from "./AppIcons";
 import { Button } from "./ui/button";
 
 type SignaturePickerProps = {
@@ -79,7 +79,7 @@ export function SignaturePicker({
               aria-label="Delete saved signature"
               onClick={() => onDelete(signature.id)}
             >
-              <Trash2 aria-hidden="true" />
+              <IconTrash aria-hidden="true" />
             </button>
           </div>
         ))}
