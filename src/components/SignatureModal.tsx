@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { SIGNATURE_COLORS, SIGNATURE_FONTS } from "../editor/signatureFonts";
 import type { SignatureDraft } from "../editor/signaturePlacement";
 import { validateImageFile } from "../utils/fileValidation";
-import { exportInkPng, renderInk, type InkStroke } from "../utils/signatureInk";
+import { clampInkPoint, exportInkPng, renderInk, type InkStroke } from "../utils/signatureInk";
 import { Button } from "./ui/button";
 
 type SignatureTab = "type" | "draw" | "upload";
@@ -65,11 +65,17 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
   const strokePointFromEvent = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = event.currentTarget;
     const bounds = canvas.getBoundingClientRect();
-    return {
-      x: ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * DRAW_WIDTH,
-      y: ((event.clientY - bounds.top) / Math.max(1, bounds.height)) * DRAW_HEIGHT,
-      pressure: event.pressure,
-    };
+    // Clamped because pointer capture keeps delivering moves after the cursor
+    // leaves the pad, and the trimmed export sizes itself from the ink bounds.
+    return clampInkPoint(
+      {
+        x: ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * DRAW_WIDTH,
+        y: ((event.clientY - bounds.top) / Math.max(1, bounds.height)) * DRAW_HEIGHT,
+        pressure: event.pressure,
+      },
+      DRAW_WIDTH,
+      DRAW_HEIGHT,
+    );
   };
 
   const handleDrawStart = (event: React.PointerEvent<HTMLCanvasElement>) => {

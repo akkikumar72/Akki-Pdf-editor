@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  clampInkPoint,
   exportInkPng,
   fillOutline,
   inkBounds,
@@ -9,8 +10,13 @@ import {
   type InkStroke,
 } from "../src/utils/signatureInk";
 
-function stroke(points: Array<[number, number]>, color = "#000000", simulatePressure = true): InkStroke {
-  return { points: points.map(([x, y]) => ({ x, y, pressure: 0.5 })), color, simulatePressure };
+function stroke(
+  points: Array<[number, number]>,
+  color = "#000000",
+  simulatePressure = true,
+  pressure = 0.5,
+): InkStroke {
+  return { points: points.map(([x, y]) => ({ x, y, pressure })), color, simulatePressure };
 }
 
 function mockPathContext() {
@@ -37,8 +43,25 @@ describe("strokeOutline", () => {
   });
 
   it("respects real pen pressure when simulation is off", () => {
-    const outline = strokeOutline(stroke([[10, 10], [60, 40]], "#000000", false));
-    expect(outline.length).toBeGreaterThan(3);
+    // Same path, different reported pressure: the harder stroke must produce a
+    // measurably fatter outline, proving the pressure input is not ignored.
+    const points: Array<[number, number]> = [[10, 80], [110, 80], [210, 80]];
+    const soft = inkBounds([stroke(points, "#000000", false, 0.1)]);
+    const hard = inkBounds([stroke(points, "#000000", false, 0.9)]);
+    expect(soft).not.toBeNull();
+    expect(hard).not.toBeNull();
+    expect(hard!.height).toBeGreaterThan(soft!.height);
+  });
+});
+
+describe("clampInkPoint", () => {
+  it("passes through points inside the pad and preserves pressure", () => {
+    expect(clampInkPoint({ x: 12, y: 34, pressure: 0.7 }, 440, 160)).toEqual({ x: 12, y: 34, pressure: 0.7 });
+  });
+
+  it("clamps runaway pointer-capture coordinates to the pad bounds", () => {
+    expect(clampInkPoint({ x: -50, y: 4000, pressure: 0.5 }, 440, 160)).toEqual({ x: 0, y: 160, pressure: 0.5 });
+    expect(clampInkPoint({ x: 9999, y: -1, pressure: 0.5 }, 440, 160)).toEqual({ x: 440, y: 0, pressure: 0.5 });
   });
 });
 
@@ -144,6 +167,11 @@ describe("exportInkPng", () => {
 
     toDataUrlThrows = false;
     toDataUrlValue = "data:,";
+    expect(exportInkPng([stroke([[10, 10], [40, 20]])])).toBeNull();
+
+    // A PNG data URL without base64 encoding would be dropped by safeImageSrc
+    // at render time, so the export must reject it too.
+    toDataUrlValue = "data:image/png,RAW";
     expect(exportInkPng([stroke([[10, 10], [40, 20]])])).toBeNull();
   });
 });

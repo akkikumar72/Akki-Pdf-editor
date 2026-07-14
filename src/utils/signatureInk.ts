@@ -34,6 +34,19 @@ const STROKE_OPTIONS = {
   last: true,
 };
 
+/**
+ * Clamps an input sample to the pad's logical bounds. Pointer capture keeps
+ * delivering moves after the cursor leaves the canvas, and unbounded points
+ * would balloon the ink bounds (and with them the trimmed export).
+ */
+export function clampInkPoint(point: InkPoint, width: number, height: number): InkPoint {
+  return {
+    x: Math.min(width, Math.max(0, point.x)),
+    y: Math.min(height, Math.max(0, point.y)),
+    pressure: point.pressure,
+  };
+}
+
 /** Expands a stroke's input samples into a closed variable-width outline polygon. */
 export function strokeOutline(stroke: InkStroke): number[][] {
   return getStroke(
@@ -126,6 +139,9 @@ export function exportInkPng(strokes: InkStroke[]): InkExport | null {
   } catch {
     return null;
   }
-  if (!/^data:image\/png/i.test(dataUrl)) return null;
+  // Same shape safeImageSrc accepts at render time — a PNG data URL that is
+  // not base64-encoded would be persisted here only to be dropped by every
+  // <img> overlay later.
+  if (!/^data:image\/png;base64,/i.test(dataUrl)) return null;
   return { dataUrl, width, height };
 }

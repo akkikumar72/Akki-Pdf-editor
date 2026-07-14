@@ -24,6 +24,8 @@ function renderModal() {
 function drawStroke(canvas: HTMLCanvasElement) {
   fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
   fireEvent.pointerMove(canvas, { clientX: 40, clientY: 30 });
+  // Pointer capture keeps reporting moves outside the pad; the point is clamped.
+  fireEvent.pointerMove(canvas, { clientX: 4000, clientY: -200 });
   fireEvent.pointerUp(canvas, { pointerId: 1 });
 }
 
@@ -48,6 +50,12 @@ beforeEach(() => {
     return toDataUrlValue;
   }) as typeof HTMLCanvasElement.prototype.toDataURL;
   HTMLElement.prototype.setPointerCapture = vi.fn();
+  // jsdom reports a zero-size rect; give the pad its real 440x160 box so
+  // client coordinates map onto the logical stroke space 1:1.
+  HTMLCanvasElement.prototype.getBoundingClientRect = vi.fn(() => ({
+    left: 0, top: 0, x: 0, y: 0, width: 440, height: 160, right: 440, bottom: 160,
+    toJSON: () => ({}),
+  })) as unknown as typeof HTMLCanvasElement.prototype.getBoundingClientRect;
 });
 
 afterEach(() => {
