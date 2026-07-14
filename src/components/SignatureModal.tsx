@@ -37,7 +37,8 @@ function readFileAsDataUrl(file: File) {
 export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawingRef = useRef(false);
+  /** Pointer id of the stroke in progress; null when the pad is idle. */
+  const activePointerRef = useRef<number | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<SignatureTab>("type");
   const [name, setName] = useState("");
@@ -88,13 +89,16 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
   };
 
   const handleDrawStart = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    // One pointer inks at a time: a stray second touch (e.g. a resting palm)
+    // must not open a stroke that steals the first pointer's samples.
+    if (activePointerRef.current !== null) return;
     if (!event.currentTarget.getContext("2d")) return;
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
       // setPointerCapture can throw for non-active pointer ids; capture is an enhancement, not required.
     }
-    drawingRef.current = true;
+    activePointerRef.current = event.pointerId;
     const point = strokePointFromEvent(event);
     // A bare tap is already a stroke: perfect-freehand turns a single point into a dot.
     setStrokes((previous) => [
@@ -104,18 +108,33 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
   };
 
   const handleDrawMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawingRef.current) return;
+    if (activePointerRef.current !== event.pointerId) return;
+    if (event.buttons === 0) {
+      // Without capture, a release outside the canvas never delivers pointerup
+      // here; a later button-less hover must end the stroke, not extend it.
+      activePointerRef.current = null;
+      return;
+    }
     const point = strokePointFromEvent(event);
     setStrokes((previous) => {
       const current = previous[previous.length - 1];
-      /* v8 ignore next -- the drawing flag is only set after handleDrawStart pushed a stroke */
+      /* v8 ignore next -- an active pointer id is only set after handleDrawStart pushed a stroke */
       if (!current) return previous;
       return [...previous.slice(0, -1), { ...current, points: [...current.points, point] }];
     });
   };
 
-  const handleDrawEnd = () => {
-    drawingRef.current = false;
+  const handleDrawEnd = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (activePointerRef.current !== event.pointerId) return;
+    activePointerRef.current = null;
+  };
+
+  const handleDrawCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (activePointerRef.current !== event.pointerId) return;
+    activePointerRef.current = null;
+    // A browser-cancelled gesture (scroll/zoom takeover, palm rejection) is
+    // not a finished stroke; drop the partial ink instead of committing it.
+    setStrokes((previous) => previous.slice(0, -1));
   };
 
   const undoStroke = () => {
@@ -176,7 +195,8 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
     const focusable = Array.from(
       /* v8 ignore next -- dialogRef is attached to the always-rendered root, so the ?? [] fallback never executes */
       dialogRef.current?.querySelectorAll<HTMLElement>("input, button, canvas[tabindex]") ?? [],
-    ).filter((element) => !element.hasAttribute("disabled"));
+      // tabIndex -1 excludes the visually-hidden file input from the Tab cycle.
+    ).filter((element) => !element.hasAttribute("disabled") && element.tabIndex !== -1);
     /* v8 ignore next -- the dialog always renders the tab strip and Cancel button, so this guard never executes */
     if (focusable.length === 0) return;
     const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
@@ -225,7 +245,7 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
         ) : null}
 
         {tab === "type" ? (
-          <div className="signature-modal__body field-stack">
+          <div className="field-stack">
             <label>
               <span>Full name</span>
               <input
@@ -252,7 +272,7 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
         ) : null}
 
         {tab === "draw" ? (
-          <div className="signature-modal__body">
+          <div>
             <canvas
               ref={canvasRef}
               className="signature-modal__canvas"
@@ -262,7 +282,7 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
               onPointerDown={handleDrawStart}
               onPointerMove={handleDrawMove}
               onPointerUp={handleDrawEnd}
-              onPointerCancel={handleDrawEnd}
+              onPointerCancel={handleDrawCancel}
             />
             <div className="signature-modal__canvas-actions">
               <Button type="button" variant="quiet" size="sm" onClick={undoStroke} disabled={!hasDrawn}>
@@ -276,13 +296,14 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
         ) : null}
 
         {tab === "upload" ? (
-          <div className="signature-modal__body">
+          <div>
             <input
               ref={uploadInputRef}
               type="file"
               accept="image/png,image/jpeg"
               aria-label="Signature image file"
               className="visually-hidden"
+              tabIndex={-1}
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
                 event.currentTarget.value = "";

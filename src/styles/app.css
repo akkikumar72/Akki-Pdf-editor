@@ -2504,7 +2504,7 @@ select:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3xs, 0.3rem);
+  gap: var(--space-3xs);
 }
 
 .signature-modal .segmented button svg {

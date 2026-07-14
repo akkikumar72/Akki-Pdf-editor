@@ -23,10 +23,10 @@ function renderModal() {
 }
 
 function drawStroke(canvas: HTMLCanvasElement) {
-  fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
-  fireEvent.pointerMove(canvas, { clientX: 40, clientY: 30 });
+  fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 });
+  fireEvent.pointerMove(canvas, { clientX: 40, clientY: 30, pointerId: 1, buttons: 1 });
   // Pointer capture keeps reporting moves outside the pad; the point is clamped.
-  fireEvent.pointerMove(canvas, { clientX: 4000, clientY: -200 });
+  fireEvent.pointerMove(canvas, { clientX: 4000, clientY: -200, pointerId: 1, buttons: 1 });
   fireEvent.pointerUp(canvas, { pointerId: 1 });
 }
 
@@ -162,8 +162,8 @@ describe("SignatureModal - draw tab", () => {
     const undoButton = within(dialog).getByRole("button", { name: "Undo" }) as HTMLButtonElement;
     drawStroke(canvas);
     // A second stroke drawn with a pen keeps its reported pressure (no simulation).
-    fireEvent.pointerDown(canvas, { clientX: 80, clientY: 40, pointerId: 2, pointerType: "pen", pressure: 0.8 });
-    fireEvent.pointerMove(canvas, { clientX: 120, clientY: 70, pointerType: "pen", pressure: 0.6 });
+    fireEvent.pointerDown(canvas, { clientX: 80, clientY: 40, pointerId: 2, pointerType: "pen", pressure: 0.8, buttons: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 120, clientY: 70, pointerId: 2, pointerType: "pen", pressure: 0.6, buttons: 1 });
     fireEvent.pointerUp(canvas, { pointerId: 2, pointerType: "pen" });
 
     fireEvent.click(undoButton);
@@ -204,6 +204,50 @@ describe("SignatureModal - draw tab", () => {
     });
     drawStroke(canvas);
     expect((within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("ignores a second concurrent pointer so a palm cannot corrupt the stroke", () => {
+    const { dialog, canvas } = openDrawTab();
+    const saveButton = within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement;
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 });
+    // A palm lands mid-stroke: its down, move, and up are all ignored.
+    fireEvent.pointerDown(canvas, { clientX: 200, clientY: 100, pointerId: 2, buttons: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 220, clientY: 110, pointerId: 2, buttons: 1 });
+    fireEvent.pointerUp(canvas, { pointerId: 2 });
+    // The first pointer keeps inking after the palm lifts.
+    const fillMock = (context2d as Ctx2D).fill as ReturnType<typeof vi.fn>;
+    const fillCallsBefore = fillMock.mock.calls.length;
+    fireEvent.pointerMove(canvas, { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 });
+    expect(fillMock.mock.calls.length).toBeGreaterThan(fillCallsBefore);
+    fireEvent.pointerUp(canvas, { pointerId: 1 });
+    // Exactly one stroke was recorded: a single Undo empties the pad.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Undo" }));
+    expect(saveButton.disabled).toBe(true);
+  });
+
+  it("discards the partial stroke when the browser cancels the gesture", () => {
+    const { dialog, canvas } = openDrawTab();
+    const saveButton = within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement;
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 40, clientY: 30, pointerId: 1, buttons: 1 });
+    // A cancel for some other pointer is ignored...
+    fireEvent.pointerCancel(canvas, { pointerId: 99 });
+    expect(saveButton.disabled).toBe(false);
+    // ...but cancelling the active gesture drops the partial ink.
+    fireEvent.pointerCancel(canvas, { pointerId: 1 });
+    expect(saveButton.disabled).toBe(true);
+  });
+
+  it("ends the stroke when a move arrives with no buttons pressed (release happened off-canvas)", () => {
+    const { canvas } = openDrawTab();
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 40, clientY: 30, pointerId: 1, buttons: 1 });
+    // The button was released outside the pad; the next hover move must not ink.
+    const fillMock = (context2d as Ctx2D).fill as ReturnType<typeof vi.fn>;
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 60, pointerId: 1, buttons: 0 });
+    const fillCallsAfterHover = fillMock.mock.calls.length;
+    fireEvent.pointerMove(canvas, { clientX: 120, clientY: 80, pointerId: 1, buttons: 1 });
+    expect(fillMock.mock.calls.length).toBe(fillCallsAfterHover);
   });
 
   it("does not start a stroke when no 2D context is available", () => {
@@ -332,6 +376,19 @@ describe("SignatureModal - upload tab", () => {
     const { dialog, input } = openUploadTab();
     fireEvent.change(input, { target: { files: [] } });
     expect(dialog.querySelector(".signature-modal__dropzone img")).toBeNull();
+  });
+
+  it("keeps the visually-hidden file input out of the Tab cycle", () => {
+    const { dialog, input } = openUploadTab();
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>("input, button")).filter(
+      (element) => !element.hasAttribute("disabled") && element.tabIndex !== -1,
+    );
+    focusable[0].focus();
+    // A full loop around the trap never lands on the hidden input.
+    for (let step = 0; step < focusable.length + 1; step += 1) {
+      fireEvent.keyDown(dialog, { key: "Tab" });
+      expect(document.activeElement).not.toBe(input);
+    }
   });
 });
 
