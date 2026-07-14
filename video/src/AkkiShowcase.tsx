@@ -18,6 +18,8 @@ const TOOL_SWEEP: ToolId[] = [
   "table",
 ];
 
+const sceneMidpoint = ([start, end]: readonly [number, number]) => start + (end - start) / 2;
+
 function activeToolForFrame(frame: number): ToolId {
   if (frame < SCENES.toolbar[0]) return "select";
   if (frame < SCENES.text[0]) {
@@ -25,15 +27,15 @@ function activeToolForFrame(frame: number): ToolId {
     return TOOL_SWEEP[index];
   }
   if (frame < SCENES.linksForms[0]) return "text";
-  if (frame < 390) return "links";
+  if (frame < sceneMidpoint(SCENES.linksForms)) return "links";
   if (frame < SCENES.whiteoutAnnotate[0]) return "forms";
-  if (frame < 510) return "whiteout";
+  if (frame < sceneMidpoint(SCENES.whiteoutAnnotate)) return "whiteout";
   if (frame < SCENES.shapesTable[0]) return "annotate";
-  if (frame < 630) return "shapes";
+  if (frame < sceneMidpoint(SCENES.shapesTable)) return "shapes";
   if (frame < SCENES.sign[0]) return "table";
   if (frame < SCENES.pages[0]) return "sign";
   if (frame < SCENES.apply[0]) return "select";
-  if (frame < 990) return "apply";
+  if (frame < sceneMidpoint(SCENES.apply)) return "apply";
   return "export";
 }
 

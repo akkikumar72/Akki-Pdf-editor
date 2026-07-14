@@ -23,6 +23,7 @@ The expanded v2 master is ready for visual review:
 - **Render command**: `bun run video:render`
 - **Poster command**: `bun run video:poster`
 - **Social poster**: `video/public/akki-pdf-showcase-poster.png`
+- **PR preview video**: `video/public/akki-pdf-showcase-square-final.mp4`
 - **Format**: 1200×1200, 30 fps, 38.1 seconds, H.264 `yuv420p` BT.709,
   stereo AAC at 48 kHz
 
@@ -154,7 +155,7 @@ Export**, with the canvas showing the consequence of each choice.
 ## Recommended master
 
 - **Canvas**: 1200×1200, square
-- **Frame rate**: 29.97 fps
+- **Frame rate**: 30 fps
 - **Duration**: 38 seconds
 - **Codec**: H.264, `yuv420p`, AAC 48 kHz, web-optimized / fast-start
 - **Video bitrate**: 8–12 Mbps
@@ -166,8 +167,7 @@ This is a safe shared master for organic X and LinkedIn distribution. X's
 [video documentation](https://help.x.com/en/using-x/x-videos) supports the
 square frame inside its current dimension/aspect limits. LinkedIn's
 [video specifications](https://www.linkedin.com/help/linkedin/answer/a424737)
-also support 1:1 video; 29.97 fps stays compatible with its sub-30-fps ad
-guidance while remaining natural for organic playback.
+also support 1:1 video; 30 fps remains natural for organic playback.
 
 ## Final v2 sequence: 10 scenes
 
@@ -354,7 +354,7 @@ Do not proceed directly from this document to a final render.
 
 ## Acceptance criteria
 
-- The film tells one local-first story in under 28 seconds.
+- The film tells one local-first story in approximately 38 seconds.
 - Every visible feature exists and behaves truthfully in the current app.
 - The full editor workspace opens and closes the film, and the complete top
   toolbar remains visible throughout all feature demonstrations.
