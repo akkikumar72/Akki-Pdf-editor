@@ -2519,19 +2519,46 @@ select:disabled {
   margin-top: var(--space-2xs);
 }
 
-.signature-modal__preview {
-  display: grid;
-  place-items: center;
-  max-height: 10rem;
+/* Documenso-style upload surface: the same pad-shaped card as the Draw tab,
+   acting as one big click/drop target with the preview rendered in place. */
+.signature-modal__dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+  width: 100%;
+  aspect-ratio: 440 / 160;
   padding: var(--space-xs);
-  border: 1px solid var(--color-rule);
+  border: 1px dashed var(--color-rule-2);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
 }
 
-.signature-modal__preview img {
+.signature-modal__dropzone:hover,
+.signature-modal__dropzone:focus-visible {
+  border-color: var(--color-accent, currentColor);
+}
+
+.signature-modal__dropzone svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.signature-modal__dropzone-label {
+  font-weight: 600;
+  color: var(--color-ink, inherit);
+}
+
+.signature-modal__dropzone-hint {
+  font-size: 0.78rem;
+}
+
+.signature-modal__dropzone img {
   max-width: 100%;
-  max-height: 9rem;
+  max-height: 100%;
   object-fit: contain;
 }
 

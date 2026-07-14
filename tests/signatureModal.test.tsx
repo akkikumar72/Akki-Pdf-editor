@@ -208,10 +208,11 @@ describe("SignatureModal - upload tab", () => {
     const utils = renderModal();
     fireEvent.click(within(utils.dialog).getByRole("tab", { name: "Upload image" }));
     const input = utils.getByLabelText("Signature image file") as HTMLInputElement;
-    return { ...utils, input };
+    const dropzone = utils.dialog.querySelector(".signature-modal__dropzone") as HTMLButtonElement;
+    return { ...utils, input, dropzone };
   }
 
-  it("accepts a validated PNG, previews it, and saves it as an image draft", async () => {
+  it("accepts a validated PNG, previews it in the dropzone, and saves it as an image draft", async () => {
     const { dialog, input, onSave } = openUploadTab();
     // The ink swatches are irrelevant for uploads and hidden on this tab.
     expect(dialog.querySelector(".signature-modal__swatches")).toBeNull();
@@ -219,12 +220,33 @@ describe("SignatureModal - upload tab", () => {
       fireEvent.change(input, { target: { files: [PNG_FILE()] } });
       await Promise.resolve();
     });
-    await waitFor(() => expect(dialog.querySelector(".signature-modal__preview img")).toBeTruthy());
+    await waitFor(() => expect(dialog.querySelector(".signature-modal__dropzone img")).toBeTruthy());
     fireEvent.click(within(dialog).getByRole("button", { name: "Save signature" }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ mode: "image", value: expect.stringMatching(/^data:image\/png/) }),
       true,
     );
+  });
+
+  it("clicking the dropzone opens the file picker", () => {
+    const { input, dropzone } = openUploadTab();
+    const click = vi.spyOn(input, "click");
+    fireEvent.click(dropzone);
+    expect(click).toHaveBeenCalled();
+  });
+
+  it("accepts a file dropped onto the dropzone and ignores an empty drop", async () => {
+    const { dialog, dropzone } = openUploadTab();
+    fireEvent.dragOver(dropzone);
+    // A drop without files (e.g. dragged text) is a no-op.
+    fireEvent.drop(dropzone, { dataTransfer: {} });
+    expect(dialog.querySelector(".signature-modal__dropzone img")).toBeNull();
+
+    await act(async () => {
+      fireEvent.drop(dropzone, { dataTransfer: { files: [PNG_FILE()] } });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(dialog.querySelector(".signature-modal__dropzone img")).toBeTruthy());
   });
 
   it("rejects a file that fails magic-byte validation", async () => {
@@ -236,7 +258,7 @@ describe("SignatureModal - upload tab", () => {
       await Promise.resolve();
     });
     expect(onNotice).toHaveBeenCalled();
-    expect(dialog.querySelector(".signature-modal__preview")).toBeNull();
+    expect(dialog.querySelector(".signature-modal__dropzone img")).toBeNull();
   });
 
   it("rejects a spoofed data-url header even when magic bytes pass", async () => {
@@ -271,7 +293,7 @@ describe("SignatureModal - upload tab", () => {
   it("does nothing when the change event carries no file", () => {
     const { dialog, input } = openUploadTab();
     fireEvent.change(input, { target: { files: [] } });
-    expect(dialog.querySelector(".signature-modal__preview")).toBeNull();
+    expect(dialog.querySelector(".signature-modal__dropzone img")).toBeNull();
   });
 });
 

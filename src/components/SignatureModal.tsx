@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { CloudUpload } from "lucide-react";
 import { SIGNATURE_COLORS, SIGNATURE_FONTS } from "../editor/signatureFonts";
 import type { SignatureDraft } from "../editor/signaturePlacement";
 import { validateImageFile } from "../utils/fileValidation";
@@ -266,25 +267,43 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
         ) : null}
 
         {tab === "upload" ? (
-          <div className="signature-modal__body field-stack">
+          <div className="signature-modal__body">
             <input
               ref={uploadInputRef}
               type="file"
               accept="image/png,image/jpeg"
               aria-label="Signature image file"
+              className="visually-hidden"
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
                 event.currentTarget.value = "";
                 void handleUpload(file);
               }}
             />
-            {uploadedDataUrl ? (
-              <div className="signature-modal__preview">
+            {/* Documenso-style upload surface: the pad-shaped card is the whole
+                control — click (or drop a file on it) to pick, preview in place. */}
+            <button
+              type="button"
+              className="signature-modal__dropzone"
+              onClick={() => uploadInputRef.current?.click()}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                void handleUpload(event.dataTransfer.files?.[0]);
+              }}
+            >
+              {uploadedDataUrl ? (
                 <img src={uploadedDataUrl} alt="Uploaded signature preview" />
-              </div>
-            ) : (
-              <p className="helper-text">PNG or JPEG, up to 20MB.</p>
-            )}
+              ) : (
+                <>
+                  <CloudUpload aria-hidden="true" />
+                  <span className="signature-modal__dropzone-label">Upload signature</span>
+                  <span className="signature-modal__dropzone-hint">
+                    Click to choose a PNG or JPEG (up to 20MB), or drop one here
+                  </span>
+                </>
+              )}
+            </button>
           </div>
         ) : null}
 
