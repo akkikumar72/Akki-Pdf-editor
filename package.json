@@ -22,7 +22,12 @@
     "test:watch": "vitest --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage --coverage.include='src/**'",
     "e2e": "playwright test",
-    "smoke": "bash scripts/smoke-test.sh"
+    "smoke": "bash scripts/smoke-test.sh",
+    "video:studio": "remotion studio video/index.ts --public-dir=video/public",
+    "video:typecheck": "tsc --noEmit -p video/tsconfig.json",
+    "video:storyboard": "remotion still video/index.ts AkkiShowcase video/out/storyboard.png --frame=405 --public-dir=video/public",
+    "video:poster": "remotion still video/index.ts AkkiShowcasePoster video/public/akki-pdf-showcase-poster.png --public-dir=video/public",
+    "video:render": "bash video/render.sh"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
@@ -44,6 +49,8 @@
   "devDependencies": {
     "@eslint/js": "9.17.0",
     "@playwright/test": "^1.49.1",
+    "@remotion/cli": "4.0.489",
+    "@remotion/google-fonts": "4.0.489",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^22.10.2",
@@ -58,6 +65,7 @@
     "globals": "15.14.0",
     "jsdom": "^29.1.1",
     "prettier": "3.4.2",
+    "remotion": "4.0.489",
     "typescript": "^5.7.2",
     "typescript-eslint": "8.18.2",
     "vite": "^8.0.16",

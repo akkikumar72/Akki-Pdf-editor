@@ -14,3 +14,4 @@ docs/assets/audit-*.png
 .DS_Store
 *.local
 .vercel
+video/out/
