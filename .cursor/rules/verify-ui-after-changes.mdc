@@ -16,8 +16,10 @@ Automated suites (`bun run test`, `bun run e2e`) are necessary but NOT sufficien
 do an interactive browser check.
 
 The executable companion to this rule is the project skill at
-`.claude/skills/control-ui/SKILL.md`, which drives the app with the `agent-browser` CLI
-(works for Cursor, Claude Code, Codex, etc.). Follow it for the steps below.
+`.claude/skills/verify-akki-ui/SKILL.md`, which drives the app with the `agent-browser` CLI
+(works for Cursor, Claude Code, Codex, etc.). Follow it for the steps below. The generic
+`control-ui` skill (installed from cursor/plugins into `.agents/skills/control-ui`) covers
+harness-building in general; `verify-akki-ui` is this repo's tailored checklist.
 
 ## What the control-ui pass must cover
 
