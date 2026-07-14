@@ -133,13 +133,13 @@ describe("exportInkPng", () => {
     context2d = { ...mockPathContext(), setTransform: vi.fn() };
     toDataUrlValue = "data:image/png;base64,INK";
     toDataUrlThrows = false;
-    HTMLCanvasElement.prototype.getContext = vi.fn(
-      () => context2d,
-    ) as unknown as typeof HTMLCanvasElement.prototype.getContext;
-    HTMLCanvasElement.prototype.toDataURL = vi.fn(() => {
+    // Spies (not prototype assignment) so vi.restoreAllMocks() reliably undoes
+    // every canvas stub instead of leaking it into other tests.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => context2d as never);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(() => {
       if (toDataUrlThrows) throw new Error("tainted");
       return toDataUrlValue;
-    }) as typeof HTMLCanvasElement.prototype.toDataURL;
+    });
   });
 
   afterEach(() => {

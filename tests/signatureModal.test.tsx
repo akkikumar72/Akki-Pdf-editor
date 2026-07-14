@@ -42,20 +42,25 @@ beforeEach(() => {
   };
   toDataUrlValue = "data:image/png;base64,DRAWN";
   toDataUrlThrows = false;
-  HTMLCanvasElement.prototype.getContext = vi.fn(
-    () => context2d,
-  ) as unknown as typeof HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.toDataURL = vi.fn(() => {
+  // Spies (not prototype assignment) so vi.restoreAllMocks() reliably undoes
+  // every canvas stub instead of leaking it into other tests.
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => context2d as never);
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(() => {
     if (toDataUrlThrows) throw new Error("tainted");
     return toDataUrlValue;
-  }) as typeof HTMLCanvasElement.prototype.toDataURL;
-  HTMLElement.prototype.setPointerCapture = vi.fn();
+  });
+  // jsdom lacks pointer capture; seed a noop base so the spy has something to wrap.
+  HTMLElement.prototype.setPointerCapture ??= () => {};
+  vi.spyOn(HTMLElement.prototype, "setPointerCapture").mockImplementation(() => {});
   // jsdom reports a zero-size rect; give the pad its real 440x160 box so
   // client coordinates map onto the logical stroke space 1:1.
-  HTMLCanvasElement.prototype.getBoundingClientRect = vi.fn(() => ({
-    left: 0, top: 0, x: 0, y: 0, width: 440, height: 160, right: 440, bottom: 160,
-    toJSON: () => ({}),
-  })) as unknown as typeof HTMLCanvasElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockImplementation(
+    () =>
+      ({
+        left: 0, top: 0, x: 0, y: 0, width: 440, height: 160, right: 440, bottom: 160,
+        toJSON: () => ({}),
+      }) as DOMRect,
+  );
 });
 
 afterEach(() => {
