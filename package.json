@@ -25,7 +25,7 @@
     "smoke": "bash scripts/smoke-test.sh",
     "video:studio": "remotion studio video/index.ts --public-dir=video/public",
     "video:typecheck": "tsc --noEmit -p video/tsconfig.json",
-    "video:storyboard": "remotion still video/index.ts AkkiShowcase video/out/storyboard.png --frame=405 --public-dir=video/public",
+    "video:storyboard": "mkdir -p video/out && remotion still video/index.ts AkkiShowcase video/out/storyboard.png --frame=405 --public-dir=video/public",
     "video:poster": "remotion still video/index.ts AkkiShowcasePoster video/public/akki-pdf-showcase-poster.png --public-dir=video/public",
     "video:render": "bash video/render.sh"
   },

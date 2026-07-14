@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# video/out is gitignored, so create it before rendering; fail fast with a
+# clear message when the required binaries are missing.
+[ -x ./node_modules/.bin/remotion ] || { echo "✗ remotion CLI not found — run 'bun install' first" >&2; exit 1; }
+command -v ffmpeg >/dev/null 2>&1 || { echo "✗ ffmpeg not found on PATH — install it to produce the final master" >&2; exit 1; }
+mkdir -p video/out
+
 ./node_modules/.bin/remotion render \
   video/index.ts \
   AkkiShowcase \
