@@ -29,11 +29,14 @@ function drawStroke(canvas: HTMLCanvasElement) {
 
 beforeEach(() => {
   context2d = {
+    fillStyle: "#000000",
+    setTransform: vi.fn(),
+    clearRect: vi.fn(),
     beginPath: vi.fn(),
     moveTo: vi.fn(),
-    lineTo: vi.fn(),
-    stroke: vi.fn(),
-    clearRect: vi.fn(),
+    quadraticCurveTo: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
   };
   toDataUrlValue = "data:image/png;base64,DRAWN";
   toDataUrlThrows = false;
@@ -96,26 +99,31 @@ describe("SignatureModal - draw tab", () => {
     return { ...utils, canvas };
   }
 
-  it("captures strokes, enables Clear/Save, and saves the canvas PNG", () => {
+  it("captures strokes, enables Undo/Clear/Save, and saves the trimmed ink PNG", () => {
     const { dialog, canvas, onSave } = openDrawTab();
     const saveButton = within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement;
     const clearButton = within(dialog).getByRole("button", { name: "Clear" }) as HTMLButtonElement;
+    const undoButton = within(dialog).getByRole("button", { name: "Undo" }) as HTMLButtonElement;
     expect(saveButton.disabled).toBe(true);
     expect(clearButton.disabled).toBe(true);
+    expect(undoButton.disabled).toBe(true);
 
     // Moving without a press draws nothing.
     fireEvent.pointerMove(canvas, { clientX: 5, clientY: 5 });
-    expect((context2d as Ctx2D).lineTo).not.toHaveBeenCalled();
+    expect((context2d as Ctx2D).fill).not.toHaveBeenCalled();
 
     drawStroke(canvas);
-    expect((context2d as Ctx2D).stroke).toHaveBeenCalled();
+    // The pad re-renders the stroke model as filled perfect-freehand outlines.
+    expect((context2d as Ctx2D).fill).toHaveBeenCalled();
     expect(saveButton.disabled).toBe(false);
     expect(clearButton.disabled).toBe(false);
+    expect(undoButton.disabled).toBe(false);
 
     // A move after pointer up is ignored (drawing flag reset).
-    vi.mocked((context2d as Ctx2D).lineTo as ReturnType<typeof vi.fn>).mockClear();
+    const fillMock = (context2d as Ctx2D).fill as ReturnType<typeof vi.fn>;
+    const fillCallsAfterStroke = fillMock.mock.calls.length;
     fireEvent.pointerMove(canvas, { clientX: 60, clientY: 60 });
-    expect((context2d as Ctx2D).lineTo).not.toHaveBeenCalled();
+    expect(fillMock.mock.calls.length).toBe(fillCallsAfterStroke);
 
     fireEvent.click(saveButton);
     expect(onSave).toHaveBeenCalledWith(
@@ -124,12 +132,41 @@ describe("SignatureModal - draw tab", () => {
     );
   });
 
-  it("Clear empties the canvas and disables Save again", () => {
+  it("Undo drops only the last stroke; Clear empties the pad and disables Save", () => {
     const { dialog, canvas } = openDrawTab();
+    const saveButton = within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement;
+    const undoButton = within(dialog).getByRole("button", { name: "Undo" }) as HTMLButtonElement;
+    drawStroke(canvas);
+    // A second stroke drawn with a pen keeps its reported pressure (no simulation).
+    fireEvent.pointerDown(canvas, { clientX: 80, clientY: 40, pointerId: 2, pointerType: "pen", pressure: 0.8 });
+    fireEvent.pointerMove(canvas, { clientX: 120, clientY: 70, pointerType: "pen", pressure: 0.6 });
+    fireEvent.pointerUp(canvas, { pointerId: 2, pointerType: "pen" });
+
+    fireEvent.click(undoButton);
+    expect(saveButton.disabled).toBe(false);
+    fireEvent.click(undoButton);
+    expect(saveButton.disabled).toBe(true);
+    expect(undoButton.disabled).toBe(true);
+
     drawStroke(canvas);
     fireEvent.click(within(dialog).getByRole("button", { name: "Clear" }));
     expect((context2d as Ctx2D).clearRect).toHaveBeenCalled();
-    expect((within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(saveButton.disabled).toBe(true);
+  });
+
+  it("scales the canvas backing store by devicePixelRatio (and guards a falsy ratio)", () => {
+    const originalRatio = window.devicePixelRatio;
+    Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+    const first = openDrawTab();
+    expect(first.canvas.width).toBe(880);
+    expect(first.canvas.height).toBe(320);
+    first.unmount();
+
+    Object.defineProperty(window, "devicePixelRatio", { value: 0, configurable: true });
+    const second = openDrawTab();
+    expect(second.canvas.width).toBe(440);
+    expect(second.canvas.height).toBe(160);
+    Object.defineProperty(window, "devicePixelRatio", { value: originalRatio, configurable: true });
   });
 
   it("does not start a stroke when no 2D context is available", () => {
@@ -139,7 +176,7 @@ describe("SignatureModal - draw tab", () => {
     expect((within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("notices when the canvas cannot be captured (throw and non-png header)", () => {
+  it("notices when the ink cannot be captured (throw and non-png header)", () => {
     const first = openDrawTab();
     drawStroke(first.canvas);
     toDataUrlThrows = true;
