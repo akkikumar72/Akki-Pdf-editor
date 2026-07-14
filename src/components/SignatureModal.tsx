@@ -89,7 +89,11 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
 
   const handleDrawStart = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!event.currentTarget.getContext("2d")) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // setPointerCapture can throw for non-active pointer ids; capture is an enhancement, not required.
+    }
     drawingRef.current = true;
     const point = strokePointFromEvent(event);
     // A bare tap is already a stroke: perfect-freehand turns a single point into a dot.

@@ -11,6 +11,7 @@ type Ctx2D = Record<string, unknown>;
 let context2d: Ctx2D | null;
 let toDataUrlValue: string;
 let toDataUrlThrows: boolean;
+let seededPointerCapture = false;
 
 function renderModal() {
   const onCancel = vi.fn();
@@ -49,8 +50,12 @@ beforeEach(() => {
     if (toDataUrlThrows) throw new Error("tainted");
     return toDataUrlValue;
   });
-  // jsdom lacks pointer capture; seed a noop base so the spy has something to wrap.
-  HTMLElement.prototype.setPointerCapture ??= () => {};
+  // jsdom lacks pointer capture; seed a noop base so the spy has something to
+  // wrap, and remember to remove the seed again in afterEach.
+  if (!HTMLElement.prototype.setPointerCapture) {
+    HTMLElement.prototype.setPointerCapture = () => {};
+    seededPointerCapture = true;
+  }
   vi.spyOn(HTMLElement.prototype, "setPointerCapture").mockImplementation(() => {});
   // jsdom reports a zero-size rect; give the pad its real 440x160 box so
   // client coordinates map onto the logical stroke space 1:1.
@@ -65,6 +70,12 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // restoreAllMocks put the seeded noop back; drop it so the prototype is
+  // exactly as jsdom shipped it for whatever runs next.
+  if (seededPointerCapture) {
+    Reflect.deleteProperty(HTMLElement.prototype, "setPointerCapture");
+    seededPointerCapture = false;
+  }
 });
 
 describe("SignatureModal - type tab", () => {
@@ -184,6 +195,15 @@ describe("SignatureModal - draw tab", () => {
     } finally {
       Object.defineProperty(window, "devicePixelRatio", { value: originalRatio, configurable: true });
     }
+  });
+
+  it("keeps drawing when pointer capture is unavailable", () => {
+    const { dialog, canvas } = openDrawTab();
+    vi.spyOn(HTMLElement.prototype, "setPointerCapture").mockImplementation(() => {
+      throw new Error("InvalidPointerId");
+    });
+    drawStroke(canvas);
+    expect((within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("does not start a stroke when no 2D context is available", () => {
