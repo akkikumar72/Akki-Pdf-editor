@@ -42,6 +42,14 @@ describe("strokeOutline", () => {
     expect(outline.length).toBeGreaterThan(3);
   });
 
+  it("caches the outline per stroke object so finished strokes are not recomputed", () => {
+    const inked = stroke([[10, 10], [40, 20]]);
+    const first = strokeOutline(inked);
+    expect(strokeOutline(inked)).toBe(first);
+    // A different object (even with equal content) computes a fresh outline.
+    expect(strokeOutline({ ...inked })).not.toBe(first);
+  });
+
   it("respects real pen pressure when simulation is off", () => {
     // Same path, different reported pressure: the harder stroke must produce a
     // measurably fatter outline, proving the pressure input is not ignored.

@@ -47,12 +47,23 @@ export function clampInkPoint(point: InkPoint, width: number, height: number): I
   };
 }
 
+/**
+ * Strokes are immutable (the pad replaces the active stroke object on every
+ * new sample), so outlines can be cached per object: while drawing, only the
+ * active stroke is recomputed and every finished stroke is a cache hit.
+ */
+const outlineCache = new WeakMap<InkStroke, number[][]>();
+
 /** Expands a stroke's input samples into a closed variable-width outline polygon. */
 export function strokeOutline(stroke: InkStroke): number[][] {
-  return getStroke(
+  const cached = outlineCache.get(stroke);
+  if (cached) return cached;
+  const outline = getStroke(
     stroke.points.map((point) => [point.x, point.y, point.pressure]),
     { ...STROKE_OPTIONS, simulatePressure: stroke.simulatePressure },
   );
+  outlineCache.set(stroke, outline);
+  return outline;
 }
 
 /**

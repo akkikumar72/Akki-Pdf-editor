@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CloudUpload } from "lucide-react";
+import { CloudUpload, Keyboard, Signature, type LucideIcon } from "lucide-react";
 import { SIGNATURE_COLORS, SIGNATURE_FONTS } from "../editor/signatureFonts";
 import type { SignatureDraft } from "../editor/signaturePlacement";
 import { validateImageFile } from "../utils/fileValidation";
@@ -7,6 +7,14 @@ import { clampInkPoint, exportInkPng, renderInk, type InkStroke } from "../utils
 import { Button } from "./ui/button";
 
 type SignatureTab = "type" | "draw" | "upload";
+
+// Documenso's signing dialog uses these exact lucide glyphs on its tabs
+// (keyboard for typed, a signature squiggle for drawn, cloud-upload for image).
+const SIGNATURE_TAB_ITEMS: Array<[SignatureTab, string, LucideIcon]> = [
+  ["type", "Type", Keyboard],
+  ["draw", "Draw", Signature],
+  ["upload", "Upload image", CloudUpload],
+];
 
 type SignatureModalProps = {
   onCancel: () => void;
@@ -188,12 +196,9 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
         <div className="signature-modal__head">
           <h2>Create signature</h2>
           <div className="segmented" role="tablist" aria-label="Signature source">
-            {([
-              ["type", "Type"],
-              ["draw", "Draw"],
-              ["upload", "Upload image"],
-            ] as Array<[SignatureTab, string]>).map(([id, label]) => (
+            {SIGNATURE_TAB_ITEMS.map(([id, label, Icon]) => (
               <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
+                <Icon aria-hidden="true" />
                 {label}
               </button>
             ))}
@@ -285,6 +290,9 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
             <button
               type="button"
               className="signature-modal__dropzone"
+              // Stable control name: with a preview inside, the button would
+              // otherwise be announced by the image's alt text instead of its action.
+              aria-label="Upload signature image"
               onClick={() => uploadInputRef.current?.click()}
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {

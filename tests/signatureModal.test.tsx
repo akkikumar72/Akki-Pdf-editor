@@ -164,17 +164,21 @@ describe("SignatureModal - draw tab", () => {
 
   it("scales the canvas backing store by devicePixelRatio (and guards a falsy ratio)", () => {
     const originalRatio = window.devicePixelRatio;
-    Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
-    const first = openDrawTab();
-    expect(first.canvas.width).toBe(880);
-    expect(first.canvas.height).toBe(320);
-    first.unmount();
+    // finally-restored so a failing assertion can't leak the ratio into later tests.
+    try {
+      Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+      const first = openDrawTab();
+      expect(first.canvas.width).toBe(880);
+      expect(first.canvas.height).toBe(320);
+      first.unmount();
 
-    Object.defineProperty(window, "devicePixelRatio", { value: 0, configurable: true });
-    const second = openDrawTab();
-    expect(second.canvas.width).toBe(440);
-    expect(second.canvas.height).toBe(160);
-    Object.defineProperty(window, "devicePixelRatio", { value: originalRatio, configurable: true });
+      Object.defineProperty(window, "devicePixelRatio", { value: 0, configurable: true });
+      const second = openDrawTab();
+      expect(second.canvas.width).toBe(440);
+      expect(second.canvas.height).toBe(160);
+    } finally {
+      Object.defineProperty(window, "devicePixelRatio", { value: originalRatio, configurable: true });
+    }
   });
 
   it("does not start a stroke when no 2D context is available", () => {
@@ -228,11 +232,20 @@ describe("SignatureModal - upload tab", () => {
     );
   });
 
-  it("clicking the dropzone opens the file picker", () => {
-    const { input, dropzone } = openUploadTab();
+  it("clicking the dropzone opens the file picker, and it keeps its name with a preview inside", async () => {
+    const { dialog, input, dropzone } = openUploadTab();
     const click = vi.spyOn(input, "click");
     fireEvent.click(dropzone);
     expect(click).toHaveBeenCalled();
+
+    // The control name must not collapse to the preview image's alt text.
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [PNG_FILE()] } });
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Upload signature image" }).querySelector("img")).toBeTruthy(),
+    );
   });
 
   it("accepts a file dropped onto the dropzone and ignores an empty drop", async () => {

@@ -2499,6 +2499,20 @@ select:disabled {
   box-shadow: 0 0 0 1px var(--color-accent-edge);
 }
 
+/* Documenso-style tab glyphs sit inline before each label. */
+.signature-modal .segmented button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3xs, 0.3rem);
+}
+
+.signature-modal .segmented button svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+}
+
 .signature-modal__canvas {
   width: 100%;
   /* The backing store is DPR-scaled, so the display box must be pinned to the
