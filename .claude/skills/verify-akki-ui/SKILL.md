@@ -1,5 +1,5 @@
 ---
-name: control-ui
+name: verify-akki-ui
 description: Verify Akki PDF Editor's UI in a real browser using the agent-browser CLI. Use after an /improve run or any non-trivial feature/bug-fix (anything beyond a one-line tweak) to confirm core flows did not regress — tool switching, overlay selection (inline toolbar + Inspector), undo/redo, and at least one export path (CSV). Drives the local Vite dev server and captures before/after screenshots as evidence. This is the executable companion to the `.cursor/rules/verify-ui-after-changes.mdc` rule and works for any agent (Cursor, Claude Code, Codex, ...).
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(bun:*), Bash(curl:*)
 ---

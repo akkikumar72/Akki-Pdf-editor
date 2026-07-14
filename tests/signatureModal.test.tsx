@@ -11,6 +11,7 @@ type Ctx2D = Record<string, unknown>;
 let context2d: Ctx2D | null;
 let toDataUrlValue: string;
 let toDataUrlThrows: boolean;
+let seededPointerCapture = false;
 
 function renderModal() {
   const onCancel = vi.fn();
@@ -22,33 +23,59 @@ function renderModal() {
 }
 
 function drawStroke(canvas: HTMLCanvasElement) {
-  fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
-  fireEvent.pointerMove(canvas, { clientX: 40, clientY: 30 });
+  fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 });
+  fireEvent.pointerMove(canvas, { clientX: 40, clientY: 30, pointerId: 1, buttons: 1 });
+  // Pointer capture keeps reporting moves outside the pad; the point is clamped.
+  fireEvent.pointerMove(canvas, { clientX: 4000, clientY: -200, pointerId: 1, buttons: 1 });
   fireEvent.pointerUp(canvas, { pointerId: 1 });
 }
 
 beforeEach(() => {
   context2d = {
+    fillStyle: "#000000",
+    setTransform: vi.fn(),
+    clearRect: vi.fn(),
     beginPath: vi.fn(),
     moveTo: vi.fn(),
-    lineTo: vi.fn(),
-    stroke: vi.fn(),
-    clearRect: vi.fn(),
+    quadraticCurveTo: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
   };
   toDataUrlValue = "data:image/png;base64,DRAWN";
   toDataUrlThrows = false;
-  HTMLCanvasElement.prototype.getContext = vi.fn(
-    () => context2d,
-  ) as unknown as typeof HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.toDataURL = vi.fn(() => {
+  // Spies (not prototype assignment) so vi.restoreAllMocks() reliably undoes
+  // every canvas stub instead of leaking it into other tests.
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => context2d as never);
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(() => {
     if (toDataUrlThrows) throw new Error("tainted");
     return toDataUrlValue;
-  }) as typeof HTMLCanvasElement.prototype.toDataURL;
-  HTMLElement.prototype.setPointerCapture = vi.fn();
+  });
+  // jsdom lacks pointer capture; seed a noop base so the spy has something to
+  // wrap, and remember to remove the seed again in afterEach.
+  if (!HTMLElement.prototype.setPointerCapture) {
+    HTMLElement.prototype.setPointerCapture = () => {};
+    seededPointerCapture = true;
+  }
+  vi.spyOn(HTMLElement.prototype, "setPointerCapture").mockImplementation(() => {});
+  // jsdom reports a zero-size rect; give the pad its real 440x160 box so
+  // client coordinates map onto the logical stroke space 1:1.
+  vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockImplementation(
+    () =>
+      ({
+        left: 0, top: 0, x: 0, y: 0, width: 440, height: 160, right: 440, bottom: 160,
+        toJSON: () => ({}),
+      }) as DOMRect,
+  );
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // restoreAllMocks put the seeded noop back; drop it so the prototype is
+  // exactly as jsdom shipped it for whatever runs next.
+  if (seededPointerCapture) {
+    Reflect.deleteProperty(HTMLElement.prototype, "setPointerCapture");
+    seededPointerCapture = false;
+  }
 });
 
 describe("SignatureModal - type tab", () => {
@@ -96,26 +123,31 @@ describe("SignatureModal - draw tab", () => {
     return { ...utils, canvas };
   }
 
-  it("captures strokes, enables Clear/Save, and saves the canvas PNG", () => {
+  it("captures strokes, enables Undo/Clear/Save, and saves the trimmed ink PNG", () => {
     const { dialog, canvas, onSave } = openDrawTab();
     const saveButton = within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement;
     const clearButton = within(dialog).getByRole("button", { name: "Clear" }) as HTMLButtonElement;
+    const undoButton = within(dialog).getByRole("button", { name: "Undo" }) as HTMLButtonElement;
     expect(saveButton.disabled).toBe(true);
     expect(clearButton.disabled).toBe(true);
+    expect(undoButton.disabled).toBe(true);
 
     // Moving without a press draws nothing.
     fireEvent.pointerMove(canvas, { clientX: 5, clientY: 5 });
-    expect((context2d as Ctx2D).lineTo).not.toHaveBeenCalled();
+    expect((context2d as Ctx2D).fill).not.toHaveBeenCalled();
 
     drawStroke(canvas);
-    expect((context2d as Ctx2D).stroke).toHaveBeenCalled();
+    // The pad re-renders the stroke model as filled perfect-freehand outlines.
+    expect((context2d as Ctx2D).fill).toHaveBeenCalled();
     expect(saveButton.disabled).toBe(false);
     expect(clearButton.disabled).toBe(false);
+    expect(undoButton.disabled).toBe(false);
 
     // A move after pointer up is ignored (drawing flag reset).
-    vi.mocked((context2d as Ctx2D).lineTo as ReturnType<typeof vi.fn>).mockClear();
+    const fillMock = (context2d as Ctx2D).fill as ReturnType<typeof vi.fn>;
+    const fillCallsAfterStroke = fillMock.mock.calls.length;
     fireEvent.pointerMove(canvas, { clientX: 60, clientY: 60 });
-    expect((context2d as Ctx2D).lineTo).not.toHaveBeenCalled();
+    expect(fillMock.mock.calls.length).toBe(fillCallsAfterStroke);
 
     fireEvent.click(saveButton);
     expect(onSave).toHaveBeenCalledWith(
@@ -124,12 +156,98 @@ describe("SignatureModal - draw tab", () => {
     );
   });
 
-  it("Clear empties the canvas and disables Save again", () => {
+  it("Undo drops only the last stroke; Clear empties the pad and disables Save", () => {
     const { dialog, canvas } = openDrawTab();
+    const saveButton = within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement;
+    const undoButton = within(dialog).getByRole("button", { name: "Undo" }) as HTMLButtonElement;
+    drawStroke(canvas);
+    // A second stroke drawn with a pen keeps its reported pressure (no simulation).
+    fireEvent.pointerDown(canvas, { clientX: 80, clientY: 40, pointerId: 2, pointerType: "pen", pressure: 0.8, buttons: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 120, clientY: 70, pointerId: 2, pointerType: "pen", pressure: 0.6, buttons: 1 });
+    fireEvent.pointerUp(canvas, { pointerId: 2, pointerType: "pen" });
+
+    fireEvent.click(undoButton);
+    expect(saveButton.disabled).toBe(false);
+    fireEvent.click(undoButton);
+    expect(saveButton.disabled).toBe(true);
+    expect(undoButton.disabled).toBe(true);
+
     drawStroke(canvas);
     fireEvent.click(within(dialog).getByRole("button", { name: "Clear" }));
     expect((context2d as Ctx2D).clearRect).toHaveBeenCalled();
-    expect((within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(saveButton.disabled).toBe(true);
+  });
+
+  it("scales the canvas backing store by devicePixelRatio (and guards a falsy ratio)", () => {
+    const originalRatio = window.devicePixelRatio;
+    // finally-restored so a failing assertion can't leak the ratio into later tests.
+    try {
+      Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+      const first = openDrawTab();
+      expect(first.canvas.width).toBe(880);
+      expect(first.canvas.height).toBe(320);
+      first.unmount();
+
+      Object.defineProperty(window, "devicePixelRatio", { value: 0, configurable: true });
+      const second = openDrawTab();
+      expect(second.canvas.width).toBe(440);
+      expect(second.canvas.height).toBe(160);
+    } finally {
+      Object.defineProperty(window, "devicePixelRatio", { value: originalRatio, configurable: true });
+    }
+  });
+
+  it("keeps drawing when pointer capture is unavailable", () => {
+    const { dialog, canvas } = openDrawTab();
+    vi.spyOn(HTMLElement.prototype, "setPointerCapture").mockImplementation(() => {
+      throw new Error("InvalidPointerId");
+    });
+    drawStroke(canvas);
+    expect((within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("ignores a second concurrent pointer so a palm cannot corrupt the stroke", () => {
+    const { dialog, canvas } = openDrawTab();
+    const saveButton = within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement;
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 });
+    // A palm lands mid-stroke: its down, move, and up are all ignored.
+    fireEvent.pointerDown(canvas, { clientX: 200, clientY: 100, pointerId: 2, buttons: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 220, clientY: 110, pointerId: 2, buttons: 1 });
+    fireEvent.pointerUp(canvas, { pointerId: 2 });
+    // The first pointer keeps inking after the palm lifts.
+    const fillMock = (context2d as Ctx2D).fill as ReturnType<typeof vi.fn>;
+    const fillCallsBefore = fillMock.mock.calls.length;
+    fireEvent.pointerMove(canvas, { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 });
+    expect(fillMock.mock.calls.length).toBeGreaterThan(fillCallsBefore);
+    fireEvent.pointerUp(canvas, { pointerId: 1 });
+    // Exactly one stroke was recorded: a single Undo empties the pad.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Undo" }));
+    expect(saveButton.disabled).toBe(true);
+  });
+
+  it("discards the partial stroke when the browser cancels the gesture", () => {
+    const { dialog, canvas } = openDrawTab();
+    const saveButton = within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement;
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 40, clientY: 30, pointerId: 1, buttons: 1 });
+    // A cancel for some other pointer is ignored...
+    fireEvent.pointerCancel(canvas, { pointerId: 99 });
+    expect(saveButton.disabled).toBe(false);
+    // ...but cancelling the active gesture drops the partial ink.
+    fireEvent.pointerCancel(canvas, { pointerId: 1 });
+    expect(saveButton.disabled).toBe(true);
+  });
+
+  it("ends the stroke when a move arrives with no buttons pressed (release happened off-canvas)", () => {
+    const { canvas } = openDrawTab();
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 40, clientY: 30, pointerId: 1, buttons: 1 });
+    // The button was released outside the pad; the next hover move must not ink.
+    const fillMock = (context2d as Ctx2D).fill as ReturnType<typeof vi.fn>;
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 60, pointerId: 1, buttons: 0 });
+    const fillCallsAfterHover = fillMock.mock.calls.length;
+    fireEvent.pointerMove(canvas, { clientX: 120, clientY: 80, pointerId: 1, buttons: 1 });
+    expect(fillMock.mock.calls.length).toBe(fillCallsAfterHover);
   });
 
   it("does not start a stroke when no 2D context is available", () => {
@@ -139,7 +257,7 @@ describe("SignatureModal - draw tab", () => {
     expect((within(dialog).getByRole("button", { name: "Save signature" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("notices when the canvas cannot be captured (throw and non-png header)", () => {
+  it("notices when the ink cannot be captured (throw and non-png header)", () => {
     const first = openDrawTab();
     drawStroke(first.canvas);
     toDataUrlThrows = true;
@@ -163,10 +281,11 @@ describe("SignatureModal - upload tab", () => {
     const utils = renderModal();
     fireEvent.click(within(utils.dialog).getByRole("tab", { name: "Upload image" }));
     const input = utils.getByLabelText("Signature image file") as HTMLInputElement;
-    return { ...utils, input };
+    const dropzone = utils.dialog.querySelector(".signature-modal__dropzone") as HTMLButtonElement;
+    return { ...utils, input, dropzone };
   }
 
-  it("accepts a validated PNG, previews it, and saves it as an image draft", async () => {
+  it("accepts a validated PNG, previews it in the dropzone, and saves it as an image draft", async () => {
     const { dialog, input, onSave } = openUploadTab();
     // The ink swatches are irrelevant for uploads and hidden on this tab.
     expect(dialog.querySelector(".signature-modal__swatches")).toBeNull();
@@ -174,12 +293,42 @@ describe("SignatureModal - upload tab", () => {
       fireEvent.change(input, { target: { files: [PNG_FILE()] } });
       await Promise.resolve();
     });
-    await waitFor(() => expect(dialog.querySelector(".signature-modal__preview img")).toBeTruthy());
+    await waitFor(() => expect(dialog.querySelector(".signature-modal__dropzone img")).toBeTruthy());
     fireEvent.click(within(dialog).getByRole("button", { name: "Save signature" }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ mode: "image", value: expect.stringMatching(/^data:image\/png/) }),
       true,
     );
+  });
+
+  it("clicking the dropzone opens the file picker, and it keeps its name with a preview inside", async () => {
+    const { dialog, input, dropzone } = openUploadTab();
+    const click = vi.spyOn(input, "click");
+    fireEvent.click(dropzone);
+    expect(click).toHaveBeenCalled();
+
+    // The control name must not collapse to the preview image's alt text.
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [PNG_FILE()] } });
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Upload signature image" }).querySelector("img")).toBeTruthy(),
+    );
+  });
+
+  it("accepts a file dropped onto the dropzone and ignores an empty drop", async () => {
+    const { dialog, dropzone } = openUploadTab();
+    fireEvent.dragOver(dropzone);
+    // A drop without files (e.g. dragged text) is a no-op.
+    fireEvent.drop(dropzone, { dataTransfer: {} });
+    expect(dialog.querySelector(".signature-modal__dropzone img")).toBeNull();
+
+    await act(async () => {
+      fireEvent.drop(dropzone, { dataTransfer: { files: [PNG_FILE()] } });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(dialog.querySelector(".signature-modal__dropzone img")).toBeTruthy());
   });
 
   it("rejects a file that fails magic-byte validation", async () => {
@@ -191,7 +340,7 @@ describe("SignatureModal - upload tab", () => {
       await Promise.resolve();
     });
     expect(onNotice).toHaveBeenCalled();
-    expect(dialog.querySelector(".signature-modal__preview")).toBeNull();
+    expect(dialog.querySelector(".signature-modal__dropzone img")).toBeNull();
   });
 
   it("rejects a spoofed data-url header even when magic bytes pass", async () => {
@@ -226,7 +375,20 @@ describe("SignatureModal - upload tab", () => {
   it("does nothing when the change event carries no file", () => {
     const { dialog, input } = openUploadTab();
     fireEvent.change(input, { target: { files: [] } });
-    expect(dialog.querySelector(".signature-modal__preview")).toBeNull();
+    expect(dialog.querySelector(".signature-modal__dropzone img")).toBeNull();
+  });
+
+  it("keeps the visually-hidden file input out of the Tab cycle", () => {
+    const { dialog, input } = openUploadTab();
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>("input, button")).filter(
+      (element) => !element.hasAttribute("disabled") && element.tabIndex !== -1,
+    );
+    focusable[0].focus();
+    // A full loop around the trap never lands on the hidden input.
+    for (let step = 0; step < focusable.length + 1; step += 1) {
+      fireEvent.keyDown(dialog, { key: "Tab" });
+      expect(document.activeElement).not.toBe(input);
+    }
   });
 });
 

@@ -1,11 +1,11 @@
 ---
-description: Run a control-ui browser smoke test after /improve or any larger feature/bug-fix work
+description: Run a verify-akki-ui browser smoke test after /improve or any larger feature/bug-fix work
 alwaysApply: true
 ---
 
 # Verify core UI after substantial changes
 
-After completing any of the following, run a `control-ui` browser pass against the
+After completing any of the following, run a `verify-akki-ui` browser pass against the
 running dev server (`bun run dev`, served at `http://localhost:5173/pdf-editor`) to
 confirm no core functionality regressed — do not consider the work done until this passes:
 
@@ -16,10 +16,12 @@ Automated suites (`bun run test`, `bun run e2e`) are necessary but NOT sufficien
 do an interactive browser check.
 
 The executable companion to this rule is the project skill at
-`.claude/skills/control-ui/SKILL.md`, which drives the app with the `agent-browser` CLI
-(works for Cursor, Claude Code, Codex, etc.). Follow it for the steps below.
+`.claude/skills/verify-akki-ui/SKILL.md`, which drives the app with the `agent-browser` CLI
+(works for Cursor, Claude Code, Codex, etc.). Follow it for the steps below. The generic
+`control-ui` skill (installed from cursor/plugins into `.agents/skills/control-ui`) covers
+harness-building in general; `verify-akki-ui` is this repo's tailored checklist.
 
-## What the control-ui pass must cover
+## What the verify-akki-ui pass must cover
 
 1. Reuse the already-running dev server if present (check the terminals folder); only start
    `bun run dev` if nothing is serving. Confirm `http://localhost:5173/pdf-editor` returns 200.

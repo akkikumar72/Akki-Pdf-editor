@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from "react";
+import { CloudUpload, Keyboard, Signature, type LucideIcon } from "lucide-react";
 import { SIGNATURE_COLORS, SIGNATURE_FONTS } from "../editor/signatureFonts";
 import type { SignatureDraft } from "../editor/signaturePlacement";
 import { validateImageFile } from "../utils/fileValidation";
+import { clampInkPoint, exportInkPng, renderInk, type InkStroke } from "../utils/signatureInk";
 import { Button } from "./ui/button";
 
 type SignatureTab = "type" | "draw" | "upload";
+
+// Documenso's signing dialog uses these exact lucide glyphs on its tabs
+// (keyboard for typed, a signature squiggle for drawn, cloud-upload for image).
+const SIGNATURE_TAB_ITEMS: Array<[SignatureTab, string, LucideIcon]> = [
+  ["type", "Type", Keyboard],
+  ["draw", "Draw", Signature],
+  ["upload", "Upload image", CloudUpload],
+];
 
 type SignatureModalProps = {
   onCancel: () => void;
@@ -14,7 +24,6 @@ type SignatureModalProps = {
 
 const DRAW_WIDTH = 440;
 const DRAW_HEIGHT = 160;
-const STROKE_WIDTH = 2.5;
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -28,68 +37,112 @@ function readFileAsDataUrl(file: File) {
 export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawingRef = useRef(false);
+  /** Pointer id of the stroke in progress; null when the pad is idle. */
+  const activePointerRef = useRef<number | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<SignatureTab>("type");
   const [name, setName] = useState("");
   const [color, setColor] = useState(SIGNATURE_COLORS[6]);
   const [fontFamily, setFontFamily] = useState(SIGNATURE_FONTS[0].label);
-  const [hasDrawn, setHasDrawn] = useState(false);
+  const [strokes, setStrokes] = useState<InkStroke[]>([]);
   const [uploadedDataUrl, setUploadedDataUrl] = useState<string | null>(null);
   const [saveForReuse, setSaveForReuse] = useState(true);
+
+  // Crisp ink on retina displays: the backing store is DPR-scaled while the
+  // stroke math stays in the pad's logical 440x160 space.
+  const pixelRatio = Math.max(1, window.devicePixelRatio || 0);
 
   useEffect(() => {
     dialogRef.current?.querySelector<HTMLElement>("input, button")?.focus();
   }, []);
 
+  // The pad re-renders from the stroke model on every change (Documenso-style):
+  // strokes are data, not paint, which is what makes Undo and trimmed export possible.
+  useEffect(() => {
+    if (tab !== "draw") return;
+    /* v8 ignore next -- the canvas ref is attached whenever the draw tab is mounted */
+    const context = canvasRef.current?.getContext("2d");
+    if (!context) return;
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    context.clearRect(0, 0, DRAW_WIDTH, DRAW_HEIGHT);
+    renderInk(context, strokes);
+  }, [tab, strokes, pixelRatio]);
+
+  const hasDrawn = strokes.length > 0;
   const canSave =
     tab === "type" ? name.trim().length > 0 : tab === "draw" ? hasDrawn : Boolean(uploadedDataUrl);
 
   const strokePointFromEvent = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = event.currentTarget;
     const bounds = canvas.getBoundingClientRect();
-    return {
-      x: ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * DRAW_WIDTH,
-      y: ((event.clientY - bounds.top) / Math.max(1, bounds.height)) * DRAW_HEIGHT,
-    };
+    // Clamped because pointer capture keeps delivering moves after the cursor
+    // leaves the pad, and the trimmed export sizes itself from the ink bounds.
+    return clampInkPoint(
+      {
+        x: ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * DRAW_WIDTH,
+        y: ((event.clientY - bounds.top) / Math.max(1, bounds.height)) * DRAW_HEIGHT,
+        pressure: event.pressure,
+      },
+      DRAW_WIDTH,
+      DRAW_HEIGHT,
+    );
   };
 
   const handleDrawStart = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const context = canvasRef.current?.getContext("2d");
-    if (!context) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    drawingRef.current = true;
+    // One pointer inks at a time: a stray second touch (e.g. a resting palm)
+    // must not open a stroke that steals the first pointer's samples.
+    if (activePointerRef.current !== null) return;
+    if (!event.currentTarget.getContext("2d")) return;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // setPointerCapture can throw for non-active pointer ids; capture is an enhancement, not required.
+    }
+    activePointerRef.current = event.pointerId;
     const point = strokePointFromEvent(event);
-    context.strokeStyle = color;
-    context.lineWidth = STROKE_WIDTH;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.beginPath();
-    context.moveTo(point.x, point.y);
-    // A bare tap still leaves a dot, so the stroke counts as drawn immediately.
-    context.lineTo(point.x + 0.1, point.y + 0.1);
-    context.stroke();
-    setHasDrawn(true);
+    // A bare tap is already a stroke: perfect-freehand turns a single point into a dot.
+    setStrokes((previous) => [
+      ...previous,
+      { points: [point], color, simulatePressure: event.pointerType !== "pen" },
+    ]);
   };
 
   const handleDrawMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawingRef.current) return;
-    const context = canvasRef.current?.getContext("2d");
-    /* v8 ignore next -- drawingRef only becomes true after handleDrawStart already resolved a 2D context */
-    if (!context) return;
+    if (activePointerRef.current !== event.pointerId) return;
+    if (event.buttons === 0) {
+      // Without capture, a release outside the canvas never delivers pointerup
+      // here; a later button-less hover must end the stroke, not extend it.
+      activePointerRef.current = null;
+      return;
+    }
     const point = strokePointFromEvent(event);
-    context.lineTo(point.x, point.y);
-    context.stroke();
+    setStrokes((previous) => {
+      const current = previous[previous.length - 1];
+      /* v8 ignore next -- an active pointer id is only set after handleDrawStart pushed a stroke */
+      if (!current) return previous;
+      return [...previous.slice(0, -1), { ...current, points: [...current.points, point] }];
+    });
   };
 
-  const handleDrawEnd = () => {
-    drawingRef.current = false;
+  const handleDrawEnd = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (activePointerRef.current !== event.pointerId) return;
+    activePointerRef.current = null;
+  };
+
+  const handleDrawCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (activePointerRef.current !== event.pointerId) return;
+    activePointerRef.current = null;
+    // A browser-cancelled gesture (scroll/zoom takeover, palm rejection) is
+    // not a finished stroke; drop the partial ink instead of committing it.
+    setStrokes((previous) => previous.slice(0, -1));
+  };
+
+  const undoStroke = () => {
+    setStrokes((previous) => previous.slice(0, -1));
   };
 
   const clearCanvas = () => {
-    const context = canvasRef.current?.getContext("2d");
-    context?.clearRect(0, 0, DRAW_WIDTH, DRAW_HEIGHT);
-    setHasDrawn(false);
+    setStrokes([]);
   };
 
   const handleUpload = async (file: File | undefined) => {
@@ -119,21 +172,12 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
       return;
     }
     if (tab === "draw") {
-      const canvas = canvasRef.current;
-      /* v8 ignore next -- Save is disabled until a stroke happened, which requires the canvas to be mounted */
-      if (!canvas) return;
-      let dataUrl: string;
-      try {
-        dataUrl = canvas.toDataURL("image/png");
-      } catch {
+      const exported = exportInkPng(strokes);
+      if (!exported) {
         onNotice?.("Could not capture the drawn signature.");
         return;
       }
-      if (!/^data:image\/png/i.test(dataUrl)) {
-        onNotice?.("Could not capture the drawn signature.");
-        return;
-      }
-      onSave({ mode: "image", value: dataUrl, color }, saveForReuse);
+      onSave({ mode: "image", value: exported.dataUrl, color }, saveForReuse);
       return;
     }
     /* v8 ignore next -- Save is disabled until a validated upload exists on the upload tab */
@@ -151,7 +195,8 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
     const focusable = Array.from(
       /* v8 ignore next -- dialogRef is attached to the always-rendered root, so the ?? [] fallback never executes */
       dialogRef.current?.querySelectorAll<HTMLElement>("input, button, canvas[tabindex]") ?? [],
-    ).filter((element) => !element.hasAttribute("disabled"));
+      // tabIndex -1 excludes the visually-hidden file input from the Tab cycle.
+    ).filter((element) => !element.hasAttribute("disabled") && element.tabIndex !== -1);
     /* v8 ignore next -- the dialog always renders the tab strip and Cancel button, so this guard never executes */
     if (focusable.length === 0) return;
     const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
@@ -175,12 +220,9 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
         <div className="signature-modal__head">
           <h2>Create signature</h2>
           <div className="segmented" role="tablist" aria-label="Signature source">
-            {([
-              ["type", "Type"],
-              ["draw", "Draw"],
-              ["upload", "Upload image"],
-            ] as Array<[SignatureTab, string]>).map(([id, label]) => (
+            {SIGNATURE_TAB_ITEMS.map(([id, label, Icon]) => (
               <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
+                <Icon aria-hidden="true" />
                 {label}
               </button>
             ))}
@@ -203,7 +245,7 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
         ) : null}
 
         {tab === "type" ? (
-          <div className="signature-modal__body field-stack">
+          <div className="field-stack">
             <label>
               <span>Full name</span>
               <input
@@ -230,19 +272,22 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
         ) : null}
 
         {tab === "draw" ? (
-          <div className="signature-modal__body">
+          <div>
             <canvas
               ref={canvasRef}
               className="signature-modal__canvas"
-              width={DRAW_WIDTH}
-              height={DRAW_HEIGHT}
+              width={DRAW_WIDTH * pixelRatio}
+              height={DRAW_HEIGHT * pixelRatio}
               aria-label="Signature drawing area"
               onPointerDown={handleDrawStart}
               onPointerMove={handleDrawMove}
               onPointerUp={handleDrawEnd}
-              onPointerCancel={handleDrawEnd}
+              onPointerCancel={handleDrawCancel}
             />
             <div className="signature-modal__canvas-actions">
+              <Button type="button" variant="quiet" size="sm" onClick={undoStroke} disabled={!hasDrawn}>
+                Undo
+              </Button>
               <Button type="button" variant="quiet" size="sm" onClick={clearCanvas} disabled={!hasDrawn}>
                 Clear
               </Button>
@@ -251,25 +296,47 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
         ) : null}
 
         {tab === "upload" ? (
-          <div className="signature-modal__body field-stack">
+          <div>
             <input
               ref={uploadInputRef}
               type="file"
               accept="image/png,image/jpeg"
               aria-label="Signature image file"
+              className="visually-hidden"
+              tabIndex={-1}
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
                 event.currentTarget.value = "";
                 void handleUpload(file);
               }}
             />
-            {uploadedDataUrl ? (
-              <div className="signature-modal__preview">
+            {/* Documenso-style upload surface: the pad-shaped card is the whole
+                control — click (or drop a file on it) to pick, preview in place. */}
+            <button
+              type="button"
+              className="signature-modal__dropzone"
+              // Stable control name: with a preview inside, the button would
+              // otherwise be announced by the image's alt text instead of its action.
+              aria-label="Upload signature image"
+              onClick={() => uploadInputRef.current?.click()}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                void handleUpload(event.dataTransfer.files?.[0]);
+              }}
+            >
+              {uploadedDataUrl ? (
                 <img src={uploadedDataUrl} alt="Uploaded signature preview" />
-              </div>
-            ) : (
-              <p className="helper-text">PNG or JPEG, up to 20MB.</p>
-            )}
+              ) : (
+                <>
+                  <CloudUpload aria-hidden="true" />
+                  <span className="signature-modal__dropzone-label">Upload signature</span>
+                  <span className="signature-modal__dropzone-hint">
+                    Click to choose a PNG or JPEG (up to 20MB), or drop one here
+                  </span>
+                </>
+              )}
+            </button>
           </div>
         ) : null}
 

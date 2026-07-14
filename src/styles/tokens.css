@@ -51,6 +51,7 @@
   --font-wordmark: "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
   --font-mono: "Geist Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
+  --space-3xs: 0.2rem;
   --space-2xs: 0.25rem;
   --space-xs: 0.5rem;
   --space-sm: 0.75rem;
