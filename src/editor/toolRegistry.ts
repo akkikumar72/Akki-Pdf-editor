@@ -1,25 +1,26 @@
 import {
-  Check,
-  CircleDot,
-  Eraser,
-  FileSignature,
-  FormInput,
-  Highlighter,
-  Image,
-  Link,
-  ListChecks,
-  MessageSquareText,
-  MousePointer2,
-  PenLine,
-  RectangleHorizontal,
-  Shapes,
-  Signature,
-  Stamp,
-  Strikethrough,
-  Table2,
-  Type,
-  Underline,
-} from "lucide-react";
+  type AppIcon,
+  IconArrow,
+  IconCheck,
+  IconFormInput,
+  IconHighlighter,
+  IconImage,
+  IconLink,
+  IconListChecks,
+  IconNote,
+  IconPen,
+  IconRadio,
+  IconRectangle,
+  IconSelect,
+  IconSignature,
+  IconSignatureBox,
+  IconStamp,
+  IconStrikethrough,
+  IconTable,
+  IconType,
+  IconUnderline,
+  IconWhiteout,
+} from "../components/AppIcons";
 import type { EditorTool } from "../types/editor";
 
 export type ToolPlacement = "select" | "point" | "region" | "file" | "prompt" | "ink";
@@ -27,7 +28,7 @@ export type ToolPlacement = "select" | "point" | "region" | "file" | "prompt" | 
 export type ToolDefinition = {
   id: EditorTool;
   label: string;
-  icon: typeof MousePointer2;
+  icon: AppIcon;
   placement: ToolPlacement;
   group: "core" | "forms" | "media" | "annotate" | "shapes" | "export";
   description: string;
@@ -41,34 +42,34 @@ export type ToolGroup = {
 };
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
-  { id: "select", label: "Select", icon: MousePointer2, placement: "select", group: "core", description: "Select, move, edit, or replace existing PDF text." },
-  { id: "text", label: "Text", icon: Type, placement: "point", group: "core", description: "Add text or click existing text to replace it." },
-  { id: "link", label: "Links", icon: Link, placement: "region", group: "core", description: "Draw a link region or attach a URL to selected content." },
-  { id: "whiteout", label: "Whiteout", icon: Eraser, placement: "region", group: "core", description: "Cover page content with an opaque white rectangle." },
+  { id: "select", label: "Select", icon: IconSelect, placement: "select", group: "core", description: "Select, move, edit, or replace existing PDF text." },
+  { id: "text", label: "Text", icon: IconType, placement: "point", group: "core", description: "Add text or click existing text to replace it." },
+  { id: "link", label: "Links", icon: IconLink, placement: "region", group: "core", description: "Draw a link region or attach a URL to selected content." },
+  { id: "whiteout", label: "Whiteout", icon: IconWhiteout, placement: "region", group: "core", description: "Cover page content with an opaque white rectangle." },
 
-  { id: "form-text", label: "Text field", icon: FormInput, placement: "region", group: "forms", description: "Add a single-line fillable text field." },
-  { id: "form-multiline", label: "Multiline", icon: MessageSquareText, placement: "region", group: "forms", description: "Add a multiline fillable text area." },
-  { id: "form-dropdown", label: "Dropdown", icon: ListChecks, placement: "region", group: "forms", description: "Add a dropdown field with local options." },
-  { id: "form-radio", label: "Radio", icon: CircleDot, placement: "region", group: "forms", description: "Add a radio choice marker." },
-  { id: "mark-check", label: "Check mark", icon: Check, placement: "point", group: "forms", description: "Click an existing checkbox on the page to mark it checked." },
-  { id: "form-signature", label: "Signature box", icon: FileSignature, placement: "region", group: "forms", description: "Reserve a signature box." },
+  { id: "form-text", label: "Text field", icon: IconFormInput, placement: "region", group: "forms", description: "Add a single-line fillable text field." },
+  { id: "form-multiline", label: "Multiline", icon: IconNote, placement: "region", group: "forms", description: "Add a multiline fillable text area." },
+  { id: "form-dropdown", label: "Dropdown", icon: IconListChecks, placement: "region", group: "forms", description: "Add a dropdown field with local options." },
+  { id: "form-radio", label: "Radio", icon: IconRadio, placement: "region", group: "forms", description: "Add a radio choice marker." },
+  { id: "mark-check", label: "Check mark", icon: IconCheck, placement: "point", group: "forms", description: "Click an existing checkbox on the page to mark it checked." },
+  { id: "form-signature", label: "Signature box", icon: IconSignatureBox, placement: "region", group: "forms", description: "Reserve a signature box." },
 
-  { id: "image", label: "New image", icon: Image, placement: "file", group: "media", description: "Place a local PNG or JPEG on the page." },
-  { id: "stamp", label: "Stamp", icon: Stamp, placement: "point", group: "media", description: "Add a reusable approval/date-style stamp." },
-  { id: "signature", label: "Signature", icon: Signature, placement: "prompt", group: "media", description: "Create or place a typed/drawn/image signature." },
+  { id: "image", label: "New image", icon: IconImage, placement: "file", group: "media", description: "Place a local PNG or JPEG on the page." },
+  { id: "stamp", label: "Stamp", icon: IconStamp, placement: "point", group: "media", description: "Add a reusable approval/date-style stamp." },
+  { id: "signature", label: "Signature", icon: IconSignature, placement: "prompt", group: "media", description: "Create or place a typed/drawn/image signature." },
 
-  { id: "annotate-text", label: "Note", icon: MessageSquareText, placement: "point", group: "annotate", description: "Add a text note annotation." },
-  { id: "strikeout", label: "Strike out", icon: Strikethrough, placement: "region", group: "annotate", description: "Strike through selected text or a drawn region." },
-  { id: "highlight", label: "Highlight", icon: Highlighter, placement: "region", group: "annotate", description: "Highlight text or an area." },
-  { id: "underline", label: "Underline", icon: Underline, placement: "region", group: "annotate", description: "Underline selected text or a drawn region." },
-  { id: "draw", label: "Draw", icon: PenLine, placement: "ink", group: "annotate", description: "Draw freehand ink." },
-  { id: "ink", label: "Ink", icon: PenLine, placement: "ink", group: "annotate", description: "Add a freehand signature-like stroke." },
+  { id: "annotate-text", label: "Note", icon: IconNote, placement: "point", group: "annotate", description: "Add a text note annotation." },
+  { id: "strikeout", label: "Strike out", icon: IconStrikethrough, placement: "region", group: "annotate", description: "Strike through selected text or a drawn region." },
+  { id: "highlight", label: "Highlight", icon: IconHighlighter, placement: "region", group: "annotate", description: "Highlight text or an area." },
+  { id: "underline", label: "Underline", icon: IconUnderline, placement: "region", group: "annotate", description: "Underline selected text or a drawn region." },
+  { id: "draw", label: "Draw", icon: IconPen, placement: "ink", group: "annotate", description: "Draw freehand ink." },
+  { id: "ink", label: "Ink", icon: IconPen, placement: "ink", group: "annotate", description: "Add a freehand signature-like stroke." },
 
-  { id: "shape", label: "Rectangle", icon: RectangleHorizontal, placement: "region", group: "shapes", description: "Draw a rectangle." },
-  { id: "shape-ellipse", label: "Ellipse", icon: CircleDot, placement: "region", group: "shapes", description: "Draw an ellipse." },
-  { id: "shape-line", label: "Line", icon: PenLine, placement: "region", group: "shapes", description: "Draw a line." },
-  { id: "shape-arrow", label: "Arrow", icon: Shapes, placement: "region", group: "shapes", description: "Draw an arrow." },
-  { id: "table-region", label: "Table", icon: Table2, placement: "region", group: "export", description: "Mark a table extraction region." },
+  { id: "shape", label: "Rectangle", icon: IconRectangle, placement: "region", group: "shapes", description: "Draw a rectangle." },
+  { id: "shape-ellipse", label: "Ellipse", icon: IconRadio, placement: "region", group: "shapes", description: "Draw an ellipse." },
+  { id: "shape-line", label: "Line", icon: IconPen, placement: "region", group: "shapes", description: "Draw a line." },
+  { id: "shape-arrow", label: "Arrow", icon: IconArrow, placement: "region", group: "shapes", description: "Draw an arrow." },
+  { id: "table-region", label: "Table", icon: IconTable, placement: "region", group: "export", description: "Mark a table extraction region." },
 ];
 
 export const TOOL_BY_ID = Object.fromEntries(TOOL_DEFINITIONS.map((tool) => [tool.id, tool])) as Record<EditorTool, ToolDefinition>;
