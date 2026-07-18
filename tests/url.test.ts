@@ -38,6 +38,11 @@ describe("sanitizeUrl", () => {
 
   it("routes mailto through the strict email validator (no cc/bcc/body smuggling)", () => {
     expect(sanitizeUrl("mailto:victim@example.com?cc=attacker@evil.com&body=hi")).toBeNull();
+    // These have no second literal "@" and no whitespace, so the bare
+    // address-shape regex alone would accept them — only the explicit "?"
+    // rejection in sanitizeEmailToMailto closes this off.
+    expect(sanitizeUrl("mailto:victim@example.com?subject=Invoice&body=wire+funds")).toBeNull();
+    expect(sanitizeUrl("mailto:victim@example.com?bcc=attacker%40evil.com")).toBeNull();
     expect(sanitizeUrl("mailto:not-an-address")).toBeNull();
     // A plain address keeps working through the generic field.
     expect(sanitizeUrl("mailto:hi@example.com")).toBe("mailto:hi@example.com");
@@ -64,6 +69,13 @@ describe("sanitizeEmailToMailto", () => {
     expect(sanitizeEmailToMailto("two@ats@example.com")).toBeNull();
     expect(sanitizeEmailToMailto("no-tld@example")).toBeNull();
     expect(sanitizeEmailToMailto("spaces in@example.com")).toBeNull();
+  });
+
+  it("rejects a query string on the address (mailto header/param injection)", () => {
+    // No second "@" and no whitespace, so only the explicit "?" check catches these.
+    expect(sanitizeEmailToMailto("victim@example.com?subject=Invoice&body=wire+funds")).toBeNull();
+    expect(sanitizeEmailToMailto("victim@example.com?bcc=attacker%40evil.com")).toBeNull();
+    expect(sanitizeEmailToMailto("mailto:victim@example.com?cc=attacker@evil.com")).toBeNull();
   });
 });
 

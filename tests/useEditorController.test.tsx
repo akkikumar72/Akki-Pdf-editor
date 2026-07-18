@@ -906,6 +906,87 @@ describe("page operations", () => {
     expect(result.current.document?.fingerprint).toBe("fp-1");
   });
 
+  it("deleteCurrentPage remaps preserved undo history to the new page numbering, not just the live operations", async () => {
+    // Regression for a real bug: only the *live* operations array was passed
+    // through shiftOperationsForDeletedPage — every past/future snapshot kept
+    // its pre-shift pageIndex values. Undoing back to a snapshot captured
+    // before the delete would then restore an operation at a stale page
+    // index (or one that no longer exists once pageCount shrank).
+    mockedEngine.loadDocument.mockResolvedValue(makeLoaded({ pageCount: 3 }));
+    mockedEngine.getPageSizes.mockResolvedValue([
+      { width: 612, height: 792 },
+      { width: 612, height: 792 },
+      { width: 612, height: 792 },
+    ]);
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+
+    // A survivor op on page 2 (not the page about to be deleted), followed by
+    // a second edit so a history snapshot captures it at its ORIGINAL page 2.
+    await act(async () => {
+      result.current.addOperation(textOp({ id: "survivor", pageIndex: 2 }));
+    });
+    await act(async () => {
+      result.current.addOperation(textOp({ id: "other", pageIndex: 2 }));
+    });
+    const snapshotBeforeDelete = result.current.editState.past.at(-1)!;
+    expect(snapshotBeforeDelete.operations.map((op) => op.pageIndex)).toEqual([2]);
+
+    // pageIndex defaults to 0 after openDocument; deleting it shifts every
+    // op on a later page down by one (2 -> 1) and shrinks pageCount to 2.
+    mockedEngine.getPageSizes.mockResolvedValue([
+      { width: 612, height: 792 },
+      { width: 612, height: 792 },
+    ]);
+    await act(async () => {
+      await result.current.deleteCurrentPage();
+    });
+    expect(result.current.editState.operations.map((op) => op.pageIndex)).toEqual([1, 1]);
+
+    // The preserved snapshot must reflect the SAME remap, not the stale page-2 value.
+    const remappedSnapshot = result.current.editState.past.at(-1)!;
+    expect(remappedSnapshot.operations.map((op) => op.pageIndex)).toEqual([1]);
+
+    // Undoing onto that snapshot must land the survivor on the shifted page,
+    // and no operation may ever reference a page index the document lacks.
+    await act(async () => {
+      result.current.dispatch({ type: "undo" });
+    });
+    expect(result.current.editState.operations).toEqual([expect.objectContaining({ id: "survivor", pageIndex: 1 })]);
+  });
+
+  it("insertPageAfter remaps preserved undo history the same way as the live operations", async () => {
+    mockedEngine.loadDocument.mockResolvedValue(makeLoaded({ pageCount: 2 }));
+    mockedEngine.getPageSizes.mockResolvedValue([
+      { width: 612, height: 792 },
+      { width: 612, height: 792 },
+    ]);
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+
+    // pageIndex is 0 by default; an op on page 1 must shift to page 2 once a
+    // page is inserted after page 0 (both live and in preserved history).
+    await act(async () => {
+      result.current.addOperation(textOp({ id: "after", pageIndex: 1 }));
+    });
+    await act(async () => {
+      result.current.addOperation(textOp({ id: "other", pageIndex: 1 }));
+    });
+
+    mockedEngine.getPageSizes.mockResolvedValue([
+      { width: 612, height: 792 },
+      { width: 612, height: 792 },
+      { width: 612, height: 792 },
+    ]);
+    await act(async () => {
+      await result.current.insertPageAfter();
+    });
+    expect(result.current.editState.operations.map((op) => op.pageIndex)).toEqual([2, 2]);
+
+    const remappedSnapshot = result.current.editState.past.at(-1)!;
+    expect(remappedSnapshot.operations.map((op) => op.pageIndex)).toEqual([2]);
+  });
+
   it("page operations preserve the undo/redo history", async () => {
     const { result } = renderHook(() => useEditorController());
     await openDocument(result);
@@ -923,6 +1004,28 @@ describe("page operations", () => {
       result.current.dispatch({ type: "undo" });
     });
     expect(result.current.editState.operations).toHaveLength(0);
+  });
+
+  it("page operations also remap preserved redo (future) history", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      result.current.addOperation(textOp({ pageIndex: 0 }));
+    });
+    // Undo populates `future` with a checkpoint holding the current operations.
+    await act(async () => {
+      result.current.dispatch({ type: "undo" });
+    });
+    expect(result.current.editState.future.length).toBeGreaterThan(0);
+    await act(async () => {
+      await result.current.rotateCurrentPage();
+    });
+    // The redo stack must survive the page mutation just like undo does.
+    expect(result.current.editState.future.length).toBeGreaterThan(0);
+    await act(async () => {
+      result.current.dispatch({ type: "redo" });
+    });
+    expect(result.current.editState.operations).toHaveLength(1);
   });
 
   it("updateDocumentBytes filters operations beyond the new page count", async () => {

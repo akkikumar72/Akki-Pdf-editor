@@ -292,12 +292,19 @@ export function PdfCanvas({
     // start), but only text-layer mutations matter. Filtering by target keeps
     // drag/resize frames — which mutate overlay `style` attributes inside the
     // same subtree — from re-running the span scan and its forced reflows.
+    // Checking `target.querySelector(...)` (any descendant) instead of the
+    // added nodes would match every childList mutation anywhere upstream of
+    // the text layer once it exists (overlay mounts/unmounts, toolbar
+    // portals, ...), re-triggering the scan far more often than intended.
     const observer = new MutationObserver((mutations) => {
       const touchesTextLayer = mutations.some((mutation) => {
-        // Only childList/attribute records are observed, so the target is
-        // always an Element.
         const target = mutation.target as Element;
-        return Boolean(target.closest(".react-pdf__Page__textContent") || target.querySelector(".react-pdf__Page__textContent"));
+        if (target.closest(".react-pdf__Page__textContent")) return true;
+        return [...mutation.addedNodes].some(
+          (node) =>
+            node instanceof Element &&
+            (node.matches(".react-pdf__Page__textContent") || node.querySelector(".react-pdf__Page__textContent")),
+        );
       });
       if (touchesTextLayer) suppressReplacedTextLayer();
     });

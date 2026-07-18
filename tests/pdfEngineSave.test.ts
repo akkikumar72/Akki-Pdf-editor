@@ -210,6 +210,29 @@ describe("PdfEngine.savePdf – per-operation error isolation", () => {
     expect(content).toContain("1 0 0 1 10 690 cm");
   });
 
+  it("does not skip a text op whose text merely contains a tab", async () => {
+    // Same drawText-cleans-tabs regression as stamps/notes/form-fields,
+    // applied to the writeText probe used for both encodability and the
+    // center/right alignment width.
+    const original = await blankPdfBytes();
+    const skipped: string[] = [];
+    await pdfEngine.savePdf(original, [
+      {
+        id: "tabbed_text",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 40, y: 700, width: 200, height: 24 },
+        text: "Col1\tCol2",
+        fontFamily: "Helvetica",
+        fontSize: 14,
+        color: "#000000",
+        align: "center",
+        createdAt: 1,
+      },
+    ], undefined, { onOperationError: (operation) => skipped.push(operation.id) });
+    expect(skipped).toEqual([]);
+  });
+
   it("continues past a failing operation when no options or callback are provided", async () => {
     const original = await blankPdfBytes();
     await expect(pdfEngine.savePdf(original, [unencodableTextOp()])).resolves.toBeInstanceOf(Uint8Array);
@@ -272,6 +295,55 @@ describe("PdfEngine.savePdf – per-operation error isolation", () => {
     expect(content).not.toContain("1 0 0 1 30 640 cm");
     expect(content).not.toContain("1 0 0 1 220 700 cm");
     expect(content).not.toContain("1 0 0 1 220 620 cm");
+  });
+
+  it("does not skip stamps, notes, or form fields whose text merely contains a tab (drawText cleans it; the probe must match)", async () => {
+    // Regression: font.widthOfTextAtSize throws on a raw tab even though
+    // page.drawText silently replaces tabs with spaces before encoding, so
+    // probing the raw string was stricter than the real draw and skipped
+    // text that has always exported fine. Tabs are reachable here — browsers
+    // strip CR/LF on paste into a plain <input>/contenteditable span but
+    // keep tabs.
+    const original = await blankPdfBytes();
+    const skipped: string[] = [];
+    const operations: EditOperation[] = [
+      {
+        id: "tabbed_stamp",
+        type: "stamp",
+        pageIndex: 0,
+        rect: { x: 30, y: 700, width: 140, height: 46 },
+        label: "Reviewed\tOK",
+        color: "#166534",
+        borderColor: "#166534",
+        createdAt: 1,
+      },
+      {
+        id: "tabbed_note",
+        type: "annotation",
+        kind: "note",
+        pageIndex: 0,
+        rect: { x: 220, y: 700, width: 160, height: 40 },
+        color: "#b45309",
+        text: "Note\twith\ttabs",
+        createdAt: 2,
+      },
+      {
+        id: "tabbed_field",
+        type: "form-field",
+        kind: "text",
+        pageIndex: 0,
+        rect: { x: 220, y: 620, width: 160, height: 30 },
+        name: "field",
+        value: "A\tB",
+        createdAt: 3,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations, undefined, {
+      onOperationError: (operation) => skipped.push(operation.id),
+    });
+    expect(skipped).toEqual([]);
+    const reloaded = await PDFDocument.load(out);
+    expect(reloaded.getPageCount()).toBe(1);
   });
 
   it("keeps the whiteout mask fully opaque when the replacement text is faded", async () => {

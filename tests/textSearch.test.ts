@@ -147,6 +147,17 @@ describe("isTextItemReplaced", () => {
     ).toBe(true);
   });
 
+  it("is true for a replacement with sourceCoverRect even when whiteout is off (matches the editor preview, not the PDF writer)", () => {
+    // The on-canvas .operation--source-cover preview suppresses the original
+    // text layer whenever sourceCoverRect is set, independent of whiteout —
+    // whiteout only decides whether the *exported PDF bytes* get an opaque
+    // mask. Find must match what the user sees in the editor, so this stays
+    // true even with whiteout: false.
+    expect(
+      isTextItemReplaced(item(), [replacementOp({ whiteout: false })]),
+    ).toBe(true);
+  });
+
   it("is false when the op lives on another page", () => {
     expect(isTextItemReplaced(item(), [replacementOp({ pageIndex: 2 })])).toBe(false);
   });

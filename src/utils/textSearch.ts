@@ -1,4 +1,4 @@
-import type { EditOperation, PdfRect, TextItem } from "../types/editor";
+import type { EditOperation, PdfRect, TextItem, TextOperation } from "../types/editor";
 
 export type TextMatch = {
   pageIndex: number;
@@ -99,17 +99,31 @@ function overlapRatio(a: PdfRect, b: PdfRect) {
 }
 
 /**
- * True when a replacement text operation already masks this extracted item, so
- * Find must skip it — the visible content is the operation's text, not the
- * original glyphs still present in the extraction snapshot. Mirrors the PDF
- * writer's own mask anchor: `sourceCoverRect` when present, else the op's own
- * rect when whiteout is enabled (a manually-whiteouted box redacts whatever
- * sits under it even without a replacement source).
+ * The rect a replacement `text` operation covers in the original PDF content
+ * — matching the editor's on-canvas preview (the `.operation--source-cover`
+ * div in `PdfCanvas.tsx`, which suppresses the original text layer under
+ * `sourceCoverRect` whenever it's set, regardless of `whiteout`). `whiteout`
+ * only controls whether the *exported PDF bytes* get an opaque mask painted
+ * over that rect (see `writeText` in `operationWriters.ts`) — a narrower,
+ * separate concern from "does the user currently see the original covered",
+ * which is what Find and the CSV/TXT/XLSX data exports need here. The two
+ * conditions are intentionally different, not a bug to reconcile: an
+ * exported PDF's paint operation and an editor-only text-layer suppression
+ * don't have to agree for the export to still be correct.
+ */
+export function replacementCoverRect(operation: TextOperation): PdfRect | undefined {
+  return operation.sourceCoverRect ?? (operation.whiteout ? operation.rect : undefined);
+}
+
+/**
+ * True when a replacement text operation already masks this extracted item,
+ * so Find must skip it — the visible content is the operation's text, not
+ * the original glyphs still present in the extraction snapshot.
  */
 export function isTextItemReplaced(item: TextItem, operations: EditOperation[]): boolean {
   return operations.some((operation) => {
     if (operation.type !== "text" || operation.pageIndex !== item.pageIndex) return false;
-    const coverRect = operation.sourceCoverRect ?? (operation.whiteout ? operation.rect : undefined);
+    const coverRect = replacementCoverRect(operation);
     return Boolean(coverRect) && overlapRatio(coverRect!, item.rect) >= 0.5;
   });
 }

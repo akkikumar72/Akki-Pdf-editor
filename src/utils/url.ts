@@ -50,6 +50,14 @@ export function isSafeUrl(raw: string | undefined | null): boolean {
 export function sanitizeEmailToMailto(raw: string | undefined | null): string | null {
   if (!raw) return null;
   const address = raw.trim().replace(/^mailto:/i, "");
+  // Reject a query string outright: per RFC 6068, everything after a literal
+  // "?" in a mailto URI is header/body params (subject, cc, bcc, body, ...).
+  // Without this, an address like "victim@example.com?bcc=attacker%40evil.com"
+  // passes the address-shape regex below (no second literal "@", no
+  // whitespace) and lets a "contact" link pre-fill a body or add a hidden
+  // BCC in the reader's mail client. This sanitizer only ever emits a bare
+  // address, so any "?" means the input isn't one.
+  if (address.includes("?")) return null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) return null;
   return `mailto:${address}`;
 }

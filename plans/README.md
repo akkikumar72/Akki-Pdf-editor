@@ -21,6 +21,7 @@ Numbering continues from the retired `plans/` directory (001–014, deleted in
 | 023  | Keyboard overlay placement (a11y spike) | P2 | M | — | TODO |
 | 017  | Export real AcroForm form fields (spike) | P2 | M | — | TODO (reconciled 2026-07-18: zero PDFForm usage confirmed) |
 | 018  | Evaluate a maintained pdf-lib fork (spike) | P3 | M | — | TODO (reconciled 2026-07-18: still on pdf-lib ^1.17.1) |
+| 024  | Multi-line text operations always fail export with standard fonts | P2 | M | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 

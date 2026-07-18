@@ -43,6 +43,21 @@ function dataUrlMimeType(dataUrl: string) {
   return dataUrl.match(/^data:(.*?);/)?.[1] ?? "image/png";
 }
 
+/**
+ * Mirrors pdf-lib's internal `cleanText` transform (tabs and a handful of
+ * unicode line separators become 4 spaces; backspace/vertical-tab are
+ * stripped) that `PDFPage.drawText` applies before encoding. pdf-lib doesn't
+ * export that helper, so this is a local copy — needed because probing a raw
+ * string with `font.widthOfTextAtSize` for encodability is stricter than the
+ * real draw: a tab reaches the WinAnsi encoder unmodified in the probe (and
+ * throws), but `drawText` would have replaced it with spaces first and
+ * rendered fine. Applying the same cleanup before both the probe and the
+ * width measurement keeps them accurate for what will actually be drawn.
+ */
+function cleanForPdfEncoding(text: string): string {
+  return text.replace(/\t|\u0085|\u2028|\u2029/g, "    ").replace(/[\b\v]/g, "");
+}
+
 function drawCheckMark(page: PDFPage, rect: PdfRect, color: string, opacity: number, thickness = 1.4) {
   page.drawLine({
     start: { x: rect.x + rect.width * 0.2, y: rect.y + rect.height * 0.5 },
@@ -123,7 +138,7 @@ export async function writeText(page: PDFPage, operation: TextOperation, opacity
   }
 
   const rect = operation.rect;
-  const textWidth = font.widthOfTextAtSize(operation.text, operation.fontSize);
+  const textWidth = font.widthOfTextAtSize(cleanForPdfEncoding(operation.text), operation.fontSize);
   const x =
     operation.align === "center"
       ? rect.x + Math.max(0, rect.width - textWidth) / 2
@@ -174,8 +189,10 @@ export async function writeAnnotation(page: PDFPage, operation: AnnotationOperat
   const noteSize = Math.min(13, Math.max(8, rect.height * 0.35));
   // Probe encodability before painting anything: if the note text can't be
   // encoded by the resolved font, the operation must fail atomically instead
-  // of leaving an empty box baked into the exported page.
-  if (operation.text) font.widthOfTextAtSize(operation.text, noteSize);
+  // of leaving an empty box baked into the exported page. Probed on the
+  // pdf-lib-cleaned text so this doesn't reject inputs (e.g. a tab) the real
+  // drawText call below would have handled fine.
+  if (operation.text) font.widthOfTextAtSize(cleanForPdfEncoding(operation.text), noteSize);
   page.drawRectangle({
     x: rect.x,
     y: rect.y,
@@ -300,10 +317,11 @@ export async function writeStamp(page: PDFPage, operation: StampOperation, opaci
   const rect = operation.rect;
   const font = await ctx.getFont("Inter", { bold: true });
   const probeSize = Math.min(18, Math.max(9, rect.height * (operation.subline ? 0.28 : 0.32)));
-  // Probe encodability before painting anything (atomic skip — see writeAnnotation).
-  font.widthOfTextAtSize(operation.label.toUpperCase(), probeSize);
+  // Probe encodability before painting anything (atomic skip — see
+  // writeAnnotation; also probed on cleaned text for the same reason).
+  font.widthOfTextAtSize(cleanForPdfEncoding(operation.label.toUpperCase()), probeSize);
   if (operation.subline) {
-    (await ctx.getFont("Inter")).widthOfTextAtSize(operation.subline, probeSize);
+    (await ctx.getFont("Inter")).widthOfTextAtSize(cleanForPdfEncoding(operation.subline), probeSize);
   }
   page.drawRectangle({
     x: rect.x,
@@ -389,9 +407,10 @@ export function writeFormMark(page: PDFPage, operation: FormMarkOperation, opaci
 export async function writeFormField(page: PDFPage, operation: FormFieldOperation, opacity: number, ctx: WriterContext) {
   const rect = operation.rect;
   const font = await ctx.getFont("Inter");
-  // Probe encodability before painting anything (atomic skip — see writeAnnotation).
+  // Probe encodability before painting anything (atomic skip — see
+  // writeAnnotation; also probed on cleaned text for the same reason).
   if (operation.kind !== "radio" && operation.kind !== "signature") {
-    font.widthOfTextAtSize(operation.value || operation.name, Math.min(12, Math.max(8, rect.height * 0.3)));
+    font.widthOfTextAtSize(cleanForPdfEncoding(operation.value || operation.name), Math.min(12, Math.max(8, rect.height * 0.3)));
   }
   page.drawRectangle({
     x: rect.x,

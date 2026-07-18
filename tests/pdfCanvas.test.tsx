@@ -1814,6 +1814,42 @@ describe("PdfCanvas - effects", () => {
     await waitFor(() => expect(span.getAttribute("data-akki-suppressed")).toBeNull());
   });
 
+  it("re-suppresses when the text layer is (re)created inside a newly added wrapper node", async () => {
+    // Mirrors the real scenario the added-nodes check exists for: react-pdf
+    // creates the text layer asynchronously, so the very first insertion is a
+    // childList mutation whose target is an ANCESTOR of the text layer, not
+    // the text layer itself — target.closest(...) alone would miss it.
+    const op = textOp({ sourceCoverRect: { x: 0, y: 0, width: 612, height: 792 }, rect: { x: 0, y: 0, width: 612, height: 792 } });
+    const { container, stage } = renderCanvas({ operations: [op] });
+    await waitFor(() => {
+      const span = container.querySelector(".react-pdf__Page__textContent span");
+      expect(span?.getAttribute("data-akki-suppressed")).toBe("true");
+    });
+
+    const oldTextLayer = container.querySelector(".react-pdf__Page__textContent") as HTMLElement;
+    const parent = oldTextLayer.parentElement!;
+    await act(async () => {
+      oldTextLayer.remove();
+      // The added node itself is a plain wrapper (doesn't match the text-layer
+      // selector) that CONTAINS the fresh text layer as a descendant — this
+      // exercises the `node.querySelector(...)` arm, not just `node.matches(...)`.
+      const wrapper = stage.ownerDocument.createElement("div");
+      const freshTextLayer = stage.ownerDocument.createElement("div");
+      freshTextLayer.className = "react-pdf__Page__textContent";
+      const freshSpan = stage.ownerDocument.createElement("span");
+      freshSpan.textContent = "Fresh";
+      freshTextLayer.appendChild(freshSpan);
+      wrapper.appendChild(freshTextLayer);
+      parent.appendChild(wrapper);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      const span = container.querySelector(".react-pdf__Page__textContent span");
+      expect(span?.getAttribute("data-akki-suppressed")).toBe("true");
+    });
+  });
+
   it("ignores style mutations outside the text layer (drag frames must not re-trigger the span scan)", async () => {
     const op = textOp({ sourceCoverRect: { x: 0, y: 600, width: 100, height: 100 }, rect: { x: 0, y: 600, width: 100, height: 100 } });
     const { container } = renderCanvas({ operations: [op] });

@@ -317,7 +317,12 @@ export function useEditorController() {
     bytes: Uint8Array,
     nextPageIndex = pageIndex,
     statusMessage = "Document updated",
-    nextOperations = editState.operations,
+    // Applied to the live operations AND every preserved past/future history
+    // snapshot — insert/delete change which page each operation belongs to,
+    // so a stale snapshot restored via undo would reattach ops to the wrong
+    // page (or reference a page index that no longer exists). Defaults to
+    // identity because rotate doesn't renumber pages.
+    shiftOperations: (operations: EditOperation[]) => EditOperation[] = (operations) => operations,
   ) => {
     /* v8 ignore next -- all callers (insert/delete/rotate page) already early-return when document is null, so this guard never observes a null document */
     if (!document) return;
@@ -332,12 +337,17 @@ export function useEditorController() {
       // document never had a fingerprint.
       fingerprint: document.fingerprint ?? `${document.name}-${Date.now()}`,
     };
+    // Same shift + page-count filter for the live operations and every
+    // preserved history entry, so undo/redo/restore-history land on the
+    // same page renumbering the live document just went through.
+    const remapForNewPageCount = (operations: EditOperation[]) =>
+      shiftOperations(operations).filter((operation) => operation.pageIndex < next.pageCount);
     // Undo/redo history survives the reload; a page mutation is an edit, not
     // a fresh document open.
     await loadPdfState(next, {
-      operations: nextOperations.filter((operation) => operation.pageIndex < next.pageCount),
-      past: editState.past,
-      future: editState.future,
+      operations: remapForNewPageCount(editState.operations),
+      past: editState.past.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
+      future: editState.future.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
     }, sizes);
     setPageIndex(Math.min(nextPageIndex, Math.max(0, next.pageCount - 1)));
     setStatus(statusMessage);
@@ -352,14 +362,14 @@ export function useEditorController() {
         bytes,
         pageIndex + 1,
         "Blank page inserted",
-        shiftOperationsForInsertedPage(editState.operations, pageIndex + 1),
+        (operations) => shiftOperationsForInsertedPage(operations, pageIndex + 1),
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not insert page.");
     } finally {
       setIsBusy(false);
     }
-  }, [document, editState.operations, pageIndex, updateDocumentBytes]);
+  }, [document, pageIndex, updateDocumentBytes]);
 
   const deleteCurrentPage = useCallback(async () => {
     if (!document) return;
@@ -370,14 +380,14 @@ export function useEditorController() {
         bytes,
         Math.max(0, pageIndex - 1),
         "Page deleted",
-        shiftOperationsForDeletedPage(editState.operations, pageIndex),
+        (operations) => shiftOperationsForDeletedPage(operations, pageIndex),
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete page.");
     } finally {
       setIsBusy(false);
     }
-  }, [document, editState.operations, pageIndex, updateDocumentBytes]);
+  }, [document, pageIndex, updateDocumentBytes]);
 
   const rotateCurrentPage = useCallback(async () => {
     if (!document) return;

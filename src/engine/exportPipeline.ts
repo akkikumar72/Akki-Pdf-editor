@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from "fflate";
 import type { DocumentFonts, EditOperation, ExportFormat, PdfRect, TextItem } from "../types/editor";
 import { downloadBlob, safeBaseName } from "../utils/download";
+import { replacementCoverRect } from "../utils/textSearch";
 import { PdfEngine, pdfEngine as defaultPdfEngine } from "./pdfEngine";
 
 function rectOverlapArea(a: PdfRect, b: PdfRect) {
@@ -112,11 +113,9 @@ export class ExportPipeline {
       if (operation.type === "whiteout") {
         coverRects.push({ pageIndex: operation.pageIndex, rect: operation.rect });
       } else if (operation.type === "text") {
-        // Mirror the PDF writer's mask anchor exactly: sourceCoverRect when
-        // present, else the op's own rect when whiteout is enabled — otherwise
-        // a manually-whiteouted box redacts text in the exported PDF while the
-        // data exports (txt/csv/xlsx) still leak the covered original.
-        const coverRect = operation.sourceCoverRect ?? (operation.whiteout ? operation.rect : undefined);
+        // Shared with Find (see replacementCoverRect's own doc comment for
+        // why this deliberately differs from the PDF writer's paint condition).
+        const coverRect = replacementCoverRect(operation);
         if (coverRect) {
           coverRects.push({ pageIndex: operation.pageIndex, rect: coverRect });
         }
@@ -174,15 +173,16 @@ export class ExportPipeline {
 export const exportPipeline = new ExportPipeline();
 
 /**
- * Neutralize spreadsheet formula injection (CSV/XLSX). Cells whose first
- * character can start a formula (`= + - @`) or any leading whitespace/control
- * character are prefixed with a single quote so Excel/Calc treat them as
- * literal text. Leading whitespace (including plain space) is included
- * because some spreadsheet apps strip it before evaluating a cell (CWE-1236),
- * which would otherwise let `" =1+1"` through.
+ * Neutralize spreadsheet formula injection (CSV/XLSX). A cell is prefixed
+ * with a single quote — so Excel/Calc treat it as literal text — when either:
+ * it starts with a tab/CR/LF (some spreadsheet apps strip those before
+ * evaluating a cell, CWE-1236, so `"\n=cmd"` must still be caught), or its
+ * first *non-whitespace* character can start a formula (`= + - @`), which
+ * catches `" =1+1"` without also quoting benign cells like `" hello"` that
+ * merely happen to start with a plain space.
  */
 function neutralizeFormula(cell: string) {
-  return /^[\s=+\-@]/.test(cell) ? `'${cell}` : cell;
+  return /^[\t\r\n]|^\s*[=+\-@]/.test(cell) ? `'${cell}` : cell;
 }
 
 function xmlEscape(value: string) {
