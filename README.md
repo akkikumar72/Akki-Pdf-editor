@@ -11,10 +11,10 @@ Local-first PDF editor workbench with an import, edit, apply, and export flow. F
 
 - Import PDFs from disk or create a blank document.
 - Render pages with PDF.js and keep page thumbnails, zoom, rotation, and page controls in one workbench.
-- Add overlay edits: text, whiteout, links, forms, images, signatures, annotations, shapes, and table regions.
+- Add overlay edits: text, whiteout, links, forms, images, signatures, annotations, and shapes.
 - Click existing PDF text in Select mode to create a replacement overlay with closest-match font styling.
 - Inline floating toolbar for selected objects, including searchable font family picker with keyboard support.
-- Export edited PDF, TXT, CSV, XLSX, and PNG locally.
+- Export edited PDF, TXT, CSV, and XLSX locally.
 
 ## Tech Stack
 

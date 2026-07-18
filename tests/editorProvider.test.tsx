@@ -40,9 +40,16 @@ vi.mock("../src/utils/fileValidation", () => ({
 
 describe("useEditor", () => {
   it("throws when used outside an EditorProvider", () => {
-    expect(() => renderHook(() => useEditor())).toThrowError(
-      "useEditor must be used within an EditorProvider",
-    );
+    // React logs the (intentional) render error to console.error twice; keep
+    // the suite's output clean so real failures stand out.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(() => renderHook(() => useEditor())).toThrowError(
+        "useEditor must be used within an EditorProvider",
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it("returns the context value when used inside a provider", () => {

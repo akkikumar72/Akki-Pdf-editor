@@ -19,8 +19,19 @@ describe("export pipeline", () => {
     expect(csv).toContain('"Akki","$42"');
   });
 
-  it("exports every text row now that table regions are retired", () => {
-    const csv = new ExportPipeline().toCsv(items, []);
+  it("exports every text row and ignores non-text/non-whiteout operations", () => {
+    const csv = new ExportPipeline().toCsv(items, [
+      {
+        id: "shape_1",
+        type: "shape",
+        kind: "rectangle",
+        pageIndex: 0,
+        rect: { x: 0, y: 650, width: 220, height: 40 },
+        stroke: "#111827",
+        strokeWidth: 1,
+        createdAt: 1,
+      },
+    ]);
     expect(csv).toContain("Akki");
     expect(csv).toContain("Name");
   });
