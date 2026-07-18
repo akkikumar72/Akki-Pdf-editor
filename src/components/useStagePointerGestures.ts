@@ -237,12 +237,12 @@ export function useStagePointerGestures({
         height = resize.startRect.height - dy;
       }
       if (width < MIN_RESIZE_PX) {
-        /* v8 ignore next -- west-handle min-clamp branch; the opposite-axis handle combination is exercised by the e2e resize suite */
+        // West-handle clamp re-anchors the east edge so the box never jumps.
         if (resize.handle.includes("w")) left = resize.startRect.left + resize.startRect.width - MIN_RESIZE_PX;
         width = MIN_RESIZE_PX;
       }
       if (height < MIN_RESIZE_PX) {
-        /* v8 ignore next -- north-handle min-clamp branch; the opposite-axis handle combination is exercised by the e2e resize suite */
+        // North-handle clamp re-anchors the south edge so the box never jumps.
         if (resize.handle.includes("n")) top = resize.startRect.top + resize.startRect.height - MIN_RESIZE_PX;
         height = MIN_RESIZE_PX;
       }
@@ -295,6 +295,21 @@ export function useStagePointerGestures({
 
   const finishGesture = () => {
     commitLiveGesture();
+    setDraw(null);
+    setSelectDraw(null);
+    setDrag(null);
+    setResize(null);
+    setActiveGuides([]);
+    clearMoveMode();
+  };
+
+  /**
+   * `pointercancel` means the browser aborted the gesture (OS touch takeover,
+   * stylus dropout) — the accumulated move/resize must be discarded, never
+   * committed. The `lostpointercapture` that follows finds no active gesture
+   * and no-ops.
+   */
+  const discardGesture = () => {
     setDraw(null);
     setSelectDraw(null);
     setDrag(null);
@@ -428,7 +443,7 @@ export function useStagePointerGestures({
       onClick,
       onPointerMove,
       onPointerUp,
-      onPointerCancel: finishGesture,
+      onPointerCancel: discardGesture,
       onLostPointerCapture: finishGesture,
     },
     handleResizeStart,

@@ -11,7 +11,7 @@ describe("cn", () => {
     expect(cn("a", showB && "b", undefined, null, { c: true, d: false })).toBe("a c");
   });
 
-  it("merges conflicting tailwind classes via twMerge", () => {
-    expect(cn("p-2", "p-4")).toBe("p-4");
+  it("keeps every class verbatim (plain clsx — the repo has no Tailwind to de-conflict)", () => {
+    expect(cn("button--primary", "button--sm")).toBe("button--primary button--sm");
   });
 });

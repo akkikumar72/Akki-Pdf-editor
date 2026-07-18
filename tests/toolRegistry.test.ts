@@ -6,7 +6,11 @@ describe("tool registry", () => {
   it("indexes tool definitions by id", () => {
     expect(TOOL_BY_ID.select.label).toBe("Select");
     expect(TOOL_BY_ID.text.placement).toBe("point");
-    expect(TOOL_BY_ID["table-region"].group).toBe("export");
+  });
+
+  it("no longer registers the retired table-region tool", () => {
+    expect((TOOL_BY_ID as Record<string, unknown>)["table-region"]).toBeUndefined();
+    expect(TOOL_GROUPS.map((group) => group.id)).not.toContain("table");
   });
 
   it("returns the label for a known tool", () => {

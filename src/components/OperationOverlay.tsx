@@ -361,13 +361,6 @@ function OperationOverlayComponent({
         </div>
       );
 
-    case "table-region":
-      return (
-        <div className={className} style={style} onPointerDown={handlePointerDown}>
-          <span>{operation.label}</span>
-        </div>
-      );
-
     case "form-mark": {
       const glyph = operation.mark === "check" ? "\u2713" : operation.mark === "cross" ? "\u2717" : "\u25CF";
       return (

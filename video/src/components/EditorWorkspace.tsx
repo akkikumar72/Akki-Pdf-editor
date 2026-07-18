@@ -20,7 +20,6 @@ import {
   Save,
   Search,
   Shapes,
-  Table2,
   Type,
   Undo2,
   ZoomIn,
@@ -45,7 +44,6 @@ const TOOL_ITEMS: Array<{ id: ToolId; label: string; icon: Icon }> = [
   { id: "whiteout", label: "Whiteout", icon: Eraser },
   { id: "annotate", label: "Annotate", icon: Highlighter },
   { id: "shapes", label: "Shapes", icon: Shapes },
-  { id: "table", label: "Table", icon: Table2 },
 ];
 
 function Logo() {
@@ -563,28 +561,6 @@ function Inspector({ activeTool }: { activeTool: ToolId }) {
             background: activeTool === "annotate" ? "#ffdd44" : COLORS.accentDark,
           }}
         />
-      </>
-    );
-  } else if (activeTool === "table") {
-    title = "Table region";
-    content = (
-      <>
-        <Field label="Detected" value="3 columns · 3 rows" />
-        <Field label="Data export" value="CSV or XLSX" />
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 2,
-            padding: 8,
-            borderRadius: 7,
-            background: COLORS.paper,
-          }}
-        >
-          {Array.from({ length: 9 }).map((_, index) => (
-            <div key={index} style={{ height: 20, background: index < 3 ? COLORS.accentSoft : COLORS.surface }} />
-          ))}
-        </div>
       </>
     );
   } else if (activeTool === "apply" || activeTool === "export") {

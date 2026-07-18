@@ -80,6 +80,13 @@ describe("PdfEngine.loadDocument", () => {
     // fingerprints is an empty array -> fingerprints[0] ?? undefined
     expect(result.fingerprint).toBeUndefined();
   });
+
+  it("propagates pdf.js's rejection for a structurally corrupt document", async () => {
+    // A truncated PDF passes the %PDF- magic-byte validation but fails the
+    // real parse; that rejection must reach the caller so the UI can report it.
+    state.getDocument.mockReturnValue({ promise: Promise.reject(new Error("Invalid PDF structure")) });
+    await expect(engine.loadDocument(fakeFile())).rejects.toThrow("Invalid PDF structure");
+  });
 });
 
 // --- extractTextAndFonts --------------------------------------------------

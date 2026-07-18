@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from "fflate";
 import type { DocumentFonts, EditOperation, ExportFormat, PdfRect, TextItem } from "../types/editor";
 import { downloadBlob, safeBaseName } from "../utils/download";
+import { replacementCoverRect } from "../utils/textSearch";
 import { PdfEngine, pdfEngine as defaultPdfEngine } from "./pdfEngine";
 
 function rectOverlapArea(a: PdfRect, b: PdfRect) {
@@ -32,29 +33,36 @@ export type ExportContext = {
   suppressLinkAnnotationIds?: string[];
 };
 
+export type ExportResult = {
+  /** Operations the PDF writer could not render (e.g. unencodable characters); the export completed without them. */
+  skippedOperations: EditOperation[];
+};
+
 export class ExportPipeline {
   constructor(private readonly engine: PdfEngine = defaultPdfEngine) {}
 
-  async export(format: ExportFormat, context: ExportContext) {
+  async export(format: ExportFormat, context: ExportContext): Promise<ExportResult> {
     const base = safeBaseName(context.filename);
+    const skippedOperations: EditOperation[] = [];
     switch (format) {
       case "pdf": {
         const bytes = await this.engine.savePdf(context.bytes, context.operations, context.fonts, {
           suppressLinkAnnotationIds: context.suppressLinkAnnotationIds,
+          onOperationError: (operation) => skippedOperations.push(operation),
         });
         downloadBlob(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), `${base}-edited.pdf`);
-        return;
+        return { skippedOperations };
       }
       case "txt": {
         downloadBlob(
           new Blob([this.toText(context.textItems, context.operations)], { type: "text/plain;charset=utf-8" }),
           `${base}.txt`,
         );
-        return;
+        return { skippedOperations };
       }
       case "csv": {
         downloadBlob(new Blob([this.toCsv(context.textItems, context.operations)], { type: "text/csv;charset=utf-8" }), `${base}.csv`);
-        return;
+        return { skippedOperations };
       }
       case "xlsx": {
         downloadBlob(
@@ -63,7 +71,7 @@ export class ExportPipeline {
           }),
           `${base}.xlsx`,
         );
-        return;
+        return { skippedOperations };
       }
       default: {
         const exhaustive: never = format;
@@ -105,8 +113,11 @@ export class ExportPipeline {
       if (operation.type === "whiteout") {
         coverRects.push({ pageIndex: operation.pageIndex, rect: operation.rect });
       } else if (operation.type === "text") {
-        if (operation.sourceCoverRect) {
-          coverRects.push({ pageIndex: operation.pageIndex, rect: operation.sourceCoverRect });
+        // Shared with Find (see replacementCoverRect's own doc comment for
+        // why this deliberately differs from the PDF writer's paint condition).
+        const coverRect = replacementCoverRect(operation);
+        if (coverRect) {
+          coverRects.push({ pageIndex: operation.pageIndex, rect: coverRect });
         }
         additions.push({ str: operation.text, pageIndex: operation.pageIndex, rect: operation.rect });
       }
@@ -121,33 +132,39 @@ export class ExportPipeline {
   }
 
   private tableRows(textItems: TextItem[], operations: EditOperation[]) {
-    const merged = this.effectiveTextItems(textItems, operations);
-    const tableRegions = operations.filter((operation) => operation.type === "table-region");
-    const source = tableRegions.length
-      ? merged.filter((item) =>
-          tableRegions.some((region) =>
-            region.pageIndex === item.pageIndex &&
-            item.rect.x >= region.rect.x &&
-            item.rect.x <= region.rect.x + region.rect.width &&
-            item.rect.y >= region.rect.y &&
-            item.rect.y <= region.rect.y + region.rect.height,
-          ),
-        )
-      : merged;
-
-    return this.groupRows(source).map((row) => row.map((item) => item.str));
+    return this.groupRows(this.effectiveTextItems(textItems, operations)).map((row) => row.map((item) => item.str));
   }
 
   private groupRows(textItems: TextItem[]) {
     const sorted = [...textItems].sort((a, b) => a.pageIndex - b.pageIndex || b.rect.y - a.rect.y || a.rect.x - b.rect.x);
     const rows: TextItem[][] = [];
+    // Items arrive page-by-page in descending y, so each page's row heads are
+    // also in descending y. Every head sits at or above the current item, which
+    // reduces the original linear "first matching row" scan to a binary search
+    // for the first head with y <= item.y + tolerance — O(n log n) overall
+    // instead of O(n²) on text-dense documents.
+    let pageRows: TextItem[][] = [];
+    let currentPage = -1;
     for (const item of sorted) {
-      const row = rows.find((candidate) =>
-        candidate[0]?.pageIndex === item.pageIndex &&
-        Math.abs(candidate[0].rect.y - item.rect.y) <= Math.max(4, item.rect.height * 0.6),
-      );
-      if (row) row.push(item);
-      else rows.push([item]);
+      if (item.pageIndex !== currentPage) {
+        currentPage = item.pageIndex;
+        pageRows = [];
+      }
+      const limit = item.rect.y + Math.max(4, item.rect.height * 0.6);
+      let low = 0;
+      let high = pageRows.length;
+      while (low < high) {
+        const mid = (low + high) >> 1;
+        if (pageRows[mid][0].rect.y <= limit) high = mid;
+        else low = mid + 1;
+      }
+      if (low < pageRows.length) {
+        pageRows[low].push(item);
+      } else {
+        const row = [item];
+        pageRows.push(row);
+        rows.push(row);
+      }
     }
     return rows.map((row) => row.sort((a, b) => a.rect.x - b.rect.x));
   }
@@ -156,14 +173,16 @@ export class ExportPipeline {
 export const exportPipeline = new ExportPipeline();
 
 /**
- * Neutralize spreadsheet formula injection (CSV/XLSX). Cells whose first
- * character can start a formula (`= + - @`) or a control char (tab/CR/LF) are
- * prefixed with a single quote so Excel/Calc treat them as literal text.
- * The leading line-feed is included because some spreadsheet apps strip
- * leading whitespace/newlines before evaluating a cell (CWE-1236).
+ * Neutralize spreadsheet formula injection (CSV/XLSX). A cell is prefixed
+ * with a single quote — so Excel/Calc treat it as literal text — when either:
+ * it starts with a tab/CR/LF (some spreadsheet apps strip those before
+ * evaluating a cell, CWE-1236, so `"\n=cmd"` must still be caught), or its
+ * first *non-whitespace* character can start a formula (`= + - @`), which
+ * catches `" =1+1"` without also quoting benign cells like `" hello"` that
+ * merely happen to start with a plain space.
  */
 function neutralizeFormula(cell: string) {
-  return /^[=+\-@\t\r\n]/.test(cell) ? `'${cell}` : cell;
+  return /^[\t\r\n]|^\s*[=+\-@]/.test(cell) ? `'${cell}` : cell;
 }
 
 function xmlEscape(value: string) {

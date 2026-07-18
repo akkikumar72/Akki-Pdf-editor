@@ -13,7 +13,6 @@ import type {
   ShapeOperation,
   SignatureOperation,
   StampOperation,
-  TableRegionOperation,
   TextOperation,
   WhiteoutOperation,
 } from "../src/types/editor";
@@ -645,15 +644,6 @@ describe("OperationOverlay - non-text branches", () => {
     const el = container.querySelector(".operation--form-field") as HTMLDivElement;
     expect(el.textContent).not.toContain("✓");
     expect(el.textContent).toContain("fullname");
-  });
-
-  it("renders a table-region with its label", () => {
-    const op: TableRegionOperation = {
-      id: "tr", type: "table-region", pageIndex: 0, rect: RECT, createdAt: 1, label: "Table 1",
-    };
-    const { container } = renderOverlay(op);
-    const el = container.querySelector(".operation--table-region span") as HTMLSpanElement;
-    expect(el.textContent).toBe("Table 1");
   });
 
   it("renders a check-mark glyph for a form-mark operation", () => {

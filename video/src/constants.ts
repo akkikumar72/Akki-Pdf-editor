@@ -45,6 +45,5 @@ export type ToolId =
   | "whiteout"
   | "annotate"
   | "shapes"
-  | "table"
   | "apply"
   | "export";

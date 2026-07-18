@@ -59,11 +59,41 @@ function normalizeSession(session: SavedSession | undefined): SavedSession | und
   };
 }
 
+/**
+ * Shared connection promise: every session/signature call reuses one live
+ * IndexedDB handle instead of paying an open/close round-trip per call
+ * (autosave writes every ~600ms of edit inactivity, so this is a hot path).
+ */
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  dbPromise ??= new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, VERSION);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => {
+      dbPromise = null;
+      reject(request.error);
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      // Another tab upgrading the schema must not be blocked by this handle:
+      // release it and let the next storage call reopen lazily.
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      // The browser can force-close the connection outside our control
+      // (storage eviction under disk pressure, some private-mode behavior) —
+      // that fires `close`, not `versionchange`. Without this, a stale
+      // `dbPromise` would resolve to a dead handle forever, and every
+      // subsequent `transaction()` call would throw `InvalidStateError`,
+      // silently breaking autosave for the rest of the session. Reopening
+      // lazily on the next call restores the self-healing the old
+      // open-per-call code had for free.
+      db.onclose = () => {
+        dbPromise = null;
+      };
+      resolve(db);
+    };
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) {
@@ -74,6 +104,19 @@ function openDb(): Promise<IDBDatabase> {
       }
     };
   });
+  return dbPromise;
+}
+
+/** Close and forget the shared connection (version-change safety valve; also used by tests). */
+export async function closeStorageConnection() {
+  if (!dbPromise) return;
+  const pending = dbPromise;
+  dbPromise = null;
+  try {
+    (await pending).close();
+  } catch {
+    // The connection never opened successfully; nothing to close.
+  }
 }
 
 export async function saveSession(session: SessionSaveInput) {
@@ -84,7 +127,6 @@ export async function saveSession(session: SessionSaveInput) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
@@ -95,16 +137,22 @@ export async function listSessions(): Promise<SessionSummary[]> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  db.close();
   return sessions
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .map((session) => ({
-      id: session.id,
-      name: session.name,
-      updatedAt: session.updatedAt,
-      operationCount: session.editState?.operations.length ?? session.operations?.length ?? 0,
-      pageIndex: session.pageIndex,
-    }));
+    .map((session) => {
+      // Match what getSession/getLatestSession will actually restore:
+      // normalizeSession filters retired operation types (e.g. table-region)
+      // and remaps legacy link shapes, so a raw getAll() count here can
+      // overstate "N edits" relative to what comes back on restore.
+      const operations = normalizeLegacyOperations(session.editState?.operations ?? session.operations ?? []);
+      return {
+        id: session.id,
+        name: session.name,
+        updatedAt: session.updatedAt,
+        operationCount: operations.length,
+        pageIndex: session.pageIndex,
+      };
+    });
 }
 
 export async function getLatestSession(): Promise<SavedSession | undefined> {
@@ -115,7 +163,6 @@ export async function getLatestSession(): Promise<SavedSession | undefined> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  db.close();
   return normalizeSession(sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0]);
 }
 
@@ -127,7 +174,6 @@ export async function getSession(id: string): Promise<SavedSession | undefined> 
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  db.close();
   return normalizeSession(session);
 }
 
@@ -139,7 +185,6 @@ export async function deleteSession(id: string) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }
 
 export async function clearSessions() {
@@ -150,7 +195,6 @@ export async function clearSessions() {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }
 
 /**
@@ -175,7 +219,6 @@ export async function saveSignature(signature: SavedSignature) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }
 
 export async function listSignatures(): Promise<SavedSignature[]> {
@@ -186,7 +229,6 @@ export async function listSignatures(): Promise<SavedSignature[]> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  db.close();
   return signatures.sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -198,5 +240,4 @@ export async function deleteSignature(id: string) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, decodePDFRawStream } from "pdf-lib";
 import { pdfEngine, PdfEngine } from "../src/engine/pdfEngine";
 import type { DocumentFonts, EditOperation, LinkOperation } from "../src/types/editor";
@@ -131,6 +131,251 @@ describe("PdfEngine.savePdf", () => {
       },
     ];
     await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
+  });
+});
+
+describe("PdfEngine.savePdf – per-operation error isolation", () => {
+  // savePdf intentionally logs every skipped operation's real error for
+  // diagnosability; these tests trigger that path on purpose, so keep the
+  // suite's console output clean rather than printing expected errors.
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Cyrillic text that no WinAnsi-encoded standard font can draw. */
+  function unencodableTextOp(overrides: Partial<Extract<EditOperation, { type: "text" }>> = {}): EditOperation {
+    return {
+      id: "bad_text",
+      type: "text",
+      pageIndex: 0,
+      rect: { x: 40, y: 700, width: 200, height: 24 },
+      text: "Привет мир",
+      fontFamily: "Helvetica",
+      fontSize: 14,
+      color: "#000000",
+      align: "left",
+      createdAt: 1,
+      ...overrides,
+    };
+  }
+
+  it("skips an unencodable text op, reports it, and still writes the remaining operations", async () => {
+    const original = await blankPdfBytes();
+    const skipped: string[] = [];
+    const operations: EditOperation[] = [
+      unencodableTextOp(),
+      {
+        id: "good_text",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 40, y: 650, width: 200, height: 24 },
+        text: "Survivor",
+        fontFamily: "Helvetica",
+        fontSize: 14,
+        color: "#000000",
+        align: "left",
+        createdAt: 2,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations, undefined, {
+      onOperationError: (operation) => skipped.push(operation.id),
+    });
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    expect(skipped).toEqual(["bad_text"]);
+    expect(content).toContain(Buffer.from("Survivor", "latin1").toString("hex").toUpperCase());
+  });
+
+  it("still draws the whiteout mask for a text op whose text fails to encode (fail-closed redaction)", async () => {
+    // A skipped replacement must never disclose the original glyphs it was
+    // meant to cover — an orphaned blank box is the acceptable failure mode
+    // for a redaction feature, not a leak of the underlying content.
+    const original = await blankPdfBytes();
+    const skipped: string[] = [];
+    const out = await pdfEngine.savePdf(original, [
+      unencodableTextOp({
+        whiteout: true,
+        whiteoutColor: "#fefefe",
+        sourceCoverRect: { x: 10, y: 690, width: 220, height: 40 },
+      }),
+    ], undefined, { onOperationError: (operation) => skipped.push(operation.id) });
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    expect(skipped).toEqual(["bad_text"]);
+    // The mask's cm translate must still appear even though the replacement
+    // text itself could not be encoded and was skipped.
+    expect(content).toContain("1 0 0 1 10 690 cm");
+  });
+
+  it("does not skip a text op whose text merely contains a tab", async () => {
+    // Same drawText-cleans-tabs regression as stamps/notes/form-fields,
+    // applied to the writeText probe used for both encodability and the
+    // center/right alignment width.
+    const original = await blankPdfBytes();
+    const skipped: string[] = [];
+    await pdfEngine.savePdf(original, [
+      {
+        id: "tabbed_text",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 40, y: 700, width: 200, height: 24 },
+        text: "Col1\tCol2",
+        fontFamily: "Helvetica",
+        fontSize: 14,
+        color: "#000000",
+        align: "center",
+        createdAt: 1,
+      },
+    ], undefined, { onOperationError: (operation) => skipped.push(operation.id) });
+    expect(skipped).toEqual([]);
+  });
+
+  it("continues past a failing operation when no options or callback are provided", async () => {
+    const original = await blankPdfBytes();
+    await expect(pdfEngine.savePdf(original, [unencodableTextOp()])).resolves.toBeInstanceOf(Uint8Array);
+    await expect(pdfEngine.savePdf(original, [unencodableTextOp()], undefined, {})).resolves.toBeInstanceOf(Uint8Array);
+  });
+
+  it("skips stamps, notes, and form fields with unencodable text atomically (no stray empty boxes)", async () => {
+    const original = await blankPdfBytes();
+    const skipped: string[] = [];
+    const operations: EditOperation[] = [
+      {
+        id: "bad_stamp",
+        type: "stamp",
+        pageIndex: 0,
+        rect: { x: 30, y: 700, width: 140, height: 46 },
+        label: "Привет",
+        color: "#166534",
+        borderColor: "#166534",
+        createdAt: 1,
+      },
+      {
+        id: "bad_stamp_subline",
+        type: "stamp",
+        pageIndex: 0,
+        rect: { x: 30, y: 640, width: 140, height: 58 },
+        label: "OK",
+        subline: "Автор",
+        color: "#166534",
+        borderColor: "#166534",
+        createdAt: 2,
+      },
+      {
+        id: "bad_note",
+        type: "annotation",
+        kind: "note",
+        pageIndex: 0,
+        rect: { x: 220, y: 700, width: 160, height: 40 },
+        color: "#b45309",
+        text: "заметка",
+        createdAt: 3,
+      },
+      {
+        id: "bad_field",
+        type: "form-field",
+        kind: "text",
+        pageIndex: 0,
+        rect: { x: 220, y: 620, width: 160, height: 30 },
+        name: "имя",
+        createdAt: 4,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations, undefined, {
+      onOperationError: (operation) => skipped.push(operation.id),
+    });
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    expect(skipped).toEqual(["bad_stamp", "bad_stamp_subline", "bad_note", "bad_field"]);
+    // None of the background boxes may be painted: their cm translates must be absent.
+    expect(content).not.toContain("1 0 0 1 30 700 cm");
+    expect(content).not.toContain("1 0 0 1 30 640 cm");
+    expect(content).not.toContain("1 0 0 1 220 700 cm");
+    expect(content).not.toContain("1 0 0 1 220 620 cm");
+  });
+
+  it("does not skip stamps, notes, or form fields whose text merely contains a tab (drawText cleans it; the probe must match)", async () => {
+    // Regression: font.widthOfTextAtSize throws on a raw tab even though
+    // page.drawText silently replaces tabs with spaces before encoding, so
+    // probing the raw string was stricter than the real draw and skipped
+    // text that has always exported fine. Tabs are reachable here — browsers
+    // strip CR/LF on paste into a plain <input>/contenteditable span but
+    // keep tabs.
+    const original = await blankPdfBytes();
+    const skipped: string[] = [];
+    const operations: EditOperation[] = [
+      {
+        id: "tabbed_stamp",
+        type: "stamp",
+        pageIndex: 0,
+        rect: { x: 30, y: 700, width: 140, height: 46 },
+        label: "Reviewed\tOK",
+        color: "#166534",
+        borderColor: "#166534",
+        createdAt: 1,
+      },
+      {
+        id: "tabbed_note",
+        type: "annotation",
+        kind: "note",
+        pageIndex: 0,
+        rect: { x: 220, y: 700, width: 160, height: 40 },
+        color: "#b45309",
+        text: "Note\twith\ttabs",
+        createdAt: 2,
+      },
+      {
+        id: "tabbed_field",
+        type: "form-field",
+        kind: "text",
+        pageIndex: 0,
+        rect: { x: 220, y: 620, width: 160, height: 30 },
+        name: "field",
+        value: "A\tB",
+        createdAt: 3,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations, undefined, {
+      onOperationError: (operation) => skipped.push(operation.id),
+    });
+    expect(skipped).toEqual([]);
+    const reloaded = await PDFDocument.load(out);
+    expect(reloaded.getPageCount()).toBe(1);
+  });
+
+  it("keeps the whiteout mask fully opaque when the replacement text is faded", async () => {
+    const original = await blankPdfBytes();
+    const out = await pdfEngine.savePdf(original, [
+      {
+        id: "faded",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 40, y: 700, width: 200, height: 24 },
+        text: "Faded",
+        fontFamily: "Helvetica",
+        fontSize: 14,
+        color: "#000000",
+        align: "left",
+        whiteout: true,
+        sourceCoverRect: { x: 10, y: 690, width: 220, height: 40 },
+        opacity: 0.35,
+        createdAt: 1,
+      },
+    ]);
+    const reloaded = await PDFDocument.load(out);
+    const page = reloaded.getPage(0);
+    const extGState = page.node.Resources()?.lookupMaybe(PDFName.of("ExtGState"), PDFDict);
+    expect(extGState).toBeDefined();
+    const alphas = extGState!
+      .entries()
+      .map(([, value]) => reloaded.context.lookup(value, PDFDict).get(PDFName.of("ca")))
+      .map((ca) => (ca ? Number(ca.toString()) : undefined));
+    // The redaction mask keeps ca=1 while the text itself carries the faded ca=0.35.
+    expect(alphas).toContain(1);
+    expect(alphas).toContain(0.35);
   });
 });
 
@@ -969,14 +1214,6 @@ describe("PdfEngine.savePdf – export validity (writer registry regression)", (
         rect: { x: 72, y: 400, width: 120, height: 24 },
         target: { kind: "url", href: "https://example.com" },
         createdAt: 6,
-      },
-      {
-        id: "table_region_1",
-        type: "table-region",
-        label: "Table 1",
-        pageIndex: 1,
-        rect: { x: 72, y: 300, width: 200, height: 80 },
-        createdAt: 7,
       },
     ];
     const out = await pdfEngine.savePdf(original, operations);

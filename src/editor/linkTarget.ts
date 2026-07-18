@@ -86,8 +86,17 @@ export function normalizeLegacyOperation(operation: EditOperation): EditOperatio
   };
 }
 
+/**
+ * Operation types that no longer exist in the editor (e.g. the retired
+ * table-region tool). Saved sessions written before the removal may still
+ * carry them, so they are dropped on the way out of IndexedDB.
+ */
+const RETIRED_OPERATION_TYPES: ReadonlySet<string> = new Set(["table-region"]);
+
 export function normalizeLegacyOperations(operations: EditOperation[]): EditOperation[] {
-  return operations.map(normalizeLegacyOperation);
+  return operations
+    .filter((operation) => !RETIRED_OPERATION_TYPES.has(operation.type))
+    .map(normalizeLegacyOperation);
 }
 
 export type LinkKind = LinkTarget["kind"];
