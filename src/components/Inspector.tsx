@@ -1,8 +1,33 @@
 import { memo } from "react";
 import { AlignCenter, AlignLeft, AlignRight, Check, Circle, Copy, FileSpreadsheet, FileText, SlidersHorizontal, Trash2, X } from "lucide-react";
-import type { EditOperation, ExportFormat, FormMarkOperation, LinkTarget, TextAlign, TextItem } from "../types/editor";
-import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
+import type { EditOperation, EditOperationPatch, ExportFormat, FormMarkOperation, LinkTarget, TextAlign, TextItem, TextOperation } from "../types/editor";
+import { describeDetectedFont, describeFallback } from "../engine/fontResolver";
+import { useTextPreview, useTextPreviewDispatch } from "../state/textPreviewContext";
 import { sanitizeEmailToMailto, sanitizeTel, sanitizeUrl } from "../utils/url";
+import { FontFamilySelect } from "./FontFamilySelect";
+
+/** Helper copy under Font — follows live preview when browsing the picker. */
+function TextFontHelper({ operation }: { operation: TextOperation }) {
+  const textPreview = useTextPreview();
+  const fontSource =
+    textPreview?.id === operation.id ? { ...operation, ...textPreview.patch } : operation;
+  if (fontSource.embeddedFontKey) {
+    return (
+      <>
+        Matched the original embedded font
+        {fontSource.detectedFontName ? ` (${fontSource.detectedFontName})` : ""}
+      </>
+    );
+  }
+  if (fontSource.detectedFontName || fontSource.cssFontFamily) {
+    return (
+      <>
+        {describeDetectedFont(fontSource.detectedFontName, fontSource.cssFontFamily, fontSource.fontFamily)}
+      </>
+    );
+  }
+  return <>{describeFallback(fontSource.fontFamily)}</>;
+}
 
 type InspectorProps = {
   operation?: EditOperation;
@@ -14,7 +39,7 @@ type InspectorProps = {
   onDuplicateSelected: () => void;
   onExport: (format: ExportFormat) => void;
   onRemoveSelected: () => void;
-  onUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  onUpdate: (id: string, patch: EditOperationPatch) => void;
 };
 
 function InspectorComponent({
@@ -28,7 +53,8 @@ function InspectorComponent({
   onRemoveSelected,
   onUpdate,
 }: InspectorProps) {
-  const update = (patch: Partial<EditOperation>) => {
+  const previewTextOperation = useTextPreviewDispatch();
+  const update = (patch: EditOperationPatch) => {
     /* v8 ignore next -- every `update` caller renders only inside the `operation`-present block, so the guard's false branch is unreachable */
     if (operation) onUpdate(operation.id, patch);
   };
@@ -73,32 +99,22 @@ function InspectorComponent({
                 Text
                 <textarea
                   value={operation.text}
-                  onChange={(event) => update({ text: event.currentTarget.value } as Partial<EditOperation>)}
+                  onChange={(event) => update({ text: event.currentTarget.value })}
                 />
               </label>
-              <label>
+              <label className="inspector-font-field">
                 Font
-                <select
+                <FontFamilySelect
+                  aria-label="Font"
+                  className="inspector-font-select"
                   value={operation.fontFamily}
-                  onChange={(event) =>
-                    update({
-                      fontFamily: event.currentTarget.value,
-                      cssFontFamily: undefined,
-                      detectedFontName: undefined,
-                      embeddedFontKey: undefined,
-                    } as Partial<EditOperation>)}
-                >
-                  {FONT_CHOICES.map((font) => (
-                    <option key={font.label} value={font.label}>{font.label}</option>
-                  ))}
-                </select>
+                  variant="inspector"
+                  onCommit={(patch) => update(patch)}
+                  onPreview={(patch) => previewTextOperation(operation.id, patch)}
+                />
               </label>
               <p className="helper-text">
-                {operation.embeddedFontKey
-                  ? `Matched the original embedded font${operation.detectedFontName ? ` (${operation.detectedFontName})` : ""}`
-                  : operation.detectedFontName || operation.cssFontFamily
-                    ? describeDetectedFont(operation.detectedFontName, operation.cssFontFamily, operation.fontFamily)
-                    : describeFallback(operation.fontFamily)}
+                <TextFontHelper operation={operation} />
               </p>
               <div className="field-grid">
                 <label>
@@ -118,13 +134,13 @@ function InspectorComponent({
                       // the minimum (e.g. "24") gets its first digit force-corrected up to 6
                       // before the second digit lands — turning "24" into "64". Clamp only once
                       // the user is done editing.
-                      update({ fontSize: Math.round(parsed) } as Partial<EditOperation>);
+                      update({ fontSize: Math.round(parsed) });
                     }}
                     onBlur={(event) => {
                       const parsed = Number(event.currentTarget.value);
                       /* v8 ignore next -- the control is type="number"; the DOM coerces any entry (including empty) to a finite value, so the non-finite fallback is unreachable */
                       const clamped = Number.isFinite(parsed) ? Math.min(96, Math.max(6, Math.round(parsed))) : 6;
-                      update({ fontSize: clamped } as Partial<EditOperation>);
+                      update({ fontSize: clamped });
                     }}
                   />
                 </label>
@@ -133,7 +149,7 @@ function InspectorComponent({
                   <input
                     type="color"
                     value={operation.color}
-                    onChange={(event) => update({ color: event.currentTarget.value } as Partial<EditOperation>)}
+                    onChange={(event) => update({ color: event.currentTarget.value })}
                   />
                 </label>
               </div>
@@ -146,7 +162,7 @@ function InspectorComponent({
                   <button
                     key={align}
                     aria-pressed={operation.align === align}
-                    onClick={() => update({ align } as Partial<EditOperation>)}
+                    onClick={() => update({ align })}
                   >
                     <Icon aria-hidden="true" />
                   </button>
@@ -156,7 +172,7 @@ function InspectorComponent({
                 <input
                   type="checkbox"
                   checked={operation.whiteout}
-                  onChange={(event) => update({ whiteout: event.currentTarget.checked } as Partial<EditOperation>)}
+                  onChange={(event) => update({ whiteout: event.currentTarget.checked })}
                 />
                 Whiteout behind text
               </label>
@@ -166,7 +182,7 @@ function InspectorComponent({
                   <input
                     type="color"
                     value={operation.whiteoutColor ?? "#ffffff"}
-                    onChange={(event) => update({ whiteoutColor: event.currentTarget.value } as Partial<EditOperation>)}
+                    onChange={(event) => update({ whiteoutColor: event.currentTarget.value })}
                   />
                 </label>
               ) : null}
@@ -182,7 +198,7 @@ function InspectorComponent({
                 max={1}
                 step={0.05}
                 value={operation.opacity ?? 1}
-                onChange={(event) => update({ opacity: Number(event.currentTarget.value) } as Partial<EditOperation>)}
+                onChange={(event) => update({ opacity: Number(event.currentTarget.value) })}
               />
             </label>
           ) : null}
@@ -191,11 +207,11 @@ function InspectorComponent({
             <>
               <label>
                 Stroke
-                <input type="color" value={operation.stroke} onChange={(event) => update({ stroke: event.currentTarget.value } as Partial<EditOperation>)} />
+                <input type="color" value={operation.stroke} onChange={(event) => update({ stroke: event.currentTarget.value })} />
               </label>
               <label>
                 Stroke width
-                <input type="number" min={1} max={12} value={operation.strokeWidth} onChange={(event) => update({ strokeWidth: Number(event.currentTarget.value) } as Partial<EditOperation>)} />
+                <input type="number" min={1} max={12} value={operation.strokeWidth} onChange={(event) => update({ strokeWidth: Number(event.currentTarget.value) })} />
               </label>
             </>
           ) : null}
@@ -210,7 +226,7 @@ function InspectorComponent({
                     const kind = event.currentTarget.value as LinkTarget["kind"];
                     update({
                       target: kind === "page" ? { kind: "page", pageIndex: 0 } : { kind, href: "" },
-                    } as Partial<EditOperation>);
+                    });
                   }}
                 >
                   <option value="url">External URL</option>
@@ -224,12 +240,12 @@ function InspectorComponent({
                   URL
                   <input
                     value={operation.target.href}
-                    onChange={(event) => update({ target: { kind: "url", href: event.currentTarget.value } } as Partial<EditOperation>)}
+                    onChange={(event) => update({ target: { kind: "url", href: event.currentTarget.value } })}
                     onBlur={(event) => {
                       // Never leave an unsafe URL in the edit model. sanitizeUrl returns the
                       // safe form (http/https/mailto) or null; on null, clear the field rather
                       // than keeping the raw value the onChange already wrote.
-                      update({ target: { kind: "url", href: sanitizeUrl(event.currentTarget.value) ?? "" } } as Partial<EditOperation>);
+                      update({ target: { kind: "url", href: sanitizeUrl(event.currentTarget.value) ?? "" } });
                     }}
                   />
                 </label>
@@ -239,9 +255,9 @@ function InspectorComponent({
                   Email
                   <input
                     value={operation.target.href.replace(/^mailto:/i, "")}
-                    onChange={(event) => update({ target: { kind: "email", href: event.currentTarget.value } } as Partial<EditOperation>)}
+                    onChange={(event) => update({ target: { kind: "email", href: event.currentTarget.value } })}
                     onBlur={(event) => {
-                      update({ target: { kind: "email", href: sanitizeEmailToMailto(event.currentTarget.value) ?? "" } } as Partial<EditOperation>);
+                      update({ target: { kind: "email", href: sanitizeEmailToMailto(event.currentTarget.value) ?? "" } });
                     }}
                   />
                 </label>
@@ -251,9 +267,9 @@ function InspectorComponent({
                   Phone
                   <input
                     value={operation.target.href.replace(/^tel:/i, "")}
-                    onChange={(event) => update({ target: { kind: "phone", href: event.currentTarget.value } } as Partial<EditOperation>)}
+                    onChange={(event) => update({ target: { kind: "phone", href: event.currentTarget.value } })}
                     onBlur={(event) => {
-                      update({ target: { kind: "phone", href: sanitizeTel(event.currentTarget.value) ?? "" } } as Partial<EditOperation>);
+                      update({ target: { kind: "phone", href: sanitizeTel(event.currentTarget.value) ?? "" } });
                     }}
                   />
                 </label>
@@ -269,7 +285,7 @@ function InspectorComponent({
                     onChange={(event) => {
                       const parsed = Number.parseInt(event.currentTarget.value, 10);
                       const clamped = Number.isInteger(parsed) ? Math.min(pageCount, Math.max(1, parsed)) : 1;
-                      update({ target: { kind: "page", pageIndex: clamped - 1 } } as Partial<EditOperation>);
+                      update({ target: { kind: "page", pageIndex: clamped - 1 } });
                     }}
                   />
                 </label>
@@ -283,7 +299,7 @@ function InspectorComponent({
                 Subject
                 <input
                   value={operation.label}
-                  onChange={(event) => update({ label: event.currentTarget.value } as Partial<EditOperation>)}
+                  onChange={(event) => update({ label: event.currentTarget.value })}
                 />
               </label>
               <label>
@@ -292,7 +308,7 @@ function InspectorComponent({
                   value={operation.subline ?? ""}
                   placeholder="By Author at date"
                   onChange={(event) =>
-                    update({ subline: event.currentTarget.value || undefined } as Partial<EditOperation>)}
+                    update({ subline: event.currentTarget.value || undefined })}
                 />
               </label>
               <label>
@@ -304,7 +320,7 @@ function InspectorComponent({
                     update({
                       color: event.currentTarget.value,
                       borderColor: event.currentTarget.value,
-                    } as Partial<EditOperation>)}
+                    })}
                 />
               </label>
             </>
@@ -316,7 +332,7 @@ function InspectorComponent({
               <input
                 type="color"
                 value={operation.color}
-                onChange={(event) => update({ color: event.currentTarget.value } as Partial<EditOperation>)}
+                onChange={(event) => update({ color: event.currentTarget.value })}
               />
             </label>
           ) : null}
@@ -332,7 +348,7 @@ function InspectorComponent({
                   <button
                     key={mark}
                     aria-pressed={operation.mark === mark}
-                    onClick={() => update({ mark } as Partial<EditOperation>)}
+                    onClick={() => update({ mark })}
                   >
                     <Icon aria-hidden="true" />
                   </button>
@@ -340,7 +356,7 @@ function InspectorComponent({
               </div>
               <label>
                 Color
-                <input type="color" value={operation.color} onChange={(event) => update({ color: event.currentTarget.value } as Partial<EditOperation>)} />
+                <input type="color" value={operation.color} onChange={(event) => update({ color: event.currentTarget.value })} />
               </label>
             </>
           ) : null}

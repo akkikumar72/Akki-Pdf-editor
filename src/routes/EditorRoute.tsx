@@ -8,6 +8,7 @@ import { PdfCanvas } from "../components/PdfCanvas";
 import { StatusBar } from "../components/StatusBar";
 import { ToolRibbon } from "../components/ToolRibbon";
 import { useEditor } from "../state/editorContext";
+import { TextPreviewProvider } from "../state/TextPreviewProvider";
 
 export function EditorRoute() {
   const editor = useEditor();
@@ -62,104 +63,106 @@ export function EditorRoute() {
   const { editState } = editor;
 
   return (
-    <AppShell
-      header={(
-        <ToolRibbon
+    <TextPreviewProvider selectedIds={editState.selectedIds}>
+      <AppShell
+        header={(
+          <ToolRibbon
+            activeTool={editor.activeTool}
+            canRedo={editState.future.length > 0}
+            canUndo={editState.past.length > 0}
+            disabled={isBusy}
+            historyEntries={editState.past}
+            onExport={editor.runExport}
+            onFindReplace={() => setFindReplaceOpen(true)}
+            onHome={() => {
+              navigate("/");
+              void editor.returnHome();
+            }}
+            onRedo={() => editor.dispatch({ type: "redo" })}
+            onRemove={editor.removeSelected}
+            onDeletePage={editor.deleteCurrentPage}
+            onInsertPage={editor.insertPageAfter}
+            onRotate={() => editor.setRotation((value) => (value + 90) % 360)}
+            onRotatePage={editor.rotateCurrentPage}
+            onRestoreHistory={editor.restoreHistoryEntry}
+            onToolChange={editor.setActiveTool}
+            onUndo={() => editor.dispatch({ type: "undo" })}
+            onZoomIn={() => editor.setScale((value) => Math.min(2.4, value + 0.1))}
+            onZoomOut={() => editor.setScale((value) => Math.max(0.45, value - 0.1))}
+            scale={editor.scale}
+            selectedIds={editState.selectedIds}
+          />
+        )}
+        rail={(
+          <PageRail
+            activePage={editor.pageIndex}
+            pageCount={document.pageCount}
+            pdfBytes={document.bytes}
+            onSelect={editor.setPageIndex}
+          />
+        )}
+        inspector={(
+          <Inspector
+            operation={editor.selectedOperation}
+            operationCount={editState.operations.length}
+            pageCount={document.pageCount}
+            pageTextItems={editor.pageTextItems}
+            selectedCount={editState.selectedIds.length}
+            onDuplicateSelected={editor.duplicateSelected}
+            onExport={editor.runExport}
+            onRemoveSelected={editor.removeSelected}
+            onUpdate={editor.updateOperation}
+          />
+        )}
+        status={(
+          <StatusBar
+            documentName={document.name}
+            isBusy={isBusy}
+            movingCount={movingCount}
+            operationCount={editState.operations.length}
+            pageIndex={editor.pageIndex}
+            pageCount={document.pageCount}
+            scale={editor.scale}
+            selectedCount={editState.selectedIds.length}
+            status={editor.status}
+          />
+        )}
+      >
+        <PdfCanvas
           activeTool={editor.activeTool}
-          canRedo={editState.future.length > 0}
-          canUndo={editState.past.length > 0}
-          disabled={isBusy}
-          historyEntries={editState.past}
-          onExport={editor.runExport}
-          onFindReplace={() => setFindReplaceOpen(true)}
-          onHome={() => {
-            navigate("/");
-            void editor.returnHome();
-          }}
-          onRedo={() => editor.dispatch({ type: "redo" })}
-          onRemove={editor.removeSelected}
-          onDeletePage={editor.deleteCurrentPage}
-          onInsertPage={editor.insertPageAfter}
-          onRotate={() => editor.setRotation((value) => (value + 90) % 360)}
-          onRotatePage={editor.rotateCurrentPage}
-          onRestoreHistory={editor.restoreHistoryEntry}
-          onToolChange={editor.setActiveTool}
-          onUndo={() => editor.dispatch({ type: "undo" })}
-          onZoomIn={() => editor.setScale((value) => Math.min(2.4, value + 0.1))}
-          onZoomOut={() => editor.setScale((value) => Math.max(0.45, value - 0.1))}
-          scale={editor.scale}
-          selectedIds={editState.selectedIds}
-        />
-      )}
-      rail={(
-        <PageRail
-          activePage={editor.pageIndex}
-          pageCount={document.pageCount}
-          pdfBytes={document.bytes}
-          onSelect={editor.setPageIndex}
-        />
-      )}
-      inspector={(
-        <Inspector
-          operation={editor.selectedOperation}
-          operationCount={editState.operations.length}
-          pageCount={document.pageCount}
-          pageTextItems={editor.pageTextItems}
-          selectedCount={editState.selectedIds.length}
-          onDuplicateSelected={editor.duplicateSelected}
-          onExport={editor.runExport}
-          onRemoveSelected={editor.removeSelected}
-          onUpdate={editor.updateOperation}
-        />
-      )}
-      status={(
-        <StatusBar
-          documentName={document.name}
-          isBusy={isBusy}
-          movingCount={movingCount}
-          operationCount={editState.operations.length}
+          document={document}
+          documentFonts={editor.documentFonts}
+          onDraggingChange={setMovingCount}
+          onNotice={editor.setStatus}
+          onOperationAdd={editor.addOperation}
+          onOperationsAdd={editor.addOperations}
+          onOperationRemove={editor.removeOperation}
+          onOperationsRemove={editor.removeOperations}
+          onOperationSelect={(ids, additive) => editor.dispatch({ type: "select", ids, additive })}
+          onOperationsTranslate={editor.translateOperations}
+          onOperationUpdate={editor.updateOperation}
+          operations={editor.visibleOperations}
           pageIndex={editor.pageIndex}
-          pageCount={document.pageCount}
+          pageSize={editor.pageSizes[editor.pageIndex]}
+          rotation={editor.rotation}
           scale={editor.scale}
-          selectedCount={editState.selectedIds.length}
-          status={editor.status}
+          searchHighlight={searchHighlight}
+          selectedIds={editState.selectedIds}
+          stageRef={editor.pageStageRef}
+          textItems={editor.pageTextItems}
         />
-      )}
-    >
-      <PdfCanvas
-        activeTool={editor.activeTool}
-        document={document}
-        documentFonts={editor.documentFonts}
-        onDraggingChange={setMovingCount}
-        onNotice={editor.setStatus}
-        onOperationAdd={editor.addOperation}
-        onOperationsAdd={editor.addOperations}
-        onOperationRemove={editor.removeOperation}
-        onOperationsRemove={editor.removeOperations}
-        onOperationSelect={(ids, additive) => editor.dispatch({ type: "select", ids, additive })}
-        onOperationsTranslate={editor.translateOperations}
-        onOperationUpdate={editor.updateOperation}
-        operations={editor.visibleOperations}
-        pageIndex={editor.pageIndex}
-        pageSize={editor.pageSizes[editor.pageIndex]}
-        rotation={editor.rotation}
-        scale={editor.scale}
-        searchHighlight={searchHighlight}
-        selectedIds={editState.selectedIds}
-        stageRef={editor.pageStageRef}
-        textItems={editor.pageTextItems}
-      />
-      {findReplaceOpen ? (
-        <FindReplaceDialog
-          textItems={editor.textItems}
-          operations={editState.operations}
-          pageSizes={editor.pageSizes}
-          onAddOperations={editor.addOperations}
-          onHighlight={setSearchHighlight}
-          onPageChange={editor.setPageIndex}
-          onClose={closeFindReplace}
-        />
-      ) : null}
-    </AppShell>
+        {findReplaceOpen ? (
+          <FindReplaceDialog
+            textItems={editor.textItems}
+            operations={editState.operations}
+            pageSizes={editor.pageSizes}
+            onAddOperations={editor.addOperations}
+            onHighlight={setSearchHighlight}
+            onPageChange={editor.setPageIndex}
+            onClose={closeFindReplace}
+          />
+        ) : null}
+      </AppShell>
+    </TextPreviewProvider>
   );
 }

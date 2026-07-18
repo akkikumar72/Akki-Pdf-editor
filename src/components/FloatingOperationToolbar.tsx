@@ -1,10 +1,8 @@
 import { Bold, ChevronDown, Copy, Italic, Link2, Move, PaintBucket, Palette, Square, Trash2, Type } from "lucide-react";
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import Select, { components, type GroupBase, type OptionProps, type SingleValue, type StylesConfig } from "react-select";
-import { FONT_CHOICES } from "../engine/fontResolver";
-import type { FontChoice } from "../engine/fontResolver";
-import type { EditOperation, TextOperation, ViewportRect } from "../types/editor";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { EditOperation, EditOperationPatch, TextOperation, ViewportRect } from "../types/editor";
 import { clampToolbarLeft, getToolbarPlacement, TOOLBAR_FALLBACK_HEIGHT_PX } from "../utils/toolbarPlacement";
+import { FontFamilySelect } from "./FontFamilySelect";
 
 type FloatingOperationToolbarProps = {
   operation: EditOperation;
@@ -18,141 +16,15 @@ type FloatingOperationToolbarProps = {
   onLink: (operation: EditOperation) => void;
   onMoveToggle?: () => void;
   onTextPreview: (id: string, patch?: Partial<TextOperation>) => void;
-  onUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  onUpdate: (id: string, patch: EditOperationPatch) => void;
 };
 
 const FONT_SIZE_OPTIONS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 60, 72];
 type OpenMenu = "size" | undefined;
-type FontOption = FontChoice & { value: string };
-const FontPreviewContext = createContext<((font: FontOption) => void) | undefined>(undefined);
 
 function updateTextStyle(operation: TextOperation, patch: Partial<TextOperation>, onUpdate: FloatingOperationToolbarProps["onUpdate"]) {
-  onUpdate(operation.id, patch as Partial<EditOperation>);
+  onUpdate(operation.id, patch);
 }
-
-const fontOptions: FontOption[] = FONT_CHOICES.map((font) => ({ ...font, value: font.label }));
-
-function fontPreviewPatch(font: FontOption): Partial<TextOperation> {
-  return {
-    fontFamily: font.label,
-    cssFontFamily: undefined,
-    detectedFontName: undefined,
-    embeddedFontKey: undefined,
-  };
-}
-
-function normalizeFontSearch(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function fontSearchScore(font: FontOption, query: string) {
-  if (!query) return 1;
-  const label = font.label.toLowerCase();
-  const aliases = [font.metricCompatibleWith, font.displayAlias, ...(font.aliases ?? [])].filter(Boolean).map((value) => value!.toLowerCase());
-  if (label === query) return 100;
-  if (label.startsWith(query)) return 80;
-  if (label.includes(query)) return 60;
-  if (aliases.some((alias) => alias === query)) return 45;
-  if (aliases.some((alias) => alias.startsWith(query))) return 35;
-  if (aliases.some((alias) => alias.includes(query))) return 20;
-  return 0;
-}
-
-function renderFontLabel(font: FontOption) {
-  return (
-    <span className="floating-toolbar__font-row" style={{ fontFamily: font.cssFamily }}>
-      <span>{font.label}</span>
-      {font.metricCompatibleWith || font.displayAlias ? (
-        <span className="floating-toolbar__font-alt">({font.metricCompatibleWith ?? font.displayAlias})</span>
-      ) : null}
-    </span>
-  );
-}
-
-function FontOptionRow(props: OptionProps<FontOption, false, GroupBase<FontOption>>) {
-  const previewFont = useContext(FontPreviewContext);
-  const { data } = props;
-  const previewRef = useRef(previewFont);
-
-  useEffect(() => {
-    previewRef.current = previewFont;
-  }, [previewFont]);
-
-  useEffect(() => {
-    if (props.isFocused) {
-      previewRef.current?.(data);
-    }
-  }, [data, props.isFocused]);
-
-  return (
-    <components.Option {...props}>
-      {renderFontLabel(data)}
-    </components.Option>
-  );
-}
-
-const fontSelectStyles: StylesConfig<FontOption, false> = {
-  control: (base, state) => ({
-    ...base,
-    minHeight: "2.15rem",
-    height: "2.15rem",
-    minWidth: "4.85rem",
-    border: 0,
-    borderRadius: 0,
-    boxShadow: state.isFocused ? "inset 0 0 0 2px var(--color-focus)" : "none",
-    background: state.menuIsOpen ? "var(--color-accent-soft)" : "transparent",
-    color: "var(--color-accent)",
-    cursor: "pointer",
-  }),
-  valueContainer: (base) => ({
-    ...base,
-    height: "2.15rem",
-    padding: "0 0 0 0.55rem",
-  }),
-  singleValue: (base) => ({
-    ...base,
-    display: "flex",
-    alignItems: "center",
-    color: "var(--color-accent)",
-    fontFamily: "var(--font-ui)",
-    fontSize: "0.98rem",
-    fontWeight: 700,
-  }),
-  indicatorSeparator: () => ({ display: "none" }),
-  dropdownIndicator: (base) => ({
-    ...base,
-    padding: "0 0.45rem 0 0.1rem",
-    color: "var(--color-accent)",
-  }),
-  menuPortal: (base) => ({ ...base, zIndex: 1000 }),
-  menu: (base) => ({
-    ...base,
-    width: "min(22rem, calc(100vw - 1rem))",
-    border: "var(--rule-hair) solid var(--color-rule-2)",
-    borderRadius: "var(--radius-md)",
-    boxShadow: "0 18px 44px -28px oklch(0% 0 0 / 0.62)",
-    overflow: "hidden",
-  }),
-  menuList: (base) => ({
-    ...base,
-    maxHeight: "22rem",
-    padding: "0.35rem 0",
-  }),
-  option: (base, state) => ({
-    ...base,
-    minHeight: "2.25rem",
-    padding: "0.45rem 0.75rem",
-    background: state.isSelected || state.isFocused ? "var(--color-accent-soft)" : "var(--color-paper)",
-    color: state.isSelected || state.isFocused ? "var(--color-accent)" : "var(--color-ink-2)",
-    cursor: "pointer",
-  }),
-  input: (base) => ({
-    ...base,
-    color: "var(--color-accent)",
-    margin: 0,
-    padding: 0,
-  }),
-};
 
 export function FloatingOperationToolbar({
   operation,
@@ -171,7 +43,6 @@ export function FloatingOperationToolbar({
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [toolbarSize, setToolbarSize] = useState({ width: 418, height: TOOLBAR_FALLBACK_HEIGHT_PX });
   const [openMenu, setOpenMenu] = useState<OpenMenu>();
-  const [fontInputValue, setFontInputValue] = useState("");
   const isText = operation.type === "text";
   const isShape = operation.type === "shape";
   const stageWidth = pageWidth * scale;
@@ -199,26 +70,6 @@ export function FloatingOperationToolbar({
     if (!isText || FONT_SIZE_OPTIONS.includes(currentFontSize)) return FONT_SIZE_OPTIONS;
     return [...FONT_SIZE_OPTIONS, currentFontSize].sort((a, b) => a - b);
   }, [currentFontSize, isText]);
-  /* v8 ignore start -- "Inter" is always present in fontOptions, so the trailing fontOptions[0] fallback is unreachable */
-  const selectedFontOption = isText
-    ? fontOptions.find((font) => font.label === operation.fontFamily) ?? fontOptions.find((font) => font.label === "Inter") ?? fontOptions[0]
-    : fontOptions[0];
-  /* v8 ignore stop */
-  const visibleFontOptions = useMemo(() => {
-    const query = normalizeFontSearch(fontInputValue);
-    if (!query) return fontOptions;
-    return fontOptions
-      .map((font, index) => ({ font, index, score: fontSearchScore(font, query) }))
-      .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score || a.index - b.index)
-      .map((entry) => entry.font);
-  }, [fontInputValue]);
-  const previewFont = (font: FontOption) => {
-    /* v8 ignore next -- previewFont is only wired into the FontPreviewContext that renders solely inside the isText branch, so the false path is unreachable */
-    if (isText) {
-      onTextPreview(operation.id, fontPreviewPatch(font));
-    }
-  };
 
   if (hidden) return null;
 
@@ -316,56 +167,14 @@ export function FloatingOperationToolbar({
             ) : null}
           </div>
           <div className="floating-toolbar__menu floating-toolbar__font-select">
-            <FontPreviewContext.Provider value={previewFont}>
-              <Select<FontOption, false>
-                aria-label="Font family"
-                className="floating-toolbar__font-control"
-                classNamePrefix="font-select"
-                components={{ Option: FontOptionRow }}
-                filterOption={(candidate, input) => {
-                  const option = candidate.data;
-                  return fontSearchScore(option, normalizeFontSearch(input)) > 0;
-                }}
-                formatOptionLabel={(font, context) => (
-                  context.context === "value"
-                    ? <span>Aa</span>
-                    : renderFontLabel(font)
-                )}
-                getOptionLabel={(font) => font.label}
-                getOptionValue={(font) => font.value}
-                isSearchable
-                menuPlacement="bottom"
-                /* v8 ignore next -- SSR safety guard; `document` is always defined in the browser/jsdom runtime */
-                menuPortalTarget={typeof document === "undefined" ? undefined : document.body}
-                menuPosition="fixed"
-                options={visibleFontOptions}
-                placeholder="Aa"
-                styles={fontSelectStyles}
-                value={selectedFontOption}
-                onBlur={() => onTextPreview(operation.id)}
-                onChange={(value: SingleValue<FontOption>) => {
-                  if (!value) return;
-                  updateTextStyle(
-                    operation,
-                    {
-                      fontFamily: value.label,
-                      cssFontFamily: undefined,
-                      detectedFontName: undefined,
-                      embeddedFontKey: undefined,
-                    },
-                    onUpdate,
-                  );
-                  onTextPreview(operation.id);
-                }}
-                onMenuClose={() => onTextPreview(operation.id)}
-                onMenuOpen={() => setOpenMenu(undefined)}
-                onInputChange={(value, meta) => {
-                  if (meta.action === "input-change") setFontInputValue(value);
-                  if (meta.action === "menu-close" || meta.action === "set-value") setFontInputValue("");
-                  return value;
-                }}
-              />
-            </FontPreviewContext.Provider>
+            <FontFamilySelect
+              className="floating-toolbar__font-control"
+              value={operation.fontFamily}
+              variant="toolbar"
+              onCommit={(patch) => updateTextStyle(operation, patch, onUpdate)}
+              onMenuOpen={() => setOpenMenu(undefined)}
+              onPreview={(patch) => onTextPreview(operation.id, patch)}
+            />
           </div>
           <label className="floating-toolbar__color" title="Text color">
             <Palette aria-hidden="true" />
@@ -387,7 +196,7 @@ export function FloatingOperationToolbar({
               aria-label="Border color"
               type="color"
               value={operation.stroke}
-              onChange={(event) => onUpdate(operation.id, { stroke: event.currentTarget.value } as Partial<EditOperation>)}
+              onChange={(event) => onUpdate(operation.id, { stroke: event.currentTarget.value })}
             />
           </label>
           <label className="floating-toolbar__color" title="Fill color">
@@ -396,7 +205,7 @@ export function FloatingOperationToolbar({
               aria-label="Fill color"
               type="color"
               value={operation.fill && operation.fill !== "transparent" ? operation.fill : "#ffffff"}
-              onChange={(event) => onUpdate(operation.id, { fill: event.currentTarget.value } as Partial<EditOperation>)}
+              onChange={(event) => onUpdate(operation.id, { fill: event.currentTarget.value })}
             />
           </label>
           <button
@@ -405,7 +214,7 @@ export function FloatingOperationToolbar({
             aria-label="No fill"
             aria-pressed={!operation.fill || operation.fill === "transparent"}
             title="No fill (transparent)"
-            onClick={() => onUpdate(operation.id, { fill: "transparent" } as Partial<EditOperation>)}
+            onClick={() => onUpdate(operation.id, { fill: "transparent" })}
           >
             <Square aria-hidden="true" />
           </button>
@@ -414,7 +223,7 @@ export function FloatingOperationToolbar({
             <select
               aria-label="Border width"
               value={operation.strokeWidth}
-              onChange={(event) => onUpdate(operation.id, { strokeWidth: Number(event.currentTarget.value) } as Partial<EditOperation>)}
+              onChange={(event) => onUpdate(operation.id, { strokeWidth: Number(event.currentTarget.value) })}
             >
               {[1, 2, 3, 4, 6, 8].map((width) => (
                 <option key={width} value={width}>{width}px</option>

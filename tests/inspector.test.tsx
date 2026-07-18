@@ -1,7 +1,25 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Inspector } from "../src/components/Inspector";
+import { describeFallback } from "../src/engine/fontResolver";
+import { fontFamilyPatch } from "../src/components/fontFamilyPatch";
 import type { EditOperation, LinkOperation, TextItem, TextOperation } from "../src/types/editor";
+
+// Inspector reads live font preview from context; stub state + dispatch so
+// tests can assert without mounting TextPreviewProvider.
+const { textPreviewDispatchMock, textPreviewState } = vi.hoisted(() => ({
+  textPreviewDispatchMock: vi.fn(),
+  textPreviewState: { current: null as { id: string; patch: Record<string, unknown> } | null },
+}));
+vi.mock("../src/state/textPreviewContext", () => ({
+  useTextPreviewDispatch: () => textPreviewDispatchMock,
+  useTextPreview: () => textPreviewState.current,
+}));
+
+vi.mock("react-select", async () => {
+  const { reactSelectStub } = await import("./helpers/reactSelectStub");
+  return reactSelectStub();
+});
 
 const rect = { x: 10, y: 20, width: 100, height: 40 };
 
@@ -25,7 +43,12 @@ function baseText(overrides: Partial<TextOperation> = {}): TextOperation {
 
 function renderInspector(
   operation?: EditOperation,
-  opts: Partial<{ operationCount: number; pageCount: number; pageTextItems: TextItem[]; selectedCount: number }> = {},
+  opts: Partial<{
+    operationCount: number;
+    pageCount: number;
+    pageTextItems: TextItem[];
+    selectedCount: number;
+  }> = {},
 ) {
   const onDuplicateSelected = vi.fn();
   const onExport = vi.fn();
@@ -44,11 +67,14 @@ function renderInspector(
       onUpdate={onUpdate}
     />,
   );
-  return { onDuplicateSelected, onExport, onRemoveSelected, onUpdate };
+  return { onDuplicateSelected, onExport, onRemoveSelected, onTextPreview: textPreviewDispatchMock, onUpdate };
 }
 
 describe("Inspector", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    textPreviewState.current = null;
+  });
 
   it("renders the empty state when no operation is selected", () => {
     renderInspector(undefined);
@@ -105,7 +131,7 @@ describe("Inspector", () => {
 
   describe("text operation", () => {
     it("renders fields and fires text/font/size/color/align/whiteout updates", () => {
-      const { onUpdate } = renderInspector(baseText());
+      const { onUpdate, onTextPreview } = renderInspector(baseText());
 
       // Summary: "text" with replaced dash, and page number.
       expect(screen.getByText("text")).toBeInTheDocument();
@@ -114,13 +140,17 @@ describe("Inspector", () => {
       fireEvent.change(screen.getByLabelText("Text"), { target: { value: "Bye" } });
       expect(onUpdate).toHaveBeenCalledWith("op-1", { text: "Bye" });
 
-      fireEvent.change(screen.getByLabelText("Font"), { target: { value: "Arial" } });
+      // FontFamilySelect (same control as the inline tooltip) commits + live-previews.
+      expect(onTextPreview).toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId("inspector-font-change"));
       expect(onUpdate).toHaveBeenCalledWith("op-1", {
         fontFamily: "Arial",
         cssFontFamily: undefined,
         detectedFontName: undefined,
         embeddedFontKey: undefined,
       });
+      fireEvent.click(screen.getByTestId("inspector-font-blur"));
+      expect(onTextPreview).toHaveBeenCalledWith("op-1", undefined);
 
       // Size rounds the displayed value.
       const size = screen.getByLabelText("Size") as HTMLInputElement;
@@ -195,6 +225,14 @@ describe("Inspector", () => {
     it("shows the embedded-font helper text without detected name", () => {
       renderInspector(baseText({ embeddedFontKey: "k1", detectedFontName: undefined }));
       expect(screen.getByText("Matched the original embedded font")).toBeInTheDocument();
+    });
+
+    it("follows a live catalog preview in the font helper while embedded key is still committed", () => {
+      const operation = baseText({ embeddedFontKey: "k1", detectedFontName: "Calibri", fontFamily: "Arial" });
+      textPreviewState.current = { id: "op-1", patch: fontFamilyPatch("Courier") };
+      renderInspector(operation);
+      expect(screen.queryByText(/Matched the original embedded font/)).not.toBeInTheDocument();
+      expect(screen.getByText(describeFallback("Courier"))).toBeInTheDocument();
     });
 
     it("shows the detected-font helper text when a detected name exists", () => {

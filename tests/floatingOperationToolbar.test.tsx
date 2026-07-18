@@ -3,152 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FloatingOperationToolbar } from "../src/components/FloatingOperationToolbar";
 import type { EditOperation, TextOperation, ViewportRect } from "../src/types/editor";
 
-// ---------------------------------------------------------------------------
-// Mock react-select with a lightweight stub that exercises every prop callback
-// the component passes (formatOptionLabel for value + menu, filterOption, the
-// custom Option component, onChange/onBlur/onMenuOpen/onMenuClose/onInputChange).
-// This keeps the test deterministic while still driving the real component code.
-// ---------------------------------------------------------------------------
-// Structural shape of the option objects the component feeds react-select.
-type StubFontOption = { label: string; value: string };
-
-// Style slot config: every slot is an optional function the stub invokes to
-// exercise its branches; we don't care about argument/return shapes here.
-type StubStyleSlot = (...args: unknown[]) => unknown;
-
-type StubOptionProps = {
-  data: StubFontOption;
-  isFocused: boolean;
-  innerProps: Record<string, unknown>;
-  getStyles: () => Record<string, unknown>;
-  children?: React.ReactNode;
-};
-
-type SelectProps = {
-  styles?: Partial<Record<string, StubStyleSlot>>;
-  value?: StubFontOption | null;
-  options?: StubFontOption[];
-  components?: { Option?: (props: StubOptionProps) => React.ReactNode };
-  formatOptionLabel?: (option: StubFontOption | null | undefined, meta: { context: string }) => React.ReactNode;
-  getOptionLabel?: (option: StubFontOption) => string;
-  getOptionValue?: (option: StubFontOption) => string;
-  filterOption?: (candidate: { data: StubFontOption }, input: string) => boolean;
-  onChange?: (value: StubFontOption | null | undefined) => void;
-  onBlur?: () => void;
-  onMenuOpen?: () => void;
-  onMenuClose?: () => void;
-  onInputChange?: (value: string, meta: { action: string }) => void;
-};
-
-vi.mock("react-select", () => {
-  const realComponents = {
-    Option: (props: StubOptionProps) => (
-      <div data-testid="rs-real-option" className={props.isFocused ? "focused" : ""}>
-        {props.children}
-      </div>
-    ),
-  };
-  const Select = (props: SelectProps) => {
-    // Exercise the styles config functions so their branches are covered.
-    const s = props.styles ?? {};
-    s.control?.({}, { isFocused: true, menuIsOpen: true });
-    s.control?.({}, { isFocused: false, menuIsOpen: false });
-    s.valueContainer?.({});
-    s.singleValue?.({});
-    s.indicatorSeparator?.();
-    s.dropdownIndicator?.({});
-    s.menuPortal?.({});
-    s.menu?.({});
-    s.menuList?.({});
-    s.option?.({}, { isSelected: true, isFocused: false });
-    s.option?.({}, { isSelected: false, isFocused: true });
-    s.option?.({}, { isSelected: false, isFocused: false });
-    s.input?.({});
-
-    const value = props.value;
-    const first = props.options?.[0];
-    const OptionComp = props.components?.Option ?? realComponents.Option;
-
-    return (
-      <div data-testid="font-select">
-        <div data-testid="value-label">
-          {props.formatOptionLabel?.(value, { context: "value" })}
-        </div>
-        <div data-testid="menu-label">
-          {first ? props.formatOptionLabel?.(first, { context: "menu" }) : null}
-        </div>
-        <div data-testid="option-label">{first ? props.getOptionLabel?.(first) : null}</div>
-        <div data-testid="option-value">{first ? props.getOptionValue?.(first) : null}</div>
-        <div data-testid="filter-pass">
-          {first ? String(props.filterOption?.({ data: first }, "inter")) : ""}
-        </div>
-        <div data-testid="filter-empty">
-          {first ? String(props.filterOption?.({ data: first }, "")) : ""}
-        </div>
-        {/* Render the custom Option component focused + unfocused */}
-        {first ? (
-          <OptionComp data={first} isFocused innerProps={{}} getStyles={() => ({})}>
-            {props.formatOptionLabel?.(first, { context: "menu" })}
-          </OptionComp>
-        ) : null}
-        {first ? (
-          <OptionComp data={first} isFocused={false} innerProps={{}} getStyles={() => ({})}>
-            x
-          </OptionComp>
-        ) : null}
-        <button data-testid="rs-change" onClick={() => props.onChange?.(props.options?.[1] ?? first)}>
-          change
-        </button>
-        <button data-testid="rs-change-null" onClick={() => props.onChange?.(null)}>
-          change-null
-        </button>
-        <button data-testid="rs-blur" onClick={() => props.onBlur?.()}>
-          blur
-        </button>
-        <button data-testid="rs-menu-open" onClick={() => props.onMenuOpen?.()}>
-          open
-        </button>
-        <button data-testid="rs-menu-close" onClick={() => props.onMenuClose?.()}>
-          close
-        </button>
-        <button
-          data-testid="rs-input-change"
-          onClick={() => props.onInputChange?.("Times", { action: "input-change" })}
-        >
-          input
-        </button>
-        <button
-          data-testid="rs-input-menuclose"
-          onClick={() => props.onInputChange?.("", { action: "menu-close" })}
-        >
-          input-mc
-        </button>
-        <button
-          data-testid="rs-input-setvalue"
-          onClick={() => props.onInputChange?.("", { action: "set-value" })}
-        >
-          input-sv
-        </button>
-        <button
-          data-testid="rs-input-other"
-          onClick={() => props.onInputChange?.("zz", { action: "input-blur" })}
-        >
-          input-other
-        </button>
-        <input
-          data-testid="rs-input-query"
-          onChange={(e) => props.onInputChange?.(e.currentTarget.value, { action: "input-change" })}
-        />
-        <div data-testid="visible-count">{props.options?.length}</div>
-        <div data-testid="visible-first">{props.options?.[0]?.label}</div>
-      </div>
-    );
-  };
-  return {
-    __esModule: true,
-    default: Select,
-    components: realComponents,
-  };
+vi.mock("react-select", async () => {
+  const { reactSelectStub } = await import("./helpers/reactSelectStub");
+  return reactSelectStub();
 });
 
 const RECT: ViewportRect = { left: 50, top: 200, width: 120, height: 30 };
@@ -199,16 +56,16 @@ function renderToolbar(operation: EditOperation, props: Partial<React.ComponentP
 const realGBCR = Element.prototype.getBoundingClientRect;
 const OriginalRO = global.ResizeObserver;
 class StubResizeObserver {
-  observe() {}
-  disconnect() {}
-  unobserve() {}
-  constructor(_cb: () => void) {}
+  observe() { }
+  disconnect() { }
+  unobserve() { }
+  constructor(_cb: () => void) { }
 }
 beforeEach(() => {
   vi.clearAllMocks();
   global.ResizeObserver = StubResizeObserver as unknown as typeof ResizeObserver;
   Element.prototype.getBoundingClientRect = vi.fn(() => ({
-    left: 0, top: 0, width: 418, height: 34, right: 418, bottom: 34, x: 0, y: 0, toJSON() {},
+    left: 0, top: 0, width: 418, height: 34, right: 418, bottom: 34, x: 0, y: 0, toJSON() { },
   })) as unknown as typeof realGBCR;
 });
 
@@ -333,17 +190,18 @@ describe("FloatingOperationToolbar", () => {
         "t1",
         expect.objectContaining({ cssFontFamily: undefined, detectedFontName: undefined, embeddedFontKey: undefined }),
       );
-      expect(onTextPreview).toHaveBeenCalledWith("t1");
+      // Commit clears the live preview (second arg undefined).
+      expect(onTextPreview).toHaveBeenCalledWith("t1", undefined);
 
       onTextPreview.mockClear();
       fireEvent.click(screen.getByTestId("rs-change-null")); // null -> early return, no update/preview
       expect(onTextPreview).not.toHaveBeenCalled();
 
       fireEvent.click(screen.getByTestId("rs-blur"));
-      expect(onTextPreview).toHaveBeenCalledWith("t1");
+      expect(onTextPreview).toHaveBeenCalledWith("t1", undefined);
 
       fireEvent.click(screen.getByTestId("rs-menu-close"));
-      expect(onTextPreview).toHaveBeenCalledWith("t1");
+      expect(onTextPreview).toHaveBeenCalledWith("t1", undefined);
 
       fireEvent.click(screen.getByTestId("rs-menu-open"));
       // opening the font menu closes the size menu (sets openMenu undefined)
@@ -521,7 +379,7 @@ describe("FloatingOperationToolbar", () => {
 
   it("skips measuring when getBoundingClientRect reports zero size", () => {
     Element.prototype.getBoundingClientRect = vi.fn(() => ({
-      left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {},
+      left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() { },
     })) as unknown as typeof realGBCR;
     renderToolbar(baseText());
     // falls back to default toolbar size; component still renders
@@ -532,9 +390,9 @@ describe("FloatingOperationToolbar", () => {
     let observerCb: (() => void) | undefined;
     global.ResizeObserver = class {
       constructor(cb: () => void) { observerCb = cb; }
-      observe() {}
-      disconnect() {}
-      unobserve() {}
+      observe() { }
+      disconnect() { }
+      unobserve() { }
     } as unknown as typeof ResizeObserver;
     renderToolbar(baseText());
     act(() => {

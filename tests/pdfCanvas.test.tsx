@@ -51,6 +51,18 @@ vi.mock("react-pdf", () => {
 
 vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "worker.js" }));
 
+// PdfCanvas reads the live font preview from the shared TextPreviewProvider
+// rather than props; stub both hooks so tests can drive/observe them the same
+// way they did when textPreview/onTextPreview were props.
+const { textPreviewStateMock, textPreviewDispatchMock } = vi.hoisted(() => ({
+  textPreviewStateMock: vi.fn(() => null as { id: string; patch: Record<string, unknown> } | null),
+  textPreviewDispatchMock: vi.fn(),
+}));
+vi.mock("../src/state/textPreviewContext", () => ({
+  useTextPreview: textPreviewStateMock,
+  useTextPreviewDispatch: () => textPreviewDispatchMock,
+}));
+
 // fontRegistry: keep light; PdfCanvas calls registerEmbeddedFont, OperationOverlay
 // calls ensureEmbeddedFontLoaded / cssFamilyForFontKey.
 vi.mock("../src/engine/fontRegistry", () => ({
@@ -208,6 +220,7 @@ beforeEach(() => {
   imageDataColor = [200, 200, 200];
   inkFraction = null;
   mixedAlpha = false;
+  textPreviewStateMock.mockReturnValue(null);
   Element.prototype.getBoundingClientRect = vi.fn(
     () => ({ ...BOUNDS }),
   ) as typeof Element.prototype.getBoundingClientRect;
@@ -2350,16 +2363,31 @@ describe("PdfCanvas - editing-driven effects", () => {
 });
 
 describe("PdfCanvas - text preview", () => {
+  it("merges a live textPreview patch onto the selected text overlay", () => {
+    const op = textOp({ text: "Preview", fontFamily: "Inter", embeddedFontKey: "emb-1" });
+    textPreviewStateMock.mockReturnValue({
+      id: op.id,
+      patch: {
+        fontFamily: "Courier",
+        cssFontFamily: undefined,
+        detectedFontName: undefined,
+        embeddedFontKey: undefined,
+      },
+    });
+    const { container } = renderCanvas({ operations: [op], selectedIds: [op.id] });
+    const overlay = container.querySelector(".operation--text") as HTMLElement;
+    expect(overlay).toBeTruthy();
+    expect(overlay.style.fontFamily).toMatch(/Courier/i);
+  });
+
   it("applies a font preview patch to the selected text overlay via the font menu", async () => {
     const op = textOp({ text: "Preview", fontFamily: "Inter" });
     const { container } = renderCanvas({ operations: [op], selectedIds: [op.id] });
     const control = container.querySelector(".floating-toolbar__font-control") as HTMLElement;
     expect(control).toBeTruthy();
     // Open the react-select menu; focusing an option fires onTextPreview(id, patch)
-    // through FontOptionRow's isFocused effect -> setTextPreview -> previewOperation.
+    // through FontOptionRow's isFocused effect.
     const input = control.querySelector("input") as HTMLInputElement;
-    // Open the menu by pressing down on the control, then hover an option so
-    // react-select marks it focused -> FontOptionRow effect -> onTextPreview(patch).
     await act(async () => {
       fireEvent.mouseDown(control.querySelector(".font-select__control") ?? control, { button: 0 });
       fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
@@ -2373,13 +2401,12 @@ describe("PdfCanvas - text preview", () => {
         await Promise.resolve();
       });
     }
-    // Blur the font input -> onTextPreview(id) with no patch -> setTextPreview(null)
-    // (the `patch ? ... : null` null branch, line 812).
+    // Blur clears the live preview (patch undefined).
     await act(async () => {
       fireEvent.blur(input);
       await Promise.resolve();
     });
-    // The preview overlay still renders text content; assert no crash and overlay present.
+    expect(textPreviewDispatchMock).toHaveBeenCalled();
     expect(container.querySelector(".operation--text")).toBeTruthy();
   });
 

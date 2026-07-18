@@ -179,6 +179,11 @@ export type EditOperation =
   | FormMarkOperation
   | FormFieldOperation;
 
+/** A patch valid for at least one operation variant — no casts at call sites. */
+export type EditOperationPatch = {
+  [K in EditOperation["type"]]: Partial<Extract<EditOperation, { type: K }>>;
+}[EditOperation["type"]];
+
 export type TextItem = {
   str: string;
   pageIndex: number;

@@ -12,11 +12,14 @@ Numbering continues from the retired `plans/` directory (001–014, deleted in
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
+| 025  | Isolate live text-preview in dedicated context (font hover perf) | P2 | S–M | FontFamilySelect WIP on branch | DONE (advisor/font-followups) |
+| 026  | Inspector font helper follows live preview | P2 | S | 025 | DONE (advisor/font-followups) |
+| 027  | FontFamilySelect unit tests + shared react-select stub | P2 | S | FontFamilySelect WIP | DONE (merged into advisor/font-followups) |
+| 021  | Distributive `EditOperationPatch` type (remove ~33 casts) | P2 | M | prefer after 025–027 | DONE (advisor/font-followups) |
 | 015  | Fix "Rotate view" overlay coordinate desync | P1 | L | — | TODO (reconciled 2026-07-18 at `41f0dd9`: finding verified present, no drift) |
 | 019  | Page insert/delete/rotate O(page) re-extraction | P1 | M | 022 first or together | TODO |
 | 016  | Embed a Unicode fallback font for unencodable text | P2 | L | — | TODO (reconciled 2026-07-18: finding verified present, no drift) |
-| 020  | Bundle splitting + landing-page diet | P2 | M | — | TODO |
-| 021  | Distributive `EditOperationPatch` type (remove 33 casts) | P2 | M | — | TODO |
+| 020  | Bundle splitting + floating-page diet | P2 | M | — | TODO |
 | 022  | Font-registry eviction (FontFace leak) | P2 | M | — | TODO |
 | 023  | Keyboard overlay placement (a11y spike) | P2 | M | — | TODO |
 | 017  | Export real AcroForm form fields (spike) | P2 | M | — | TODO (reconciled 2026-07-18: zero PDFForm usage confirmed) |
@@ -43,6 +46,8 @@ no plan files exist for them:
 
 - 016 supersedes the runtime "skip and report" safety net — after it lands, skipped-edit statuses should become rare.
 - 017 (AcroForm) should land before any CSV-driven bulk form-fill work (rejected below) is reconsidered.
+- **Font-picker follow-ups (2026-07-19 branch review)**: execute **025 → 026**, with **027** in parallel anytime after FontFamilySelect exists; then **021**. Plans 015–024 (except the 021 refresh) were **not** re-scoped in that review — they remain the prior backlog.
+- Prerequisite for 025–027: uncommitted/shared `FontFamilySelect` work must be on the execution branch (not only in a dirty main worktree).
 
 ## Implemented directly (PR `improve/audit-fixes-wave2`, 2026-07-18)
 
