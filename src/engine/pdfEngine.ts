@@ -489,6 +489,10 @@ export class PdfEngine {
           }
         }
       } catch (error) {
+        // The failure isn't always an encoding problem (image decode errors,
+        // pdf-lib internal issues, etc. can throw here too) — log the real
+        // cause for diagnosability rather than letting the caller guess it.
+        console.error(`savePdf: skipping operation ${operation.id} (${operation.type})`, error);
         options?.onOperationError?.(operation, error);
       }
     }

@@ -137,6 +137,28 @@ describe("storage", () => {
     expect(neither?.pageIndex).toBeUndefined();
   });
 
+  it("operationCount excludes retired operation types, matching what restore will actually load", async () => {
+    // A session saved before the table-region tool was retired: listSessions
+    // must not advertise "2 edits" for a session that restores with 1.
+    await putRaw({
+      id: "has-retired-op",
+      name: "Legacy",
+      updatedAt: 40,
+      bytes: new Uint8Array(),
+      editState: {
+        operations: [{ id: "t1", type: "table-region" }, { id: "l1", type: "link", href: "https://x.dev" }],
+        past: [],
+        future: [],
+      },
+    });
+    const list = await listSessions();
+    const entry = list.find((s) => s.id === "has-retired-op");
+    expect(entry?.operationCount).toBe(1);
+    // Confirms this actually matches what a restore returns.
+    const restored = await getSession("has-retired-op");
+    expect(restored?.editState?.operations).toHaveLength(1);
+  });
+
   it("deleteSession removes a single session", async () => {
     await saveSession(makeInput({ id: "keep", updatedAt: 1 }));
     await saveSession(makeInput({ id: "drop", updatedAt: 2 }));
@@ -307,6 +329,39 @@ describe("shared connection lifecycle", () => {
     expect(db.close).toHaveBeenCalledTimes(1);
 
     await saveSession(makeInput({ id: "vc-2" }));
+    expect(openSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases the shared connection on a browser-forced close and reopens lazily", async () => {
+    // Unlike onversionchange (another tab upgrading), the browser can close
+    // the connection unilaterally (storage eviction, private-mode limits) —
+    // that fires `close`, not `versionchange`, and self-healing here is what
+    // keeps autosave from breaking silently for the rest of the session.
+    await closeStorageConnection();
+    const db = {
+      objectStoreNames: { contains: () => true },
+      transaction: vi.fn(() => {
+        const tx: Record<string, unknown> = { objectStore: () => ({ put: vi.fn() }) };
+        queueMicrotask(() => (tx.oncomplete as () => void)());
+        return tx as unknown as IDBTransaction;
+      }),
+      close: vi.fn(),
+      onversionchange: null as (() => void) | null,
+      onclose: null as (() => void) | null,
+    };
+    const request: Record<string, unknown> = { result: db };
+    const openSpy = vi.spyOn(indexedDB, "open").mockImplementation(() => {
+      queueMicrotask(() => (request.onsuccess as () => void)());
+      return request as unknown as IDBOpenDBRequest;
+    });
+
+    await saveSession(makeInput({ id: "close-1" }));
+    expect(openSpy).toHaveBeenCalledTimes(1);
+
+    // Simulate the browser force-closing the connection.
+    db.onclose!();
+
+    await saveSession(makeInput({ id: "close-2" }));
     expect(openSpy).toHaveBeenCalledTimes(2);
   });
 

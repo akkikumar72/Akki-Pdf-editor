@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, decodePDFRawStream } from "pdf-lib";
 import { pdfEngine, PdfEngine } from "../src/engine/pdfEngine";
 import type { DocumentFonts, EditOperation, LinkOperation } from "../src/types/editor";
@@ -135,6 +135,16 @@ describe("PdfEngine.savePdf", () => {
 });
 
 describe("PdfEngine.savePdf – per-operation error isolation", () => {
+  // savePdf intentionally logs every skipped operation's real error for
+  // diagnosability; these tests trigger that path on purpose, so keep the
+  // suite's console output clean rather than printing expected errors.
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   /** Cyrillic text that no WinAnsi-encoded standard font can draw. */
   function unencodableTextOp(overrides: Partial<Extract<EditOperation, { type: "text" }>> = {}): EditOperation {
     return {
@@ -179,20 +189,25 @@ describe("PdfEngine.savePdf – per-operation error isolation", () => {
     expect(content).toContain(Buffer.from("Survivor", "latin1").toString("hex").toUpperCase());
   });
 
-  it("never draws the whiteout mask for a text op whose text fails to encode (atomic skip)", async () => {
+  it("still draws the whiteout mask for a text op whose text fails to encode (fail-closed redaction)", async () => {
+    // A skipped replacement must never disclose the original glyphs it was
+    // meant to cover — an orphaned blank box is the acceptable failure mode
+    // for a redaction feature, not a leak of the underlying content.
     const original = await blankPdfBytes();
+    const skipped: string[] = [];
     const out = await pdfEngine.savePdf(original, [
       unencodableTextOp({
         whiteout: true,
         whiteoutColor: "#fefefe",
         sourceCoverRect: { x: 10, y: 690, width: 220, height: 40 },
       }),
-    ], undefined, { onOperationError: () => undefined });
+    ], undefined, { onOperationError: (operation) => skipped.push(operation.id) });
     const reloaded = await PDFDocument.load(out);
     const content = decodePageContentText(reloaded, reloaded.getPage(0));
-    // The mask's cm translate must not appear: a skipped replacement must not
-    // leave an orphaned white box covering the original text.
-    expect(content).not.toContain("1 0 0 1 10 690 cm");
+    expect(skipped).toEqual(["bad_text"]);
+    // The mask's cm translate must still appear even though the replacement
+    // text itself could not be encoded and was skipped.
+    expect(content).toContain("1 0 0 1 10 690 cm");
   });
 
   it("continues past a failing operation when no options or callback are provided", async () => {

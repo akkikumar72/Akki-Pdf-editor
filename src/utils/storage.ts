@@ -81,6 +81,17 @@ function openDb(): Promise<IDBDatabase> {
         db.close();
         dbPromise = null;
       };
+      // The browser can force-close the connection outside our control
+      // (storage eviction under disk pressure, some private-mode behavior) —
+      // that fires `close`, not `versionchange`. Without this, a stale
+      // `dbPromise` would resolve to a dead handle forever, and every
+      // subsequent `transaction()` call would throw `InvalidStateError`,
+      // silently breaking autosave for the rest of the session. Reopening
+      // lazily on the next call restores the self-healing the old
+      // open-per-call code had for free.
+      db.onclose = () => {
+        dbPromise = null;
+      };
       resolve(db);
     };
     request.onupgradeneeded = () => {
@@ -128,13 +139,20 @@ export async function listSessions(): Promise<SessionSummary[]> {
   });
   return sessions
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .map((session) => ({
-      id: session.id,
-      name: session.name,
-      updatedAt: session.updatedAt,
-      operationCount: session.editState?.operations.length ?? session.operations?.length ?? 0,
-      pageIndex: session.pageIndex,
-    }));
+    .map((session) => {
+      // Match what getSession/getLatestSession will actually restore:
+      // normalizeSession filters retired operation types (e.g. table-region)
+      // and remaps legacy link shapes, so a raw getAll() count here can
+      // overstate "N edits" relative to what comes back on restore.
+      const operations = normalizeLegacyOperations(session.editState?.operations ?? session.operations ?? []);
+      return {
+        id: session.id,
+        name: session.name,
+        updatedAt: session.updatedAt,
+        operationCount: operations.length,
+        pageIndex: session.pageIndex,
+      };
+    });
 }
 
 export async function getLatestSession(): Promise<SavedSession | undefined> {

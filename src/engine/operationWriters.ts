@@ -95,6 +95,20 @@ export function writeWhiteoutMask(page: PDFPage, rect: PdfRect, color: string, o
  * never reappears at its old position.
  */
 export async function writeText(page: PDFPage, operation: TextOperation, opacity: number, ctx: WriterContext) {
+  // Redaction must fail closed, not open: draw the mask FIRST, unconditionally,
+  // before anything that can throw (font resolution, width measurement for
+  // text the resolved font can't encode). If the replacement text draw below
+  // fails, the caller reports this operation as skipped, but the mask has
+  // already committed to the page — the original glyphs stay hidden behind a
+  // blank box instead of being disclosed. A stray empty box is an acceptable
+  // cosmetic cost for a feature whose whole job is hiding content; leaking the
+  // original is not. Always drawn at full strength regardless of the
+  // replacement's opacity, matching the editor preview (.operation--source-cover
+  // never fades).
+  if (operation.whiteout) {
+    writeWhiteoutMask(page, operation.sourceCoverRect ?? operation.rect, operation.whiteoutColor ?? "#ffffff", 1);
+  }
+
   let font: PDFFont | null = null;
   if (operation.embeddedFontKey && ctx.embeddedCovers(operation.embeddedFontKey, operation.text)) {
     font = await ctx.getReusedFont(operation.embeddedFontKey);
@@ -109,19 +123,7 @@ export async function writeText(page: PDFPage, operation: TextOperation, opacity
   }
 
   const rect = operation.rect;
-  // Measured before the mask is drawn: this is the first call that throws when
-  // the resolved font cannot encode the text (e.g. non-WinAnsi characters in a
-  // standard font), and failing here keeps the operation atomic — no mask is
-  // left covering the original text without its replacement.
   const textWidth = font.widthOfTextAtSize(operation.text, operation.fontSize);
-
-  if (operation.whiteout) {
-    // The mask is a redaction: it must cover the original glyphs at full
-    // strength no matter what opacity the user gave the replacement text,
-    // matching the editor preview (.operation--source-cover never fades).
-    writeWhiteoutMask(page, operation.sourceCoverRect ?? operation.rect, operation.whiteoutColor ?? "#ffffff", 1);
-  }
-
   const x =
     operation.align === "center"
       ? rect.x + Math.max(0, rect.width - textWidth) / 2

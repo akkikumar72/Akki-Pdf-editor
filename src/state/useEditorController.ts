@@ -397,9 +397,13 @@ export function useEditorController() {
         suppressLinkAnnotationIds: importedLinkAnnotationIds,
       });
       const skipped = result.skippedOperations.length;
+      // The write failure isn't always a font-encoding issue (image decode
+      // errors, pdf-lib internal issues, etc. can hit the same per-operation
+      // catch) — keep the status honest about what's known (something failed)
+      // without over-claiming why. The real cause is logged to the console.
       setStatus(
         skipped > 0
-          ? `${format.toUpperCase()} exported · ${skipped} ${skipped === 1 ? "edit" : "edits"} skipped (characters the font could not encode)`
+          ? `${format.toUpperCase()} exported · ${skipped} ${skipped === 1 ? "edit" : "edits"} skipped (could not be written — see console for details)`
           : `${format.toUpperCase()} exported`,
       );
     } catch (error) {
