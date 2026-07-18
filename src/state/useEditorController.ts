@@ -44,10 +44,14 @@ export function useEditorController() {
   const loadPdfState = useCallback(async (
     loaded: LoadedPdf,
     savedEditState?: Partial<Pick<EditState, "operations" | "past" | "future">>,
+    // Callers that already parsed the document for its page sizes (session
+    // restore, page insert/delete/rotate) pass them through so the same bytes
+    // aren't parsed twice per load.
+    precomputedSizes?: Array<{ width: number; height: number }>,
   ) => {
     const [content, sizes] = await Promise.all([
       pdfEngine.extractTextAndFonts(loaded.bytes),
-      pdfEngine.getPageSizes(loaded.bytes),
+      precomputedSizes ?? pdfEngine.getPageSizes(loaded.bytes),
     ]);
     setDocument(loaded);
     setTextItems(content.items);
@@ -79,7 +83,8 @@ export function useEditorController() {
   }, []);
 
   const loadSavedSession = useCallback(async (session: SavedSession, statusMessage?: string) => {
-    const pageCount = (await pdfEngine.getPageSizes(session.bytes)).length;
+    const sizes = await pdfEngine.getPageSizes(session.bytes);
+    const pageCount = sizes.length;
     const loaded: LoadedPdf = {
       name: session.name,
       bytes: session.bytes,
@@ -91,7 +96,7 @@ export function useEditorController() {
       past: [],
       future: [],
     };
-    await loadPdfState(loaded, savedEditState);
+    await loadPdfState(loaded, savedEditState, sizes);
     setPageIndex(Math.min(session.pageIndex ?? 0, Math.max(0, pageCount - 1)));
     setScale(session.scale ?? 1.18);
     setRotation(session.rotation ?? 0);
@@ -310,15 +315,16 @@ export function useEditorController() {
   ) => {
     /* v8 ignore next -- all callers (insert/delete/rotate page) already early-return when document is null, so this guard never observes a null document */
     if (!document) return;
+    const sizes = await pdfEngine.getPageSizes(bytes);
     const next: LoadedPdf = {
       ...document,
       bytes,
-      pageCount: (await pdfEngine.getPageSizes(bytes)).length,
+      pageCount: sizes.length,
       fingerprint: `${document.fingerprint ?? document.name}-${Date.now()}`,
     };
     await loadPdfState(next, {
       operations: nextOperations.filter((operation) => operation.pageIndex < next.pageCount),
-    });
+    }, sizes);
     setPageIndex(Math.min(nextPageIndex, Math.max(0, next.pageCount - 1)));
     setStatus(statusMessage);
   }, [document, editState.operations, loadPdfState, pageIndex]);

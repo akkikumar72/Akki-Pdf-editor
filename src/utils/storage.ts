@@ -59,11 +59,30 @@ function normalizeSession(session: SavedSession | undefined): SavedSession | und
   };
 }
 
+/**
+ * Shared connection promise: every session/signature call reuses one live
+ * IndexedDB handle instead of paying an open/close round-trip per call
+ * (autosave writes every ~600ms of edit inactivity, so this is a hot path).
+ */
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  dbPromise ??= new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, VERSION);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => {
+      dbPromise = null;
+      reject(request.error);
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      // Another tab upgrading the schema must not be blocked by this handle:
+      // release it and let the next storage call reopen lazily.
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      resolve(db);
+    };
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) {
@@ -74,6 +93,19 @@ function openDb(): Promise<IDBDatabase> {
       }
     };
   });
+  return dbPromise;
+}
+
+/** Close and forget the shared connection (version-change safety valve; also used by tests). */
+export async function closeStorageConnection() {
+  if (!dbPromise) return;
+  const pending = dbPromise;
+  dbPromise = null;
+  try {
+    (await pending).close();
+  } catch {
+    // The connection never opened successfully; nothing to close.
+  }
 }
 
 export async function saveSession(session: SessionSaveInput) {
@@ -84,7 +116,6 @@ export async function saveSession(session: SessionSaveInput) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
@@ -95,7 +126,6 @@ export async function listSessions(): Promise<SessionSummary[]> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  db.close();
   return sessions
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map((session) => ({
@@ -115,7 +145,6 @@ export async function getLatestSession(): Promise<SavedSession | undefined> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  db.close();
   return normalizeSession(sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0]);
 }
 
@@ -127,7 +156,6 @@ export async function getSession(id: string): Promise<SavedSession | undefined> 
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  db.close();
   return normalizeSession(session);
 }
 
@@ -139,7 +167,6 @@ export async function deleteSession(id: string) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }
 
 export async function clearSessions() {
@@ -150,7 +177,6 @@ export async function clearSessions() {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }
 
 /**
@@ -175,7 +201,6 @@ export async function saveSignature(signature: SavedSignature) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }
 
 export async function listSignatures(): Promise<SavedSignature[]> {
@@ -186,7 +211,6 @@ export async function listSignatures(): Promise<SavedSignature[]> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  db.close();
   return signatures.sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -198,5 +222,4 @@ export async function deleteSignature(id: string) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  db.close();
 }

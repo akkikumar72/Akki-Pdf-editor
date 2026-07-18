@@ -848,11 +848,15 @@ describe("page operations", () => {
   it("rotateCurrentPage rotates the page", async () => {
     const { result } = renderHook(() => useEditorController());
     await openDocument(result);
+    mockedEngine.getPageSizes.mockClear();
     await act(async () => {
       await result.current.rotateCurrentPage();
     });
     expect(mockedEngine.rotatePage).toHaveBeenCalled();
     expect(result.current.status).toBe("Page rotated");
+    // The new bytes must be parsed for sizes exactly once — loadPdfState reuses
+    // the precomputed result instead of re-deriving it from the same bytes.
+    expect(mockedEngine.getPageSizes).toHaveBeenCalledTimes(1);
   });
 
   it("rotateCurrentPage reports an error", async () => {

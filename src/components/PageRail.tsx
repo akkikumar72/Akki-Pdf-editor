@@ -1,5 +1,5 @@
 import { Document, Page } from "react-pdf";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 
 type PageRailProps = {
   activePage: number;
@@ -8,7 +8,7 @@ type PageRailProps = {
   onSelect: (page: number) => void;
 };
 
-export function PageRail({ activePage, pageCount, pdfBytes, onSelect }: PageRailProps) {
+function PageRailComponent({ activePage, pageCount, pdfBytes, onSelect }: PageRailProps) {
   const pdfFile = useMemo(() => ({ data: pdfBytes.slice() }), [pdfBytes]);
 
   return (
@@ -38,3 +38,8 @@ export function PageRail({ activePage, pageCount, pdfBytes, onSelect }: PageRail
     </div>
   );
 }
+
+// Memoized: every thumbnail is a full pdf.js canvas render, so unrelated
+// editor-state changes (status text, busy flips) must not re-run this tree.
+// Props are stable across those changes (bytes reference + useCallback'd onSelect).
+export const PageRail = memo(PageRailComponent);

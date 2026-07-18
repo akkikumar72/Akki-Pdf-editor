@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSessions,
+  closeStorageConnection,
   deleteSession,
   deleteSignature,
   getLatestSession,
@@ -260,9 +261,80 @@ describe("signature store", () => {
   });
 });
 
-describe("storage error and edge branches", () => {
-  afterEach(() => {
+describe("shared connection lifecycle", () => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await closeStorageConnection();
+  });
+
+  it("reuses one IndexedDB connection across calls", async () => {
+    await closeStorageConnection();
+    const openSpy = vi.spyOn(indexedDB, "open");
+    await saveSession(makeInput({ id: "reuse-1" }));
+    await saveSession(makeInput({ id: "reuse-2" }));
+    await listSessions();
+    expect(openSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("closeStorageConnection is a no-op when nothing is open", async () => {
+    await closeStorageConnection();
+    await expect(closeStorageConnection()).resolves.toBeUndefined();
+  });
+
+  it("releases the shared connection on versionchange and reopens lazily", async () => {
+    await closeStorageConnection();
+    const db = {
+      objectStoreNames: { contains: () => true },
+      transaction: vi.fn(() => {
+        const tx: Record<string, unknown> = { objectStore: () => ({ put: vi.fn() }) };
+        queueMicrotask(() => (tx.oncomplete as () => void)());
+        return tx as unknown as IDBTransaction;
+      }),
+      close: vi.fn(),
+      onversionchange: null as (() => void) | null,
+    };
+    const request: Record<string, unknown> = { result: db };
+    const openSpy = vi.spyOn(indexedDB, "open").mockImplementation(() => {
+      queueMicrotask(() => (request.onsuccess as () => void)());
+      return request as unknown as IDBOpenDBRequest;
+    });
+
+    await saveSession(makeInput({ id: "vc-1" }));
+    expect(openSpy).toHaveBeenCalledTimes(1);
+
+    // Simulate another tab requesting a schema upgrade.
+    db.onversionchange!();
+    expect(db.close).toHaveBeenCalledTimes(1);
+
+    await saveSession(makeInput({ id: "vc-2" }));
+    expect(openSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("closeStorageConnection swallows a connection that never opened", async () => {
+    await closeStorageConnection();
+    const request: Record<string, unknown> = { error: new Error("open failed") };
+    vi.spyOn(indexedDB, "open").mockImplementation(() => {
+      queueMicrotask(() => (request.onerror as () => void)());
+      return request as unknown as IDBOpenDBRequest;
+    });
+    const pendingSave = saveSession(makeInput({ id: "never-opens" }));
+    // Close while the rejecting open is still in flight.
+    await expect(closeStorageConnection()).resolves.toBeUndefined();
+    await expect(pendingSave).rejects.toThrow("open failed");
+  });
+});
+
+describe("storage error and edge branches", () => {
+  beforeEach(async () => {
+    // Error tests stub indexedDB.open per test, so the shared connection from
+    // earlier tests must be dropped for the stub to be consulted at all.
+    await closeStorageConnection();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    // Drop any stubbed connection so later tests reopen the real fake-indexeddb.
+    await closeStorageConnection();
   });
 
   // openDb's onupgradeneeded with the object store already present exercises

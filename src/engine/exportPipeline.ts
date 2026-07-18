@@ -134,13 +134,33 @@ export class ExportPipeline {
   private groupRows(textItems: TextItem[]) {
     const sorted = [...textItems].sort((a, b) => a.pageIndex - b.pageIndex || b.rect.y - a.rect.y || a.rect.x - b.rect.x);
     const rows: TextItem[][] = [];
+    // Items arrive page-by-page in descending y, so each page's row heads are
+    // also in descending y. Every head sits at or above the current item, which
+    // reduces the original linear "first matching row" scan to a binary search
+    // for the first head with y <= item.y + tolerance — O(n log n) overall
+    // instead of O(n²) on text-dense documents.
+    let pageRows: TextItem[][] = [];
+    let currentPage = -1;
     for (const item of sorted) {
-      const row = rows.find((candidate) =>
-        candidate[0]?.pageIndex === item.pageIndex &&
-        Math.abs(candidate[0].rect.y - item.rect.y) <= Math.max(4, item.rect.height * 0.6),
-      );
-      if (row) row.push(item);
-      else rows.push([item]);
+      if (item.pageIndex !== currentPage) {
+        currentPage = item.pageIndex;
+        pageRows = [];
+      }
+      const limit = item.rect.y + Math.max(4, item.rect.height * 0.6);
+      let low = 0;
+      let high = pageRows.length;
+      while (low < high) {
+        const mid = (low + high) >> 1;
+        if (pageRows[mid][0].rect.y <= limit) high = mid;
+        else low = mid + 1;
+      }
+      if (low < pageRows.length) {
+        pageRows[low].push(item);
+      } else {
+        const row = [item];
+        pageRows.push(row);
+        rows.push(row);
+      }
     }
     return rows.map((row) => row.sort((a, b) => a.rect.x - b.rect.x));
   }

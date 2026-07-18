@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { AlignCenter, AlignLeft, AlignRight, Check, Circle, Copy, FileSpreadsheet, FileText, SlidersHorizontal, Trash2, X } from "lucide-react";
 import type { EditOperation, ExportFormat, FormMarkOperation, LinkTarget, TextAlign, TextItem } from "../types/editor";
 import { FONT_CHOICES, describeDetectedFont, describeFallback } from "../engine/fontResolver";
@@ -16,7 +17,7 @@ type InspectorProps = {
   onUpdate: (id: string, patch: Partial<EditOperation>) => void;
 };
 
-export function Inspector({
+function InspectorComponent({
   operation,
   operationCount,
   pageCount = 1,
@@ -373,3 +374,8 @@ export function Inspector({
     </div>
   );
 }
+
+// Memoized so unrelated controller-state changes (status text, isBusy flips
+// around exports) don't re-render the whole panel; its props are referentially
+// stable across those updates (memoized selections + useCallback'd handlers).
+export const Inspector = memo(InspectorComponent);

@@ -79,6 +79,18 @@ describe("export pipeline", () => {
     expect(sheet).toContain("No table-like text detected");
   });
 
+  it("merges into the highest row within tolerance when two rows qualify (first-match semantics)", () => {
+    // Heads at y=100 and y=90 (12pt tall → tolerance 7.2). An item at y=94 is
+    // within tolerance of both; the original linear scan picked the earliest
+    // (highest) row, and the binary-search rewrite must preserve that.
+    const overlapping: TextItem[] = [
+      { str: "top", pageIndex: 0, rect: { x: 10, y: 100, width: 20, height: 12 } },
+      { str: "bottom", pageIndex: 0, rect: { x: 10, y: 90, width: 20, height: 12 } },
+      { str: "mid", pageIndex: 0, rect: { x: 50, y: 94, width: 20, height: 12 } },
+    ];
+    expect(new ExportPipeline().toText(overlapping)).toBe("top mid\nbottom");
+  });
+
   it("clusters multi-page text and sorts within rows (toText)", () => {
     const multi: TextItem[] = [
       { str: "B", pageIndex: 0, rect: { x: 50, y: 700, width: 10, height: 12 } },
