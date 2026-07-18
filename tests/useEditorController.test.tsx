@@ -100,7 +100,7 @@ beforeEach(() => {
   mockedEngine.insertBlankPage.mockResolvedValue(new Uint8Array([9]));
   mockedEngine.deletePage.mockResolvedValue(new Uint8Array([9]));
   mockedEngine.rotatePage.mockResolvedValue(new Uint8Array([9]));
-  mockedExport.export.mockResolvedValue(undefined);
+  mockedExport.export.mockResolvedValue({ skippedOperations: [] });
   mockedValidate.mockResolvedValue({ ok: true });
   mockedSave.mockResolvedValue(undefined);
   mockedList.mockResolvedValue([]);
@@ -921,6 +921,24 @@ describe("runExport", () => {
     });
     expect(mockedExport.export).toHaveBeenCalled();
     expect(result.current.status).toBe("PDF exported");
+  });
+
+  it("reports skipped operations in the export status", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    mockedExport.export.mockResolvedValue({ skippedOperations: [textOp({ text: "日本語" })] });
+    await act(async () => {
+      await result.current.runExport("pdf");
+    });
+    expect(result.current.status).toBe("PDF exported · 1 edit skipped (characters the font could not encode)");
+
+    mockedExport.export.mockResolvedValue({
+      skippedOperations: [textOp({ id: "a" }), textOp({ id: "b" })],
+    });
+    await act(async () => {
+      await result.current.runExport("pdf");
+    });
+    expect(result.current.status).toBe("PDF exported · 2 edits skipped (characters the font could not encode)");
   });
 
   it("reports an export error", async () => {

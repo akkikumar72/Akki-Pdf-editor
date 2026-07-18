@@ -240,27 +240,60 @@ describe("export pipeline – export() dispatch", () => {
   });
 
   it("routes to savePdf and downloads a pdf", async () => {
-    await makePipeline().export("pdf", context);
-    expect(fakeEngine.savePdf).toHaveBeenCalledWith(context.bytes, context.operations, undefined, {
-      suppressLinkAnnotationIds: undefined,
-    });
+    const result = await makePipeline().export("pdf", context);
+    expect(fakeEngine.savePdf).toHaveBeenCalledWith(
+      context.bytes,
+      context.operations,
+      undefined,
+      expect.objectContaining({ suppressLinkAnnotationIds: undefined, onOperationError: expect.any(Function) }),
+    );
     expect(downloadSpy).toHaveBeenCalledWith(expect.any(Blob), "My-Report-edited.pdf");
+    expect(result.skippedOperations).toEqual([]);
   });
 
   it("forwards imported-link suppression ids to savePdf", async () => {
     await makePipeline().export("pdf", { ...context, suppressLinkAnnotationIds: ["7R"] });
-    expect(fakeEngine.savePdf).toHaveBeenCalledWith(context.bytes, context.operations, undefined, {
-      suppressLinkAnnotationIds: ["7R"],
-    });
+    expect(fakeEngine.savePdf).toHaveBeenCalledWith(
+      context.bytes,
+      context.operations,
+      undefined,
+      expect.objectContaining({ suppressLinkAnnotationIds: ["7R"] }),
+    );
   });
 
-  it("downloads txt, csv and xlsx with safe base names", async () => {
-    await makePipeline().export("txt", context);
+  it("surfaces operations the PDF writer reported as failed", async () => {
+    const failing = {
+      id: "bad_text",
+      type: "text",
+      pageIndex: 0,
+      rect: { x: 0, y: 0, width: 10, height: 10 },
+      text: "日本語",
+      fontFamily: "Helvetica",
+      fontSize: 12,
+      color: "#000000",
+      align: "left",
+      createdAt: 1,
+    } as const;
+    const reportingEngine = {
+      savePdf: vi.fn(async (_bytes, operations, _fonts, options) => {
+        options?.onOperationError?.(operations[0], new Error("WinAnsi cannot encode"));
+        return new Uint8Array([1]);
+      }),
+    } as unknown as PdfEngine;
+    const result = await new ExportPipeline(reportingEngine).export("pdf", { ...context, operations: [failing] });
+    expect(result.skippedOperations).toEqual([failing]);
+  });
+
+  it("downloads txt, csv and xlsx with safe base names and reports no skips", async () => {
+    const txt = await makePipeline().export("txt", context);
     expect(downloadSpy).toHaveBeenLastCalledWith(expect.any(Blob), "My-Report.txt");
-    await makePipeline().export("csv", context);
+    expect(txt.skippedOperations).toEqual([]);
+    const csv = await makePipeline().export("csv", context);
     expect(downloadSpy).toHaveBeenLastCalledWith(expect.any(Blob), "My-Report.csv");
-    await makePipeline().export("xlsx", context);
+    expect(csv.skippedOperations).toEqual([]);
+    const xlsx = await makePipeline().export("xlsx", context);
     expect(downloadSpy).toHaveBeenLastCalledWith(expect.any(Blob), "My-Report.xlsx");
+    expect(xlsx.skippedOperations).toEqual([]);
   });
 
   it("throws on an unsupported export format", async () => {

@@ -32,29 +32,36 @@ export type ExportContext = {
   suppressLinkAnnotationIds?: string[];
 };
 
+export type ExportResult = {
+  /** Operations the PDF writer could not render (e.g. unencodable characters); the export completed without them. */
+  skippedOperations: EditOperation[];
+};
+
 export class ExportPipeline {
   constructor(private readonly engine: PdfEngine = defaultPdfEngine) {}
 
-  async export(format: ExportFormat, context: ExportContext) {
+  async export(format: ExportFormat, context: ExportContext): Promise<ExportResult> {
     const base = safeBaseName(context.filename);
+    const skippedOperations: EditOperation[] = [];
     switch (format) {
       case "pdf": {
         const bytes = await this.engine.savePdf(context.bytes, context.operations, context.fonts, {
           suppressLinkAnnotationIds: context.suppressLinkAnnotationIds,
+          onOperationError: (operation) => skippedOperations.push(operation),
         });
         downloadBlob(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), `${base}-edited.pdf`);
-        return;
+        return { skippedOperations };
       }
       case "txt": {
         downloadBlob(
           new Blob([this.toText(context.textItems, context.operations)], { type: "text/plain;charset=utf-8" }),
           `${base}.txt`,
         );
-        return;
+        return { skippedOperations };
       }
       case "csv": {
         downloadBlob(new Blob([this.toCsv(context.textItems, context.operations)], { type: "text/csv;charset=utf-8" }), `${base}.csv`);
-        return;
+        return { skippedOperations };
       }
       case "xlsx": {
         downloadBlob(
@@ -63,7 +70,7 @@ export class ExportPipeline {
           }),
           `${base}.xlsx`,
         );
-        return;
+        return { skippedOperations };
       }
       default: {
         const exhaustive: never = format;

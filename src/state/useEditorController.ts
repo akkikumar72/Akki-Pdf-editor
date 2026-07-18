@@ -382,7 +382,7 @@ export function useEditorController() {
     setIsBusy(true);
     setStatus(`Exporting ${format.toUpperCase()}...`);
     try {
-      await exportPipeline.export(format, {
+      const result = await exportPipeline.export(format, {
         filename: document.name,
         bytes: document.bytes,
         operations: editState.operations,
@@ -390,7 +390,12 @@ export function useEditorController() {
         fonts: documentFonts,
         suppressLinkAnnotationIds: importedLinkAnnotationIds,
       });
-      setStatus(`${format.toUpperCase()} exported`);
+      const skipped = result.skippedOperations.length;
+      setStatus(
+        skipped > 0
+          ? `${format.toUpperCase()} exported · ${skipped} ${skipped === 1 ? "edit" : "edits"} skipped (characters the font could not encode)`
+          : `${format.toUpperCase()} exported`,
+      );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : `Could not export ${format}.`);
     } finally {

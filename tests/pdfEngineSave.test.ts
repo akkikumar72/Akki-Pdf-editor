@@ -134,6 +134,106 @@ describe("PdfEngine.savePdf", () => {
   });
 });
 
+describe("PdfEngine.savePdf – per-operation error isolation", () => {
+  /** Cyrillic text that no WinAnsi-encoded standard font can draw. */
+  function unencodableTextOp(overrides: Partial<Extract<EditOperation, { type: "text" }>> = {}): EditOperation {
+    return {
+      id: "bad_text",
+      type: "text",
+      pageIndex: 0,
+      rect: { x: 40, y: 700, width: 200, height: 24 },
+      text: "Привет мир",
+      fontFamily: "Helvetica",
+      fontSize: 14,
+      color: "#000000",
+      align: "left",
+      createdAt: 1,
+      ...overrides,
+    };
+  }
+
+  it("skips an unencodable text op, reports it, and still writes the remaining operations", async () => {
+    const original = await blankPdfBytes();
+    const skipped: string[] = [];
+    const operations: EditOperation[] = [
+      unencodableTextOp(),
+      {
+        id: "good_text",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 40, y: 650, width: 200, height: 24 },
+        text: "Survivor",
+        fontFamily: "Helvetica",
+        fontSize: 14,
+        color: "#000000",
+        align: "left",
+        createdAt: 2,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations, undefined, {
+      onOperationError: (operation) => skipped.push(operation.id),
+    });
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    expect(skipped).toEqual(["bad_text"]);
+    expect(content).toContain(Buffer.from("Survivor", "latin1").toString("hex").toUpperCase());
+  });
+
+  it("never draws the whiteout mask for a text op whose text fails to encode (atomic skip)", async () => {
+    const original = await blankPdfBytes();
+    const out = await pdfEngine.savePdf(original, [
+      unencodableTextOp({
+        whiteout: true,
+        whiteoutColor: "#fefefe",
+        sourceCoverRect: { x: 10, y: 690, width: 220, height: 40 },
+      }),
+    ], undefined, { onOperationError: () => undefined });
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    // The mask's cm translate must not appear: a skipped replacement must not
+    // leave an orphaned white box covering the original text.
+    expect(content).not.toContain("1 0 0 1 10 690 cm");
+  });
+
+  it("continues past a failing operation when no options or callback are provided", async () => {
+    const original = await blankPdfBytes();
+    await expect(pdfEngine.savePdf(original, [unencodableTextOp()])).resolves.toBeInstanceOf(Uint8Array);
+    await expect(pdfEngine.savePdf(original, [unencodableTextOp()], undefined, {})).resolves.toBeInstanceOf(Uint8Array);
+  });
+
+  it("keeps the whiteout mask fully opaque when the replacement text is faded", async () => {
+    const original = await blankPdfBytes();
+    const out = await pdfEngine.savePdf(original, [
+      {
+        id: "faded",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 40, y: 700, width: 200, height: 24 },
+        text: "Faded",
+        fontFamily: "Helvetica",
+        fontSize: 14,
+        color: "#000000",
+        align: "left",
+        whiteout: true,
+        sourceCoverRect: { x: 10, y: 690, width: 220, height: 40 },
+        opacity: 0.35,
+        createdAt: 1,
+      },
+    ]);
+    const reloaded = await PDFDocument.load(out);
+    const page = reloaded.getPage(0);
+    const extGState = page.node.Resources()?.lookupMaybe(PDFName.of("ExtGState"), PDFDict);
+    expect(extGState).toBeDefined();
+    const alphas = extGState!
+      .entries()
+      .map(([, value]) => reloaded.context.lookup(value, PDFDict).get(PDFName.of("ca")))
+      .map((ca) => (ca ? Number(ca.toString()) : undefined));
+    // The redaction mask keeps ca=1 while the text itself carries the faded ca=0.35.
+    expect(alphas).toContain(1);
+    expect(alphas).toContain(0.35);
+  });
+});
+
 describe("PdfEngine.savePdf – text operations", () => {
   it("draws text with whiteout + sourceCoverRect, and aligns left/center/right", async () => {
     const original = await blankPdfBytes();

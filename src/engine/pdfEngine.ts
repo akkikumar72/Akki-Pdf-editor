@@ -127,6 +127,12 @@ const PDF_JS_OPTIONS = {
 export type SavePdfOptions = {
   /** PDF.js annotation ids (e.g. "13R") of imported /Link annotations to strip before writing operations. */
   suppressLinkAnnotationIds?: string[];
+  /**
+   * Called for every operation that could not be written (e.g. text the
+   * resolved font cannot encode). The export continues without that operation
+   * instead of losing the whole document.
+   */
+  onOperationError?: (operation: EditOperation, error: unknown) => void;
 };
 
 /**
@@ -439,45 +445,51 @@ export class PdfEngine {
       if (!page) continue;
       const opacity = operation.opacity ?? 1;
 
-      switch (operation.type) {
-        case "whiteout":
-          writeWhiteoutMask(page, operation.rect, operation.color, opacity);
-          break;
-        case "text":
-          await writeText(page, operation, opacity, ctx);
-          break;
-        case "annotation":
-          await writeAnnotation(page, operation, opacity, ctx);
-          break;
-        case "shape":
-          writeShape(page, operation, opacity);
-          break;
-        case "ink":
-          writeInk(page, operation, opacity);
-          break;
-        case "image":
-          await writeImage(pdf, page, operation, opacity);
-          break;
-        case "signature":
-          await writeSignature(pdf, page, operation, opacity, ctx);
-          break;
-        case "stamp":
-          await writeStamp(page, operation, opacity, ctx);
-          break;
-        case "form-mark":
-          writeFormMark(page, operation, opacity);
-          break;
-        case "form-field":
-          await writeFormField(page, operation, opacity, ctx);
-          break;
-        case "link":
-          writeLink(pdf, page, operation);
-          break;
-        /* v8 ignore next 4 -- exhaustiveness guard: the EditOperation union has no member left unhandled above, so this branch is unreachable at runtime and only guards against a future variant being missed at compile time */
-        default: {
-          const exhaustive: never = operation;
-          void exhaustive;
+      // One failing operation (e.g. characters the resolved font cannot
+      // encode) must not abort the whole export; it is reported and skipped.
+      try {
+        switch (operation.type) {
+          case "whiteout":
+            writeWhiteoutMask(page, operation.rect, operation.color, opacity);
+            break;
+          case "text":
+            await writeText(page, operation, opacity, ctx);
+            break;
+          case "annotation":
+            await writeAnnotation(page, operation, opacity, ctx);
+            break;
+          case "shape":
+            writeShape(page, operation, opacity);
+            break;
+          case "ink":
+            writeInk(page, operation, opacity);
+            break;
+          case "image":
+            await writeImage(pdf, page, operation, opacity);
+            break;
+          case "signature":
+            await writeSignature(pdf, page, operation, opacity, ctx);
+            break;
+          case "stamp":
+            await writeStamp(page, operation, opacity, ctx);
+            break;
+          case "form-mark":
+            writeFormMark(page, operation, opacity);
+            break;
+          case "form-field":
+            await writeFormField(page, operation, opacity, ctx);
+            break;
+          case "link":
+            writeLink(pdf, page, operation);
+            break;
+          /* v8 ignore next 4 -- exhaustiveness guard: the EditOperation union has no member left unhandled above, so this branch is unreachable at runtime and only guards against a future variant being missed at compile time */
+          default: {
+            const exhaustive: never = operation;
+            void exhaustive;
+          }
         }
+      } catch (error) {
+        options?.onOperationError?.(operation, error);
       }
     }
 
