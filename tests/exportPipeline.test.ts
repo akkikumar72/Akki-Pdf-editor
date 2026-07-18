@@ -76,6 +76,27 @@ describe("export pipeline", () => {
     expect(csv).not.toMatch(/"\n=cmd/);
   });
 
+  it("neutralizes formula payloads hidden behind a leading space (CWE-1236)", () => {
+    const dangerous: TextItem[] = [
+      { str: " =1+1", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } },
+    ];
+    const csv = new ExportPipeline().toCsv(dangerous, []);
+    expect(csv).toContain("\"' =1+1\"");
+  });
+
+  it("does not corrupt benign cells that merely start with whitespace", () => {
+    // The leading-space formula guard must only fire when a formula starter
+    // follows the whitespace — not for ordinary text/values with padding.
+    const benign: TextItem[] = [
+      { str: " hello", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } },
+      { str: "  42", pageIndex: 0, rect: { x: 160, y: 700, width: 40, height: 12 } },
+    ];
+    const csv = new ExportPipeline().toCsv(benign, []);
+    expect(csv).toContain('" hello"');
+    expect(csv).toContain('"  42"');
+    expect(csv).not.toContain("'");
+  });
+
   it("neutralizes XLSX formula-injection payloads", () => {
     const bytes = new ExportPipeline().toXlsxBytes(
       [{ str: "=HYPERLINK(1)", pageIndex: 0, rect: { x: 10, y: 700, width: 80, height: 12 } }],
@@ -131,6 +152,54 @@ describe("export pipeline – edit-aware data export", () => {
         color: "#000000",
         align: "left",
         whiteout: true,
+        createdAt: 1,
+      },
+    ]);
+    expect(csv).toContain("$50");
+    expect(csv).not.toContain("$42");
+  });
+
+  it("drops an original item covered by a manually-whiteouted text op (no sourceCoverRect)", () => {
+    // Inspector's "Whiteout behind text" checkbox creates this state: the PDF
+    // export masks under the op's own rect, so the data exports must treat
+    // the covered original as redacted too — otherwise CSV leaks it.
+    const csv = new ExportPipeline().toCsv(items, [
+      {
+        id: "manual_redaction",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 10, y: 700, width: 40, height: 12 },
+        text: "XXXX",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left",
+        whiteout: true,
+        createdAt: 1,
+      },
+    ]);
+    expect(csv).not.toContain("Name");
+    expect(csv).toContain("XXXX");
+    expect(csv).toContain("Amount");
+  });
+
+  it("drops an original item covered by a replacement's sourceCoverRect even when whiteout is off", () => {
+    // Matches the editor's on-canvas preview, which suppresses the original
+    // text layer under sourceCoverRect regardless of whiteout — whiteout
+    // only controls whether the exported PDF *bytes* paint an opaque mask.
+    const csv = new ExportPipeline().toCsv(items, [
+      {
+        id: "replace_no_whiteout",
+        type: "text",
+        pageIndex: 0,
+        rect: { x: 160, y: 680, width: 40, height: 12 },
+        sourceCoverRect: { x: 160, y: 680, width: 28, height: 12 },
+        text: "$50",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left",
+        whiteout: false,
         createdAt: 1,
       },
     ]);

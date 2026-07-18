@@ -303,7 +303,13 @@ export function useEditorController() {
   const duplicateSelected = useCallback(() => {
     const selected = getSelectedOperations(editState);
     if (selected.length === 0) return;
-    dispatch({ type: "add-many", operations: selected.map(duplicateOperation) });
+    const duplicates = selected.map(duplicateOperation);
+    dispatch({ type: "add-many", operations: duplicates });
+    // `add-many` selects only the last added op; a group duplicate must keep
+    // the whole new group selected so it can be dragged/styled as a unit.
+    if (duplicates.length > 1) {
+      dispatch({ type: "select", ids: duplicates.map((operation) => operation.id) });
+    }
     setStatus(selected.length === 1 ? "Duplicate added" : `${selected.length} duplicates added`);
   }, [editState]);
 
@@ -311,7 +317,12 @@ export function useEditorController() {
     bytes: Uint8Array,
     nextPageIndex = pageIndex,
     statusMessage = "Document updated",
-    nextOperations = editState.operations,
+    // Applied to the live operations AND every preserved past/future history
+    // snapshot — insert/delete change which page each operation belongs to,
+    // so a stale snapshot restored via undo would reattach ops to the wrong
+    // page (or reference a page index that no longer exists). Defaults to
+    // identity because rotate doesn't renumber pages.
+    shiftOperations: (operations: EditOperation[]) => EditOperation[] = (operations) => operations,
   ) => {
     /* v8 ignore next -- all callers (insert/delete/rotate page) already early-return when document is null, so this guard never observes a null document */
     if (!document) return;
@@ -320,14 +331,27 @@ export function useEditorController() {
       ...document,
       bytes,
       pageCount: sizes.length,
-      fingerprint: `${document.fingerprint ?? document.name}-${Date.now()}`,
+      // Keep the session identity stable across in-place page mutations —
+      // re-minting per mutation made every autosave write a brand-new
+      // IndexedDB row, orphaning the previous one. Mint only when the
+      // document never had a fingerprint.
+      fingerprint: document.fingerprint ?? `${document.name}-${Date.now()}`,
     };
+    // Same shift + page-count filter for the live operations and every
+    // preserved history entry, so undo/redo/restore-history land on the
+    // same page renumbering the live document just went through.
+    const remapForNewPageCount = (operations: EditOperation[]) =>
+      shiftOperations(operations).filter((operation) => operation.pageIndex < next.pageCount);
+    // Undo/redo history survives the reload; a page mutation is an edit, not
+    // a fresh document open.
     await loadPdfState(next, {
-      operations: nextOperations.filter((operation) => operation.pageIndex < next.pageCount),
+      operations: remapForNewPageCount(editState.operations),
+      past: editState.past.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
+      future: editState.future.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
     }, sizes);
     setPageIndex(Math.min(nextPageIndex, Math.max(0, next.pageCount - 1)));
     setStatus(statusMessage);
-  }, [document, editState.operations, loadPdfState, pageIndex]);
+  }, [document, editState.operations, editState.past, editState.future, loadPdfState, pageIndex]);
 
   const insertPageAfter = useCallback(async () => {
     if (!document) return;
@@ -338,14 +362,14 @@ export function useEditorController() {
         bytes,
         pageIndex + 1,
         "Blank page inserted",
-        shiftOperationsForInsertedPage(editState.operations, pageIndex + 1),
+        (operations) => shiftOperationsForInsertedPage(operations, pageIndex + 1),
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not insert page.");
     } finally {
       setIsBusy(false);
     }
-  }, [document, editState.operations, pageIndex, updateDocumentBytes]);
+  }, [document, pageIndex, updateDocumentBytes]);
 
   const deleteCurrentPage = useCallback(async () => {
     if (!document) return;
@@ -356,14 +380,14 @@ export function useEditorController() {
         bytes,
         Math.max(0, pageIndex - 1),
         "Page deleted",
-        shiftOperationsForDeletedPage(editState.operations, pageIndex),
+        (operations) => shiftOperationsForDeletedPage(operations, pageIndex),
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete page.");
     } finally {
       setIsBusy(false);
     }
-  }, [document, editState.operations, pageIndex, updateDocumentBytes]);
+  }, [document, pageIndex, updateDocumentBytes]);
 
   const rotateCurrentPage = useCallback(async () => {
     if (!document) return;

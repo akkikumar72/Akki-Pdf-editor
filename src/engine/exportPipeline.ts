@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from "fflate";
 import type { DocumentFonts, EditOperation, ExportFormat, PdfRect, TextItem } from "../types/editor";
 import { downloadBlob, safeBaseName } from "../utils/download";
+import { replacementCoverRect } from "../utils/textSearch";
 import { PdfEngine, pdfEngine as defaultPdfEngine } from "./pdfEngine";
 
 function rectOverlapArea(a: PdfRect, b: PdfRect) {
@@ -112,8 +113,11 @@ export class ExportPipeline {
       if (operation.type === "whiteout") {
         coverRects.push({ pageIndex: operation.pageIndex, rect: operation.rect });
       } else if (operation.type === "text") {
-        if (operation.sourceCoverRect) {
-          coverRects.push({ pageIndex: operation.pageIndex, rect: operation.sourceCoverRect });
+        // Shared with Find (see replacementCoverRect's own doc comment for
+        // why this deliberately differs from the PDF writer's paint condition).
+        const coverRect = replacementCoverRect(operation);
+        if (coverRect) {
+          coverRects.push({ pageIndex: operation.pageIndex, rect: coverRect });
         }
         additions.push({ str: operation.text, pageIndex: operation.pageIndex, rect: operation.rect });
       }
@@ -169,14 +173,16 @@ export class ExportPipeline {
 export const exportPipeline = new ExportPipeline();
 
 /**
- * Neutralize spreadsheet formula injection (CSV/XLSX). Cells whose first
- * character can start a formula (`= + - @`) or a control char (tab/CR/LF) are
- * prefixed with a single quote so Excel/Calc treat them as literal text.
- * The leading line-feed is included because some spreadsheet apps strip
- * leading whitespace/newlines before evaluating a cell (CWE-1236).
+ * Neutralize spreadsheet formula injection (CSV/XLSX). A cell is prefixed
+ * with a single quote — so Excel/Calc treat it as literal text — when either:
+ * it starts with a tab/CR/LF (some spreadsheet apps strip those before
+ * evaluating a cell, CWE-1236, so `"\n=cmd"` must still be caught), or its
+ * first *non-whitespace* character can start a formula (`= + - @`), which
+ * catches `" =1+1"` without also quoting benign cells like `" hello"` that
+ * merely happen to start with a plain space.
  */
 function neutralizeFormula(cell: string) {
-  return /^[=+\-@\t\r\n]/.test(cell) ? `'${cell}` : cell;
+  return /^[\t\r\n]|^\s*[=+\-@]/.test(cell) ? `'${cell}` : cell;
 }
 
 function xmlEscape(value: string) {

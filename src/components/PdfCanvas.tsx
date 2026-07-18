@@ -287,7 +287,27 @@ export function PdfCanvas({
     // already cleared any stale suppression) so idle pages do no extra work.
     if (coverViewportRects.length === 0) return;
 
-    const observer = new MutationObserver(suppressReplacedTextLayer);
+    // The observer watches the whole stage (the text layer node is created
+    // asynchronously by react-pdf, so it can't be observed directly from the
+    // start), but only text-layer mutations matter. Filtering by target keeps
+    // drag/resize frames — which mutate overlay `style` attributes inside the
+    // same subtree — from re-running the span scan and its forced reflows.
+    // Checking `target.querySelector(...)` (any descendant) instead of the
+    // added nodes would match every childList mutation anywhere upstream of
+    // the text layer once it exists (overlay mounts/unmounts, toolbar
+    // portals, ...), re-triggering the scan far more often than intended.
+    const observer = new MutationObserver((mutations) => {
+      const touchesTextLayer = mutations.some((mutation) => {
+        const target = mutation.target as Element;
+        if (target.closest(".react-pdf__Page__textContent")) return true;
+        return [...mutation.addedNodes].some(
+          (node) =>
+            node instanceof Element &&
+            (node.matches(".react-pdf__Page__textContent") || node.querySelector(".react-pdf__Page__textContent")),
+        );
+      });
+      if (touchesTextLayer) suppressReplacedTextLayer();
+    });
     observer.observe(stage, { childList: true, subtree: true, attributes: true, attributeFilter: ["style"] });
 
     return () => {
@@ -767,7 +787,13 @@ export function PdfCanvas({
                     <button
                       aria-label="Duplicate selected"
                       title="Duplicate selected"
-                      onClick={() => onOperationsAdd(selectedPageOperations.map(cloneOperation))}
+                      onClick={() => {
+                        const duplicates = selectedPageOperations.map(cloneOperation);
+                        onOperationsAdd(duplicates);
+                        // Keep the whole duplicated group selected (add-many
+                        // alone would collapse the selection to the last one).
+                        onOperationSelect(duplicates.map((operation) => operation.id));
+                      }}
                     >
                       <Copy aria-hidden="true" />
                     </button>

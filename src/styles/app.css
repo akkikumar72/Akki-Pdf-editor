@@ -2,6 +2,43 @@
   box-sizing: border-box;
 }
 
+.error-boundary {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--space-lg);
+  background: var(--color-paper-2);
+}
+
+.error-boundary__card {
+  display: grid;
+  gap: var(--space-sm);
+  max-width: 26rem;
+  padding: var(--space-lg);
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule);
+  border-radius: 12px;
+  box-shadow: var(--shadow-soft);
+}
+
+.error-boundary__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.error-boundary__actions button {
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 8px;
+  background: var(--color-paper);
+  cursor: pointer;
+}
+
+.error-boundary__actions button:first-child {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
 .editor-loading {
   display: flex;
   align-items: center;
@@ -269,6 +306,15 @@ select:disabled {
   z-index: 1;
   overflow: visible;
   scrollbar-width: thin;
+}
+
+/* The tools row hosts the drop-down tool menus, which open downward and
+   overlap the utility/export groups. It must sit above them (z-index 2) or
+   those groups capture clicks meant for menu items (e.g. the Undo-history
+   button swallowed the Annotate menu's "Note" item). Specificity here
+   (0,3,0) intentionally beats `.tool-group[role="toolbar"]` (0,2,0). */
+.tool-group--tools[role="toolbar"] {
+  z-index: 5;
 }
 
 .tool-group--compact {

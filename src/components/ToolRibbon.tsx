@@ -14,7 +14,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { TOOL_GROUPS } from "../editor/toolRegistry";
 import type { EditHistoryEntry } from "../state/editModel";
 import type { EditorTool, ExportFormat } from "../types/editor";
@@ -52,9 +52,30 @@ export function ToolRibbon(props: ToolRibbonProps) {
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | undefined>();
   const activeHistoryId = selectedHistoryId ?? newestHistory?.id;
   const orderedHistory = [...props.historyEntries].reverse();
+  // Whichever button most recently opened a menu/dialog, so Escape can return
+  // focus to it instead of stranding a keyboard user at <body>.
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  // Escape closes whichever overlay surface is open (tool-variant menu or the
+  // history dialog), matching the convention every other dialog in the app
+  // already follows (LinkPropertiesDialog, SignatureModal, FindReplaceDialog).
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape") return;
+    if (historyOpen) {
+      event.stopPropagation();
+      setHistoryOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    if (openGroup) {
+      event.stopPropagation();
+      setOpenGroup(undefined);
+      triggerRef.current?.focus();
+    }
+  };
 
   return (
-    <div className="tool-ribbon">
+    <div className="tool-ribbon" onKeyDown={handleKeyDown}>
       <AkkiPdfLogo
         className="tool-ribbon__brand"
         aria-label="AkkiPDF home"
@@ -75,7 +96,7 @@ export function ToolRibbon(props: ToolRibbonProps) {
                 aria-pressed={activeToolInGroup}
                 disabled={props.disabled}
                 title={primary.description}
-                onClick={() => {
+                onClick={(event) => {
                   // Clicking the already-active tool toggles it back to the neutral Select tool.
                   if (activeToolInGroup && group.primary !== "select") {
                     props.onToolChange("select");
@@ -87,6 +108,7 @@ export function ToolRibbon(props: ToolRibbonProps) {
                     setOpenGroup(undefined);
                     return;
                   }
+                  triggerRef.current = event.currentTarget;
                   props.onToolChange(group.primary);
                   setOpenGroup((value) => value === group.id ? undefined : group.id);
                 }}
@@ -129,7 +151,8 @@ export function ToolRibbon(props: ToolRibbonProps) {
           className="icon-button"
           disabled={!props.canUndo || props.disabled}
           title="Undo history"
-          onClick={() => {
+          onClick={(event) => {
+            triggerRef.current = event.currentTarget;
             setSelectedHistoryId(newestHistory?.id);
             setHistoryOpen(true);
           }}

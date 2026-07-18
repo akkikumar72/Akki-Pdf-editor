@@ -15,7 +15,6 @@ const TOOL_SWEEP: ToolId[] = [
   "whiteout",
   "annotate",
   "shapes",
-  "table",
 ];
 
 const sceneMidpoint = ([start, end]: readonly [number, number]) => start + (end - start) / 2;
@@ -31,8 +30,7 @@ function activeToolForFrame(frame: number): ToolId {
   if (frame < SCENES.whiteoutAnnotate[0]) return "forms";
   if (frame < sceneMidpoint(SCENES.whiteoutAnnotate)) return "whiteout";
   if (frame < SCENES.shapesTable[0]) return "annotate";
-  if (frame < sceneMidpoint(SCENES.shapesTable)) return "shapes";
-  if (frame < SCENES.sign[0]) return "table";
+  if (frame < SCENES.sign[0]) return "shapes";
   if (frame < SCENES.pages[0]) return "sign";
   if (frame < SCENES.apply[0]) return "select";
   if (frame < sceneMidpoint(SCENES.apply)) return "apply";
@@ -52,7 +50,7 @@ const CAPTIONS: CaptionSegment[] = [
   { start: 180, end: 330, eyebrow: "REPLACE TEXT", line: "Change the words. Match the font." },
   { start: 330, end: 450, eyebrow: "LINKS + FORMS", line: "Make documents interactive." },
   { start: 450, end: 570, eyebrow: "WHITEOUT + ANNOTATE", line: "Remove noise. Mark what matters." },
-  { start: 570, end: 690, eyebrow: "SHAPES + TABLES", line: "Structure information visually." },
+  { start: 570, end: 690, eyebrow: "SHAPES", line: "Structure information visually." },
   { start: 690, end: 810, eyebrow: "SIGN NATURALLY", line: "Draw once. Keep it in this browser." },
   { start: 810, end: 930, eyebrow: "MANAGE PAGES", line: "Add a page. Remove a page." },
   { start: 930, end: 1050, eyebrow: "APPLY + EXPORT", line: "Locally saved. Ready anywhere." },
