@@ -308,6 +308,15 @@ select:disabled {
   scrollbar-width: thin;
 }
 
+/* The tools row hosts the drop-down tool menus, which open downward and
+   overlap the utility/export groups. It must sit above them (z-index 2) or
+   those groups capture clicks meant for menu items (e.g. the Undo-history
+   button swallowed the Annotate menu's "Note" item). Specificity here
+   (0,3,0) intentionally beats `.tool-group[role="toolbar"]` (0,2,0). */
+.tool-group--tools[role="toolbar"] {
+  z-index: 5;
+}
+
 .tool-group--compact {
   position: relative;
   z-index: 2;
