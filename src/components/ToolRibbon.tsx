@@ -14,7 +14,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { TOOL_GROUPS } from "../editor/toolRegistry";
 import type { EditHistoryEntry } from "../state/editModel";
 import type { EditorTool, ExportFormat } from "../types/editor";
@@ -53,8 +53,24 @@ export function ToolRibbon(props: ToolRibbonProps) {
   const activeHistoryId = selectedHistoryId ?? newestHistory?.id;
   const orderedHistory = [...props.historyEntries].reverse();
 
+  // Escape closes whichever overlay surface is open (tool-variant menu or the
+  // history dialog), matching the convention every other dialog in the app
+  // already follows (LinkPropertiesDialog, SignatureModal, FindReplaceDialog).
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape") return;
+    if (historyOpen) {
+      event.stopPropagation();
+      setHistoryOpen(false);
+      return;
+    }
+    if (openGroup) {
+      event.stopPropagation();
+      setOpenGroup(undefined);
+    }
+  };
+
   return (
-    <div className="tool-ribbon">
+    <div className="tool-ribbon" onKeyDown={handleKeyDown}>
       <AkkiPdfLogo
         className="tool-ribbon__brand"
         aria-label="AkkiPDF home"

@@ -201,6 +201,64 @@ describe("PdfEngine.savePdf – per-operation error isolation", () => {
     await expect(pdfEngine.savePdf(original, [unencodableTextOp()], undefined, {})).resolves.toBeInstanceOf(Uint8Array);
   });
 
+  it("skips stamps, notes, and form fields with unencodable text atomically (no stray empty boxes)", async () => {
+    const original = await blankPdfBytes();
+    const skipped: string[] = [];
+    const operations: EditOperation[] = [
+      {
+        id: "bad_stamp",
+        type: "stamp",
+        pageIndex: 0,
+        rect: { x: 30, y: 700, width: 140, height: 46 },
+        label: "Привет",
+        color: "#166534",
+        borderColor: "#166534",
+        createdAt: 1,
+      },
+      {
+        id: "bad_stamp_subline",
+        type: "stamp",
+        pageIndex: 0,
+        rect: { x: 30, y: 640, width: 140, height: 58 },
+        label: "OK",
+        subline: "Автор",
+        color: "#166534",
+        borderColor: "#166534",
+        createdAt: 2,
+      },
+      {
+        id: "bad_note",
+        type: "annotation",
+        kind: "note",
+        pageIndex: 0,
+        rect: { x: 220, y: 700, width: 160, height: 40 },
+        color: "#b45309",
+        text: "заметка",
+        createdAt: 3,
+      },
+      {
+        id: "bad_field",
+        type: "form-field",
+        kind: "text",
+        pageIndex: 0,
+        rect: { x: 220, y: 620, width: 160, height: 30 },
+        name: "имя",
+        createdAt: 4,
+      },
+    ];
+    const out = await pdfEngine.savePdf(original, operations, undefined, {
+      onOperationError: (operation) => skipped.push(operation.id),
+    });
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    expect(skipped).toEqual(["bad_stamp", "bad_stamp_subline", "bad_note", "bad_field"]);
+    // None of the background boxes may be painted: their cm translates must be absent.
+    expect(content).not.toContain("1 0 0 1 30 700 cm");
+    expect(content).not.toContain("1 0 0 1 30 640 cm");
+    expect(content).not.toContain("1 0 0 1 220 700 cm");
+    expect(content).not.toContain("1 0 0 1 220 620 cm");
+  });
+
   it("keeps the whiteout mask fully opaque when the replacement text is faded", async () => {
     const original = await blankPdfBytes();
     const out = await pdfEngine.savePdf(original, [

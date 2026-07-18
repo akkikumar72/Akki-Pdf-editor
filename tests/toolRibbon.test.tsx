@@ -153,6 +153,24 @@ describe("ToolRibbon", () => {
       const dropdown = within(menu).getByText("Dropdown").closest("button") as HTMLElement;
       expect(dropdown).toHaveAttribute("aria-pressed", "false");
     });
+
+    it("closes an open tool popover with Escape", () => {
+      const { container } = render(<ToolRibbon {...makeProps()} />);
+      fireEvent.click(screen.getByRole("button", { name: /Forms/ }));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      fireEvent.keyDown(container.firstChild as HTMLElement, { key: "Escape" });
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
+
+    it("ignores non-Escape keys and Escape with nothing open", () => {
+      const { container } = render(<ToolRibbon {...makeProps()} />);
+      const root = container.firstChild as HTMLElement;
+      // Nothing open: Escape is a no-op (must not throw or change state).
+      fireEvent.keyDown(root, { key: "Escape" });
+      fireEvent.click(screen.getByRole("button", { name: /Forms/ }));
+      fireEvent.keyDown(root, { key: "Enter" });
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+    });
   });
 
   describe("export", () => {
@@ -243,6 +261,15 @@ describe("ToolRibbon", () => {
       // Click the backdrop: closes.
       const backdrop = dialog.parentElement as HTMLElement;
       fireEvent.click(backdrop);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("closes with Escape, taking priority over an open tool popover", () => {
+      const { container } = render(<ToolRibbon {...makeProps({ historyEntries: [entry("a", 1)] })} />);
+      const root = container.firstChild as HTMLElement;
+      fireEvent.click(screen.getByTitle("Undo history"));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      fireEvent.keyDown(root, { key: "Escape" });
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
   });

@@ -303,7 +303,13 @@ export function useEditorController() {
   const duplicateSelected = useCallback(() => {
     const selected = getSelectedOperations(editState);
     if (selected.length === 0) return;
-    dispatch({ type: "add-many", operations: selected.map(duplicateOperation) });
+    const duplicates = selected.map(duplicateOperation);
+    dispatch({ type: "add-many", operations: duplicates });
+    // `add-many` selects only the last added op; a group duplicate must keep
+    // the whole new group selected so it can be dragged/styled as a unit.
+    if (duplicates.length > 1) {
+      dispatch({ type: "select", ids: duplicates.map((operation) => operation.id) });
+    }
     setStatus(selected.length === 1 ? "Duplicate added" : `${selected.length} duplicates added`);
   }, [editState]);
 
@@ -320,14 +326,22 @@ export function useEditorController() {
       ...document,
       bytes,
       pageCount: sizes.length,
-      fingerprint: `${document.fingerprint ?? document.name}-${Date.now()}`,
+      // Keep the session identity stable across in-place page mutations —
+      // re-minting per mutation made every autosave write a brand-new
+      // IndexedDB row, orphaning the previous one. Mint only when the
+      // document never had a fingerprint.
+      fingerprint: document.fingerprint ?? `${document.name}-${Date.now()}`,
     };
+    // Undo/redo history survives the reload; a page mutation is an edit, not
+    // a fresh document open.
     await loadPdfState(next, {
       operations: nextOperations.filter((operation) => operation.pageIndex < next.pageCount),
+      past: editState.past,
+      future: editState.future,
     }, sizes);
     setPageIndex(Math.min(nextPageIndex, Math.max(0, next.pageCount - 1)));
     setStatus(statusMessage);
-  }, [document, editState.operations, loadPdfState, pageIndex]);
+  }, [document, editState.operations, editState.past, editState.future, loadPdfState, pageIndex]);
 
   const insertPageAfter = useCallback(async () => {
     if (!document) return;

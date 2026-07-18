@@ -112,8 +112,13 @@ export class ExportPipeline {
       if (operation.type === "whiteout") {
         coverRects.push({ pageIndex: operation.pageIndex, rect: operation.rect });
       } else if (operation.type === "text") {
-        if (operation.sourceCoverRect) {
-          coverRects.push({ pageIndex: operation.pageIndex, rect: operation.sourceCoverRect });
+        // Mirror the PDF writer's mask anchor exactly: sourceCoverRect when
+        // present, else the op's own rect when whiteout is enabled — otherwise
+        // a manually-whiteouted box redacts text in the exported PDF while the
+        // data exports (txt/csv/xlsx) still leak the covered original.
+        const coverRect = operation.sourceCoverRect ?? (operation.whiteout ? operation.rect : undefined);
+        if (coverRect) {
+          coverRects.push({ pageIndex: operation.pageIndex, rect: coverRect });
         }
         additions.push({ str: operation.text, pageIndex: operation.pageIndex, rect: operation.rect });
       }
@@ -170,13 +175,14 @@ export const exportPipeline = new ExportPipeline();
 
 /**
  * Neutralize spreadsheet formula injection (CSV/XLSX). Cells whose first
- * character can start a formula (`= + - @`) or a control char (tab/CR/LF) are
- * prefixed with a single quote so Excel/Calc treat them as literal text.
- * The leading line-feed is included because some spreadsheet apps strip
- * leading whitespace/newlines before evaluating a cell (CWE-1236).
+ * character can start a formula (`= + - @`) or any leading whitespace/control
+ * character are prefixed with a single quote so Excel/Calc treat them as
+ * literal text. Leading whitespace (including plain space) is included
+ * because some spreadsheet apps strip it before evaluating a cell (CWE-1236),
+ * which would otherwise let `" =1+1"` through.
  */
 function neutralizeFormula(cell: string) {
-  return /^[=+\-@\t\r\n]/.test(cell) ? `'${cell}` : cell;
+  return /^[\s=+\-@]/.test(cell) ? `'${cell}` : cell;
 }
 
 function xmlEscape(value: string) {

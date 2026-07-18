@@ -287,7 +287,20 @@ export function PdfCanvas({
     // already cleared any stale suppression) so idle pages do no extra work.
     if (coverViewportRects.length === 0) return;
 
-    const observer = new MutationObserver(suppressReplacedTextLayer);
+    // The observer watches the whole stage (the text layer node is created
+    // asynchronously by react-pdf, so it can't be observed directly from the
+    // start), but only text-layer mutations matter. Filtering by target keeps
+    // drag/resize frames — which mutate overlay `style` attributes inside the
+    // same subtree — from re-running the span scan and its forced reflows.
+    const observer = new MutationObserver((mutations) => {
+      const touchesTextLayer = mutations.some((mutation) => {
+        // Only childList/attribute records are observed, so the target is
+        // always an Element.
+        const target = mutation.target as Element;
+        return Boolean(target.closest(".react-pdf__Page__textContent") || target.querySelector(".react-pdf__Page__textContent"));
+      });
+      if (touchesTextLayer) suppressReplacedTextLayer();
+    });
     observer.observe(stage, { childList: true, subtree: true, attributes: true, attributeFilter: ["style"] });
 
     return () => {
@@ -767,7 +780,13 @@ export function PdfCanvas({
                     <button
                       aria-label="Duplicate selected"
                       title="Duplicate selected"
-                      onClick={() => onOperationsAdd(selectedPageOperations.map(cloneOperation))}
+                      onClick={() => {
+                        const duplicates = selectedPageOperations.map(cloneOperation);
+                        onOperationsAdd(duplicates);
+                        // Keep the whole duplicated group selected (add-many
+                        // alone would collapse the selection to the last one).
+                        onOperationSelect(duplicates.map((operation) => operation.id));
+                      }}
                     >
                       <Copy aria-hidden="true" />
                     </button>

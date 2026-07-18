@@ -1283,6 +1283,23 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     expect(overlay.getAttribute("contenteditable")).toBe("false");
   });
 
+  it("pointercancel discards an in-progress drag instead of committing it", () => {
+    const op = shapeOp();
+    const onOperationsTranslate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationsTranslate,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--shape-rectangle") as HTMLElement;
+    fireEvent.pointerDown(overlay, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 180, clientY: 180 });
+    // Browser aborts the gesture (OS touch takeover / stylus dropout):
+    // the accumulated move must be thrown away, not applied.
+    fireEvent.pointerCancel(stage);
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
+  });
+
   it("drag works on an overlay regardless of which tool is active", () => {
     const op = shapeOp();
     const onOperationsTranslate = vi.fn();
@@ -1511,8 +1528,9 @@ describe("PdfCanvas - multi-selection group chrome", () => {
     const ops = groupOps();
     const onOperationsAdd = vi.fn();
     const onOperationsRemove = vi.fn();
+    const onOperationSelect = vi.fn();
     const { container, getByLabelText } = renderCanvas({
-      operations: ops, selectedIds: ["shape-1", "shape-2"], onOperationsAdd, onOperationsRemove,
+      operations: ops, selectedIds: ["shape-1", "shape-2"], onOperationsAdd, onOperationsRemove, onOperationSelect,
     });
     expect(container.querySelector(".group-toolbar__count")?.textContent).toBe("Selected 2 objects");
     fireEvent.click(getByLabelText("Duplicate selected"));
@@ -1520,6 +1538,9 @@ describe("PdfCanvas - multi-selection group chrome", () => {
     const clones = onOperationsAdd.mock.calls[0][0] as EditOperation[];
     expect(clones).toHaveLength(2);
     expect(clones.every((clone) => clone.id !== "shape-1" && clone.id !== "shape-2")).toBe(true);
+    // The whole duplicated group stays selected (add-many alone would
+    // collapse the selection to the last clone).
+    expect(onOperationSelect).toHaveBeenCalledWith(clones.map((clone) => clone.id));
     fireEvent.click(getByLabelText("Delete selected"));
     expect(onOperationsRemove).toHaveBeenCalledWith(["shape-1", "shape-2"]);
   });
@@ -1655,6 +1676,39 @@ describe("PdfCanvas - resize interactions", () => {
     fireEvent.pointerMove(stage, { clientX: 400, clientY: 400 });
     fireEvent.pointerUp(stage);
     expect(onOperationUpdate).toHaveBeenCalled();
+    // The clamp must keep the opposite (SE) edge anchored, not just cap the
+    // size: op rect is x:100..120, y:400..420 (PDF space, page height 792).
+    // MIN_RESIZE_PX is 8, so the clamped rect hugs the SE corner.
+    const [, patch] = onOperationUpdate.mock.calls.at(-1)!;
+    const rect = (patch as { rect: { x: number; y: number; width: number; height: number } }).rect;
+    expect(rect.width).toBe(8);
+    expect(rect.height).toBe(8);
+    expect(rect.x + rect.width).toBeCloseTo(120, 5);
+    expect(rect.y).toBeCloseTo(400, 5);
+  });
+
+  it("resizing from the SE handle clamps size without re-anchoring the NW corner", () => {
+    const op = shapeOp({ rect: { x: 100, y: 400, width: 20, height: 20 } });
+    const onOperationUpdate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationUpdate,
+    });
+    stageRef.current = stage;
+    const handles = container.querySelectorAll(".resize-handle");
+    // The 20x20 rect is below the midpoint-handle threshold, so only corner
+    // handles render: nw(0), ne(1), se(2), sw(3).
+    fireEvent.pointerDown(handles[2], { clientX: 120, clientY: 392, pointerId: 1 });
+    // drag far past the opposite (NW) corner to force min clamp on both axes
+    fireEvent.pointerMove(stage, { clientX: 0, clientY: 300 });
+    fireEvent.pointerUp(stage);
+    const [, patch] = onOperationUpdate.mock.calls.at(-1)!;
+    const rect = (patch as { rect: { x: number; y: number; width: number; height: number } }).rect;
+    expect(rect.width).toBe(8);
+    expect(rect.height).toBe(8);
+    // East/south handles clamp size only — the NW anchor must not move.
+    expect(rect.x).toBeCloseTo(100, 5);
+    expect(rect.y + rect.height).toBeCloseTo(420, 5);
   });
 
   it("resize start without a stage ref does nothing", () => {
@@ -1749,14 +1803,34 @@ describe("PdfCanvas - effects", () => {
     let bounds = { left: 10, top: 100, right: 60, bottom: 150, width: 50, height: 50, x: 10, y: 100, toJSON() { } };
     span.getBoundingClientRect = vi.fn(() => bounds) as typeof span.getBoundingClientRect;
     await waitFor(() => expect(span.getAttribute("data-akki-suppressed")).toBe("true"));
-    // move the span out of the cover region, then trigger the style-attribute
-    // MutationObserver so suppressReplacedTextLayer re-runs and un-suppresses it.
+    // move the span out of the cover region, then trigger a style mutation
+    // INSIDE the text layer so suppressReplacedTextLayer re-runs and
+    // un-suppresses it (mutations elsewhere in the stage are filtered out).
     bounds = { left: 10, top: 700, right: 60, bottom: 740, width: 50, height: 40, x: 10, y: 700, toJSON() { } };
     await act(async () => {
-      (container.querySelector(".react-pdf__Page__canvas") as HTMLElement).style.opacity = "0.99";
+      span.style.opacity = "0.99";
       await new Promise((r) => setTimeout(r, 0));
     });
     await waitFor(() => expect(span.getAttribute("data-akki-suppressed")).toBeNull());
+  });
+
+  it("ignores style mutations outside the text layer (drag frames must not re-trigger the span scan)", async () => {
+    const op = textOp({ sourceCoverRect: { x: 0, y: 600, width: 100, height: 100 }, rect: { x: 0, y: 600, width: 100, height: 100 } });
+    const { container } = renderCanvas({ operations: [op] });
+    await waitFor(() => expect(container.querySelector(".react-pdf__Page__canvas")).toBeTruthy());
+    const span = container.querySelector(".react-pdf__Page__textContent span") as HTMLElement;
+    let bounds = { left: 10, top: 100, right: 60, bottom: 150, width: 50, height: 50, x: 10, y: 100, toJSON() { } };
+    span.getBoundingClientRect = vi.fn(() => bounds) as typeof span.getBoundingClientRect;
+    await waitFor(() => expect(span.getAttribute("data-akki-suppressed")).toBe("true"));
+    // Move the span out of the cover region, then mutate style OUTSIDE the
+    // text layer (what every drag/resize frame does) — the filtered observer
+    // must NOT re-scan, so the span stays suppressed.
+    bounds = { left: 10, top: 700, right: 60, bottom: 740, width: 50, height: 40, x: 10, y: 700, toJSON() { } };
+    await act(async () => {
+      (container.querySelector(".react-pdf__Page__canvas") as HTMLElement).style.opacity = "0.98";
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(span.getAttribute("data-akki-suppressed")).toBe("true");
   });
 
   it("clears a stale suppressed span when no cover rects are present", async () => {

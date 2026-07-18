@@ -19,7 +19,6 @@
         "react-pdf": "^9.2.1",
         "react-router-dom": "^7.17.0",
         "react-select": "^5.10.2",
-        "tailwind-merge": "^3.6.0",
       },
       "devDependencies": {
         "@eslint/js": "9.17.0",
@@ -32,7 +31,7 @@
         "@types/react": "^18.3.17",
         "@types/react-dom": "^18.3.5",
         "@vitejs/plugin-react": "^6.0.2",
-        "@vitest/coverage-v8": "4.1.8",
+        "@vitest/coverage-v8": "^4.1.8",
         "eslint": "9.17.0",
         "eslint-plugin-react-hooks": "5.1.0",
         "eslint-plugin-react-refresh": "0.4.16",
@@ -1074,8 +1073,6 @@
     "supports-preserve-symlinks-flag": ["supports-preserve-symlinks-flag@1.0.0", "", {}, "sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w=="],
 
     "symbol-tree": ["symbol-tree@3.2.4", "", {}, "sha512-9QNk5KwDF+Bvz+PyObkmSYjI5ksVUYtjW7AU22r2NKcfLJcXp96hkDWU3+XndOsUb+AQ9QhfzfCT2O+CNWT5Tw=="],
-
-    "tailwind-merge": ["tailwind-merge@3.6.0", "", {}, "sha512-uxL7qAVQriqRQPAyK3pj66VqskWqoZ37PW94jwOTwNfq/z9oyu1V+eqrZqtR2+fCiXdYOZe/Modt8GtvqNzu+w=="],
 
     "tapable": ["tapable@2.3.3", "", {}, "sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A=="],
 

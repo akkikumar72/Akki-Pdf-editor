@@ -35,6 +35,19 @@ describe("sanitizeUrl", () => {
     expect(isSafeUrl("https://example.com")).toBe(true);
     expect(isSafeUrl("javascript:alert(1)")).toBe(false);
   });
+
+  it("routes mailto through the strict email validator (no cc/bcc/body smuggling)", () => {
+    expect(sanitizeUrl("mailto:victim@example.com?cc=attacker@evil.com&body=hi")).toBeNull();
+    expect(sanitizeUrl("mailto:not-an-address")).toBeNull();
+    // A plain address keeps working through the generic field.
+    expect(sanitizeUrl("mailto:hi@example.com")).toBe("mailto:hi@example.com");
+  });
+
+  it("rejects URLs with embedded credentials (host-spoofing phishing shape)", () => {
+    expect(sanitizeUrl("https://accounts.google.com@evil.com/login")).toBeNull();
+    expect(sanitizeUrl("https://user:pass@example.com")).toBeNull();
+    expect(sanitizeUrl("https://example.com/safe@path")).toBe("https://example.com/safe@path");
+  });
 });
 
 describe("sanitizeEmailToMailto", () => {

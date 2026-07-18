@@ -25,6 +25,8 @@ export default tseslint.config(
       "test-results",
       "node_modules",
       "pdfSameples",
+      // Gitignored scratch space for browser-verification harness scripts and screenshots.
+      "artifacts",
       "**/*.tsbuildinfo",
     ],
   },

@@ -1,3 +1,10 @@
+> **SUPERSEDED (2026-07-18).** This inventory served as the V1 feature map and most
+> of its checklist has shipped (text replacement, shapes, whiteout, signatures,
+> links, forms, find & replace, alignment guides, selective undo, toolbar
+> placement fixes). Do NOT treat the gaps or bugs described below as current —
+> the live backlog is `plans/README.md`. Still-open items from this document
+> (attachments, form tab order, publish-for-signing) are recorded there.
+
 # Reference PDF Editor — Toolbar Feature Inventory
 
 Reference: a leading online PDF editor (URL redacted)

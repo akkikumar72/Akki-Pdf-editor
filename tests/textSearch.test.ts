@@ -96,6 +96,26 @@ describe("replaceAllOccurrences", () => {
   it("returns the text unchanged when nothing matches", () => {
     expect(replaceAllOccurrences("abc", "zzz", "x")).toBe("abc");
   });
+
+  it("keeps indices aligned when the text contains length-changing case folds (Turkish İ)", () => {
+    // "İ".toLowerCase() is TWO UTF-16 units; naive lowercase-then-index would
+    // shift every later match and splice the replacement into the wrong offset.
+    expect(replaceAllOccurrences("İstanbul TOTAL end", "total", "SUM")).toBe("İstanbul SUM end");
+    // The length-changing character itself is not case-matched — but it must
+    // never corrupt the string either.
+    expect(replaceAllOccurrences("İİİ abc", "abc", "xyz")).toBe("İİİ xyz");
+  });
+});
+
+describe("findMatches with length-changing case folds", () => {
+  it("reports offsets in the original string, not the expanded fold", () => {
+    const items = [item({ str: "İzmir Report", rect: { x: 0, y: 700, width: 120, height: 12 } })];
+    const matches = findMatches(items, "report");
+    expect(matches).toHaveLength(1);
+    expect(matches[0].startIndex).toBe(6);
+    expect(matches[0].endIndex).toBe(12);
+    expect(items[0].str.slice(matches[0].startIndex, matches[0].endIndex)).toBe("Report");
+  });
 });
 
 describe("isTextItemReplaced", () => {
@@ -115,8 +135,16 @@ describe("isTextItemReplaced", () => {
     expect(isTextItemReplaced(item(), [whiteout])).toBe(false);
   });
 
-  it("is false when the text op has no sourceCoverRect", () => {
+  it("is false when the text op has no sourceCoverRect and no whiteout", () => {
     expect(isTextItemReplaced(item(), [replacementOp({ sourceCoverRect: undefined })])).toBe(false);
+  });
+
+  it("is true for a manually-whiteouted text op covering the item (no sourceCoverRect)", () => {
+    // The writer masks under the op's own rect when whiteout is on — Find
+    // must treat the covered original as redacted the same way.
+    expect(
+      isTextItemReplaced(item(), [replacementOp({ sourceCoverRect: undefined, whiteout: true })]),
+    ).toBe(true);
   });
 
   it("is false when the op lives on another page", () => {

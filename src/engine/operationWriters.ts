@@ -169,6 +169,11 @@ export async function writeAnnotation(page: PDFPage, operation: AnnotationOperat
   }
 
   const font = await ctx.getFont("Inter");
+  const noteSize = Math.min(13, Math.max(8, rect.height * 0.35));
+  // Probe encodability before painting anything: if the note text can't be
+  // encoded by the resolved font, the operation must fail atomically instead
+  // of leaving an empty box baked into the exported page.
+  if (operation.text) font.widthOfTextAtSize(operation.text, noteSize);
   page.drawRectangle({
     x: rect.x,
     y: rect.y,
@@ -183,7 +188,7 @@ export async function writeAnnotation(page: PDFPage, operation: AnnotationOperat
     page.drawText(operation.text, {
       x: rect.x + 6,
       y: rect.y + Math.max(6, rect.height - 17),
-      size: Math.min(13, Math.max(8, rect.height * 0.35)),
+      size: noteSize,
       font,
       color: hexToRgb(operation.color),
       maxWidth: Math.max(12, rect.width - 12),
@@ -292,6 +297,12 @@ export async function writeSignature(pdf: PDFDocument, page: PDFPage, operation:
 export async function writeStamp(page: PDFPage, operation: StampOperation, opacity: number, ctx: WriterContext) {
   const rect = operation.rect;
   const font = await ctx.getFont("Inter", { bold: true });
+  const probeSize = Math.min(18, Math.max(9, rect.height * (operation.subline ? 0.28 : 0.32)));
+  // Probe encodability before painting anything (atomic skip — see writeAnnotation).
+  font.widthOfTextAtSize(operation.label.toUpperCase(), probeSize);
+  if (operation.subline) {
+    (await ctx.getFont("Inter")).widthOfTextAtSize(operation.subline, probeSize);
+  }
   page.drawRectangle({
     x: rect.x,
     y: rect.y,
@@ -376,6 +387,10 @@ export function writeFormMark(page: PDFPage, operation: FormMarkOperation, opaci
 export async function writeFormField(page: PDFPage, operation: FormFieldOperation, opacity: number, ctx: WriterContext) {
   const rect = operation.rect;
   const font = await ctx.getFont("Inter");
+  // Probe encodability before painting anything (atomic skip — see writeAnnotation).
+  if (operation.kind !== "radio" && operation.kind !== "signature") {
+    font.widthOfTextAtSize(operation.value || operation.name, Math.min(12, Math.max(8, rect.height * 0.3)));
+  }
   page.drawRectangle({
     x: rect.x,
     y: rect.y,

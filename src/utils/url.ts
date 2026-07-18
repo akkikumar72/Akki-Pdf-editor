@@ -28,6 +28,13 @@ export function sanitizeUrl(raw: string | undefined | null): string | null {
   }
 
   if (!SAFE_PROTOCOLS.has(url.protocol)) return null;
+  // A mailto: pasted into the generic URL field must not bypass the stricter
+  // email validator — a full mailto URI can smuggle cc/bcc/body params.
+  if (url.protocol === "mailto:") return sanitizeEmailToMailto(trimmed);
+  // Reject embedded credentials: `https://trusted.com@evil.com` reads as a
+  // trusted-host link but resolves to evil.com — a classic phishing shape,
+  // and no legitimate link target needs userinfo.
+  if (url.username || url.password) return null;
   return url.toString();
 }
 

@@ -705,6 +705,10 @@ describe("operation actions", () => {
     expect(result.current.editState.operations).toHaveLength(4);
     expect(result.current.editState.past).toHaveLength(pastBefore + 1);
     expect(result.current.status).toBe("2 duplicates added");
+    // The full duplicated group stays selected, not just the last clone.
+    const cloneIds = result.current.editState.operations.slice(2).map((operation) => operation.id);
+    expect(result.current.editState.selectedIds).toEqual(cloneIds);
+    expect(result.current.editState.selectedIds).toHaveLength(2);
   });
 
   it("duplicateSelected with a single selection uses the single status", async () => {
@@ -888,6 +892,37 @@ describe("page operations", () => {
     });
     // The new document's fingerprint is `${name}-<ts>` (name fallback branch).
     expect(result.current.document?.fingerprint).toMatch(/^doc\.pdf-\d+$/);
+  });
+
+  it("updateDocumentBytes keeps an existing fingerprint stable (no orphaned autosave sessions)", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    expect(result.current.document?.fingerprint).toBe("fp-1");
+    await act(async () => {
+      await result.current.rotateCurrentPage();
+    });
+    // Re-minting per mutation made every autosave write a brand-new
+    // IndexedDB row; the session identity must survive page operations.
+    expect(result.current.document?.fingerprint).toBe("fp-1");
+  });
+
+  it("page operations preserve the undo/redo history", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      result.current.addOperation(textOp());
+    });
+    const pastBefore = result.current.editState.past.length;
+    expect(pastBefore).toBeGreaterThan(0);
+    await act(async () => {
+      await result.current.rotateCurrentPage();
+    });
+    // Rotating a page is an edit, not a fresh open — undo must still work.
+    expect(result.current.editState.past).toHaveLength(pastBefore);
+    await act(async () => {
+      result.current.dispatch({ type: "undo" });
+    });
+    expect(result.current.editState.operations).toHaveLength(0);
   });
 
   it("updateDocumentBytes filters operations beyond the new page count", async () => {
