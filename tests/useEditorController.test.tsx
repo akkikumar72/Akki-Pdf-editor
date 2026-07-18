@@ -969,7 +969,7 @@ describe("runExport", () => {
     await act(async () => {
       await result.current.runExport("pdf");
     });
-    expect(result.current.status).toBe("PDF exported · 1 edit skipped (characters the font could not encode)");
+    expect(result.current.status).toBe("PDF exported · 1 edit skipped (could not be written — see console for details)");
 
     mockedExport.export.mockResolvedValue({
       skippedOperations: [textOp({ id: "a" }), textOp({ id: "b" })],
@@ -977,7 +977,7 @@ describe("runExport", () => {
     await act(async () => {
       await result.current.runExport("pdf");
     });
-    expect(result.current.status).toBe("PDF exported · 2 edits skipped (characters the font could not encode)");
+    expect(result.current.status).toBe("PDF exported · 2 edits skipped (could not be written — see console for details)");
   });
 
   it("reports an export error", async () => {
