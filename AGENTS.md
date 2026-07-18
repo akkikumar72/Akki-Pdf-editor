@@ -73,8 +73,3 @@ browser; edits are modeled as overlay operations and only written into PDF bytes
   `script-src 'wasm-unsafe-eval'` for PDF.js), and `/pdfjs/*` caching.
 - No runtime environment variables are required. The only optional one is
   `PLAYWRIGHT_CHROME_EXECUTABLE_PATH` for e2e.
-
-## Plans
-
-Implementation plans live in `plans/` with an index at `plans/README.md`. Read it before
-starting larger work and update the status table when a plan lands.
