@@ -91,6 +91,14 @@ describe("normalizeLegacyOperation", () => {
     const out = normalizeLegacyOperations([legacy]);
     expect((out[0] as LinkOperation).target).toEqual({ kind: "url", href: "https://x.dev" });
   });
+
+  it("normalizeLegacyOperations drops retired table-region operations from old sessions", () => {
+    const stale = { id: "tr1", type: "table-region", pageIndex: 0, rect, createdAt: 1, label: "Table 1" } as unknown as EditOperation;
+    const kept = { id: "l1", type: "link", pageIndex: 0, rect, createdAt: 1, href: "https://x.dev" } as unknown as EditOperation;
+    const out = normalizeLegacyOperations([stale, kept]);
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe("l1");
+  });
 });
 
 describe("draftFromTarget", () => {

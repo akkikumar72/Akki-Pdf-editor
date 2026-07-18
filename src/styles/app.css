@@ -2369,14 +2369,6 @@ select:disabled {
   line-height: 1;
 }
 
-.operation--table-region {
-  border: 1px dashed var(--color-accent);
-  background: color-mix(in oklch, var(--color-accent-soft) 45%, transparent);
-  color: var(--color-accent);
-  font-size: var(--text-xs);
-  align-items: start;
-}
-
 .floating-image {
   position: absolute;
   right: var(--space-md);

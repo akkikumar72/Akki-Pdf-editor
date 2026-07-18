@@ -40,17 +40,21 @@ const TOOL_HINTS: Partial<Record<EditorTool, ToolHint>> = {
   ink: { armed: "Click and drag to add a freehand stroke" },
 
   "form-text": { armed: "Make an area selection to place a text field", drawing: "Click and drag to size the field" },
-  "form-multiline": { armed: "Make an area selection to place a text area", drawing: "Click and drag to size the field" },
+  "form-multiline": {
+    armed: "Make an area selection to place a text area",
+    drawing: "Click and drag to size the field",
+  },
   "form-dropdown": { armed: "Make an area selection to place a dropdown", drawing: "Click and drag to size the field" },
-  "form-radio": { armed: "Make an area selection to place a radio choice", drawing: "Click and drag to size the field" },
-  "form-signature": { armed: "Make an area selection to reserve a signature box", drawing: "Click and drag to size the box" },
+  "form-radio": {
+    armed: "Make an area selection to place a radio choice",
+    drawing: "Click and drag to size the field",
+  },
+  "form-signature": {
+    armed: "Make an area selection to reserve a signature box",
+    drawing: "Click and drag to size the box",
+  },
 
   "mark-check": { armed: "Click an existing checkbox on the page to mark it checked" },
-
-  "table-region": {
-    armed: "Make an area selection to mark a table region",
-    drawing: "Click and drag to size the table region",
-  },
 };
 
 export function getToolHint(tool: EditorTool): ToolHint | undefined {

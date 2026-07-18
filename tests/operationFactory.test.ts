@@ -6,7 +6,7 @@ import {
   createTextItemReplacementOperation,
   describeInlineInput,
 } from "../src/editor/operationFactory";
-import type { EditOperation, TextItem } from "../src/types/editor";
+import type { TextItem } from "../src/types/editor";
 import type { TextMatch } from "../src/utils/textSearch";
 import { padReplacementCoverRect } from "../src/utils/textMetrics";
 
@@ -28,7 +28,6 @@ describe("operation factory", () => {
       pageHeight: 792,
       pageIndex: 0,
       scale: 1,
-      operations: [],
       sourceTextItem: textItem,
       sampledBackgroundColor: "#d7ecff",
       sampledTextColor: "#f8fafc",
@@ -52,7 +51,6 @@ describe("operation factory", () => {
       pageHeight: 792,
       pageIndex: 0,
       scale: 1,
-      operations: [],
     });
 
     expect(operation.type).toBe("text");
@@ -67,7 +65,6 @@ describe("operation factory", () => {
       pageHeight: 792,
       pageIndex: 0,
       scale: 1,
-      operations: [],
       sourceTextItem: {
         ...textItem,
         fontName: "g_d1_f1",
@@ -93,7 +90,6 @@ describe("operation factory", () => {
       pageHeight: 792,
       pageIndex: 0,
       scale: 1,
-      operations: [],
       inheritStyleFromTextItem: {
         ...textItem,
         fontName: "g_d1_f1",
@@ -166,7 +162,6 @@ describe("operation factory", () => {
       pageHeight: 792,
       pageIndex: 0,
       scale: 1,
-      operations: [],
       resolvedFields: { name: "status", options: "Paid, Pending" },
     });
 
@@ -182,7 +177,6 @@ describe("operation factory", () => {
     pageHeight: 792,
     pageIndex: 2,
     scale: 1,
-    operations: [] as EditOperation[],
   };
 
   it("uses a reliable embedded font name and keeps detected weight without sampling", () => {
@@ -469,20 +463,6 @@ describe("operation factory", () => {
     expect(operation.options).toEqual([]);
   });
 
-  it("creates a table region with an incrementing label", () => {
-    const [first] = createOperationsForTool({ ...baseInput, activeTool: "table-region" });
-    if (first.type !== "table-region") throw new Error("Expected table-region");
-    expect(first.label).toBe("Table 1");
-
-    const [second] = createOperationsForTool({
-      ...baseInput,
-      activeTool: "table-region",
-      operations: [first],
-    });
-    if (second.type !== "table-region") throw new Error("Expected table-region");
-    expect(second.label).toBe("Table 2");
-  });
-
   it("returns an empty list for unhandled tools", () => {
     expect(createOperationsForTool({ ...baseInput, activeTool: "image" })).toEqual([]);
     expect(createOperationsForTool({ ...baseInput, activeTool: "totally-unknown" as never })).toEqual([]);
@@ -522,7 +502,6 @@ describe("describeInlineInput", () => {
       pageHeight: 792,
       pageIndex: 0,
       scale: 1,
-      operations: [],
       activeTool: "form-text",
       resolvedFields: { name: "first" },
     });
@@ -540,7 +519,7 @@ describe("describeInlineInput", () => {
   });
 
   it("returns null for tools that create immediately with no text input", () => {
-    for (const tool of ["select", "text", "whiteout", "highlight", "shape", "ink", "mark-check", "image", "link", "table-region"] as const) {
+    for (const tool of ["select", "text", "whiteout", "highlight", "shape", "ink", "mark-check", "image", "link"] as const) {
       expect(describeInlineInput(tool, [])).toBeNull();
     }
   });

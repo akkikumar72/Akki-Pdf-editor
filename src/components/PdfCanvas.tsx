@@ -407,7 +407,6 @@ export function PdfCanvas({
           pageHeight,
           pageIndex,
           scale,
-          operations,
           resolvedFields,
           sourceTextItem,
           inheritStyleFromTextItem,

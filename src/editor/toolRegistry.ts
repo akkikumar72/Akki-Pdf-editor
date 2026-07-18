@@ -16,7 +16,6 @@ import {
   Signature,
   Stamp,
   Strikethrough,
-  Table2,
   Type,
   Underline,
 } from "lucide-react";
@@ -29,7 +28,7 @@ export type ToolDefinition = {
   label: string;
   icon: typeof MousePointer2;
   placement: ToolPlacement;
-  group: "core" | "forms" | "media" | "annotate" | "shapes" | "export";
+  group: "core" | "forms" | "media" | "annotate" | "shapes";
   description: string;
 };
 
@@ -68,7 +67,6 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   { id: "shape-ellipse", label: "Ellipse", icon: CircleDot, placement: "region", group: "shapes", description: "Draw an ellipse." },
   { id: "shape-line", label: "Line", icon: PenLine, placement: "region", group: "shapes", description: "Draw a line." },
   { id: "shape-arrow", label: "Arrow", icon: Shapes, placement: "region", group: "shapes", description: "Draw an arrow." },
-  { id: "table-region", label: "Table", icon: Table2, placement: "region", group: "export", description: "Mark a table extraction region." },
 ];
 
 export const TOOL_BY_ID = Object.fromEntries(TOOL_DEFINITIONS.map((tool) => [tool.id, tool])) as Record<EditorTool, ToolDefinition>;
@@ -103,7 +101,6 @@ export const TOOL_GROUPS: ToolGroup[] = [
     primary: "shape",
     tools: ["shape", "shape-ellipse", "shape-line", "shape-arrow"].map((id) => TOOL_BY_ID[id as EditorTool]),
   },
-  { id: "table", label: "Table", primary: "table-region", tools: [TOOL_BY_ID["table-region"]] },
 ];
 
 export function toolLabel(tool: EditorTool) {

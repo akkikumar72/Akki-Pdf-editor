@@ -38,7 +38,6 @@ type CreateOperationInput = {
   pageHeight: number;
   pageIndex: number;
   scale: number;
-  operations: EditOperation[];
   /** Values resolved from the tool's inline input popover (see `describeInlineInput`), keyed by field. */
   resolvedFields?: Record<string, string>;
   sourceTextItem?: TextItem;
@@ -140,7 +139,6 @@ export function createTextItemReplacementOperation(item: TextItem, replacedText:
     pageHeight,
     pageIndex: item.pageIndex,
     scale: 1,
-    operations: [],
     sourceTextItem: { ...item, str: replacedText },
   });
   return operation as TextOperation;
@@ -182,7 +180,6 @@ export function createOperationsForTool({
   pageHeight,
   pageIndex,
   scale,
-  operations,
   resolvedFields,
   sourceTextItem,
   inheritStyleFromTextItem,
@@ -463,20 +460,6 @@ export function createOperationsForTool({
         value: activeTool === "form-signature" ? "Signature" : undefined,
         options,
         checked: activeTool === "form-radio" ? false : undefined,
-        opacity: 1,
-        createdAt: now,
-      },
-    ];
-  }
-
-  if (activeTool === "table-region") {
-    return [
-      {
-        id: createId("table"),
-        type: "table-region",
-        pageIndex,
-        rect: { ...rect, width: Math.max(rect.width, 240), height: Math.max(rect.height, 120) },
-        label: `Table ${operations.filter((operation) => operation.type === "table-region").length + 1}`,
         opacity: 1,
         createdAt: now,
       },

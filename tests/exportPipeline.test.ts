@@ -19,17 +19,10 @@ describe("export pipeline", () => {
     expect(csv).toContain('"Akki","$42"');
   });
 
-  it("filters CSV by table region operations", () => {
-    const csv = new ExportPipeline().toCsv(items, [{
-      id: "table_1",
-      type: "table-region",
-      label: "Table 1",
-      pageIndex: 0,
-      rect: { x: 0, y: 650, width: 220, height: 40 },
-      createdAt: 1,
-    }]);
+  it("exports every text row now that table regions are retired", () => {
+    const csv = new ExportPipeline().toCsv(items, []);
     expect(csv).toContain("Akki");
-    expect(csv).not.toContain("Name");
+    expect(csv).toContain("Name");
   });
 
   it("writes a minimal XLSX workbook with escaped inline strings", () => {

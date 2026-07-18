@@ -427,17 +427,19 @@ describe("Inspector", () => {
   });
 
   it("renders a non-special operation type without type-specific controls", () => {
-    // table-region has no opacity, shape, link, or text branch.
+    // An ink op without an opacity property has no opacity, shape, link, or text branch.
     const op: EditOperation = {
       id: "t1",
-      type: "table-region",
+      type: "ink",
       pageIndex: 4,
       rect,
       createdAt: 1,
-      label: "Table A",
+      points: [],
+      stroke: "#000000",
+      strokeWidth: 2,
     };
     renderInspector(op);
-    expect(screen.getByText("table region")).toBeInTheDocument();
+    expect(screen.getByText("ink")).toBeInTheDocument();
     expect(screen.getByText("Page 5")).toBeInTheDocument();
     expect(screen.queryByLabelText("Opacity")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("URL")).not.toBeInTheDocument();

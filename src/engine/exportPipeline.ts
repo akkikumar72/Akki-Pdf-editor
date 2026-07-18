@@ -121,21 +121,7 @@ export class ExportPipeline {
   }
 
   private tableRows(textItems: TextItem[], operations: EditOperation[]) {
-    const merged = this.effectiveTextItems(textItems, operations);
-    const tableRegions = operations.filter((operation) => operation.type === "table-region");
-    const source = tableRegions.length
-      ? merged.filter((item) =>
-          tableRegions.some((region) =>
-            region.pageIndex === item.pageIndex &&
-            item.rect.x >= region.rect.x &&
-            item.rect.x <= region.rect.x + region.rect.width &&
-            item.rect.y >= region.rect.y &&
-            item.rect.y <= region.rect.y + region.rect.height,
-          ),
-        )
-      : merged;
-
-    return this.groupRows(source).map((row) => row.map((item) => item.str));
+    return this.groupRows(this.effectiveTextItems(textItems, operations)).map((row) => row.map((item) => item.str));
   }
 
   private groupRows(textItems: TextItem[]) {

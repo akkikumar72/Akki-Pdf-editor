@@ -21,8 +21,7 @@ export type EditorTool =
   | "strikeout"
   | "underline"
   | "highlight"
-  | "draw"
-  | "table-region";
+  | "draw";
 
 export type TextAlign = "left" | "center" | "right";
 export type ShapeKind = "rectangle" | "ellipse" | "line" | "arrow";
@@ -167,11 +166,6 @@ export type FormFieldOperation = BaseOperation & {
   required?: boolean;
 };
 
-export type TableRegionOperation = BaseOperation & {
-  type: "table-region";
-  label: string;
-};
-
 export type EditOperation =
   | TextOperation
   | WhiteoutOperation
@@ -183,8 +177,7 @@ export type EditOperation =
   | LinkOperation
   | AnnotationOperation
   | FormMarkOperation
-  | FormFieldOperation
-  | TableRegionOperation;
+  | FormFieldOperation;
 
 export type TextItem = {
   str: string;
