@@ -179,9 +179,13 @@ export type EditOperation =
   | FormMarkOperation
   | FormFieldOperation;
 
-/** A patch valid for at least one operation variant — no casts at call sites. */
+/**
+ * A patch valid for at least one operation variant — no casts at call sites.
+ * Identity fields (`id`, `type`) are omitted so updates cannot re-discriminate
+ * or re-key an existing operation.
+ */
 export type EditOperationPatch = {
-  [K in EditOperation["type"]]: Partial<Extract<EditOperation, { type: K }>>;
+  [K in EditOperation["type"]]: Partial<Omit<Extract<EditOperation, { type: K }>, "id" | "type">>;
 }[EditOperation["type"]];
 
 export type TextItem = {

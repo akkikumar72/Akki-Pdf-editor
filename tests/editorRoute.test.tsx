@@ -18,6 +18,7 @@ type AppShellStubProps = {
   inspector: ReactNode;
   status: ReactNode;
   children: ReactNode;
+  wrapStage?: (stage: ReactNode) => ReactNode;
 };
 
 type ToolRibbonStubProps = {
@@ -92,15 +93,22 @@ vi.mock("react-router-dom", async (orig) => ({
 
 // ---- stub heavy children; each exposes its props through buttons/spans ----
 vi.mock("../src/components/AppShell", () => ({
-  AppShell: ({ header, rail, inspector, status, children }: AppShellStubProps) => (
-    <div data-testid="app-shell">
-      <div data-testid="header">{header}</div>
-      <div data-testid="rail">{rail}</div>
-      <div data-testid="inspector">{inspector}</div>
-      <div data-testid="status">{status}</div>
-      <div data-testid="children">{children}</div>
-    </div>
-  ),
+  AppShell: ({ header, rail, inspector, status, children, wrapStage }: AppShellStubProps) => {
+    const stage = (
+      <>
+        <div data-testid="inspector">{inspector}</div>
+        <div data-testid="children">{children}</div>
+      </>
+    );
+    return (
+      <div data-testid="app-shell">
+        <div data-testid="header">{header}</div>
+        <div data-testid="rail">{rail}</div>
+        <div data-testid="status">{status}</div>
+        {wrapStage ? wrapStage(stage) : stage}
+      </div>
+    );
+  },
 }));
 
 vi.mock("../src/components/ToolRibbon", () => ({
