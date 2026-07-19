@@ -21,6 +21,8 @@
 // are rendered together — only one `FontFamilySelect` instance mounts per
 // test, so the unused set is simply inert extra markup.
 
+import type { ReactNode } from "react";
+
 type StubFontOption = { label: string; value: string };
 
 type StubStyleSlot = (...args: unknown[]) => unknown;
@@ -30,15 +32,15 @@ type StubOptionProps = {
   isFocused: boolean;
   innerProps: Record<string, unknown>;
   getStyles: () => Record<string, unknown>;
-  children?: React.ReactNode;
+  children?: ReactNode;
 };
 
 type SelectProps = {
   styles?: Partial<Record<string, StubStyleSlot>>;
   value?: StubFontOption | null;
   options?: StubFontOption[];
-  components?: { Option?: (props: StubOptionProps) => React.ReactNode };
-  formatOptionLabel?: (option: StubFontOption | null | undefined, meta: { context: string }) => React.ReactNode;
+  components?: { Option?: (props: StubOptionProps) => ReactNode };
+  formatOptionLabel?: (option: StubFontOption | null | undefined, meta: { context: string }) => ReactNode;
   getOptionLabel?: (option: StubFontOption) => string;
   getOptionValue?: (option: StubFontOption) => string;
   filterOption?: (candidate: { data: StubFontOption }, input: string) => boolean;
