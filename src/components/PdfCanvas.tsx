@@ -3,7 +3,7 @@ import { Copy, ImagePlus, Trash2 } from "lucide-react";
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DocumentFonts,
-  EditOperation,
+  EditOperation, EditOperationPatch,
   EditorTool,
   LoadedPdf,
   PdfPoint,
@@ -31,6 +31,7 @@ import { LinkPropertiesDialog, type LinkDialogRequest } from "./LinkPropertiesDi
 import { createLinkOperation } from "../editor/linkTarget";
 import { SignatureModal } from "./SignatureModal";
 import { SignaturePicker } from "./SignaturePicker";
+import { useTextPreview, useTextPreviewDispatch } from "../state/textPreviewContext";
 import { pdfRectToViewport, viewportPointToPdf, viewportRectToPdf } from "../utils/coordinates";
 import { sampleTextBackgroundColor, sampleTextColor, sampleTextFontWeight } from "../utils/canvasTextStyleSampling";
 import { validateImageFile } from "../utils/fileValidation";
@@ -78,7 +79,7 @@ type PdfCanvasProps = {
   onOperationSelect: (ids: string[], additive?: boolean) => void;
   /** Commits a completed move of one or more operations as a single undo entry. */
   onOperationsTranslate: (ids: string[], dx: number, dy: number) => void;
-  onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  onOperationUpdate: (id: string, patch: EditOperationPatch) => void;
 };
 
 function isTextAnnotationTool(tool: EditorTool): tool is "highlight" | "strikeout" | "underline" {
@@ -134,6 +135,8 @@ export function PdfCanvas({
   onOperationsTranslate,
   onOperationUpdate,
 }: PdfCanvasProps) {
+  const textPreview = useTextPreview();
+  const previewTextOperation = useTextPreviewDispatch();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePoint = useRef<PdfPoint | null>(null);
   const [pendingImage, setPendingImage] = useState<{
@@ -150,7 +153,6 @@ export function PdfCanvas({
   } | null>(null);
   const [hintVisible, setHintVisible] = useState(false);
   const [moveModeOperationId, setMoveModeOperationId] = useState<string | undefined>();
-  const [textPreview, setTextPreview] = useState<{ id: string; patch: Partial<TextOperation> } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
   const [pendingInput, setPendingInput] = useState<PendingInputRequest | null>(null);
   const [pendingLink, setPendingLink] = useState<LinkDialogRequest | null>(null);
@@ -460,7 +462,7 @@ export function PdfCanvas({
       onConfirm: (target) => {
         setPendingLink(null);
         if (existing) {
-          onOperationUpdate(existing.id, { target } as Partial<EditOperation>);
+          onOperationUpdate(existing.id, { target });
           return;
         }
         const created = createLinkOperation({ target, pageIndex: operation.pageIndex, rect: operation.rect });
@@ -470,9 +472,9 @@ export function PdfCanvas({
       },
       onDelete: existing
         ? () => {
-            setPendingLink(null);
-            onOperationRemove(existing.id);
-          }
+          setPendingLink(null);
+          onOperationRemove(existing.id);
+        }
         : undefined,
       onCancel: () => setPendingLink(null),
     });
@@ -614,7 +616,7 @@ export function PdfCanvas({
     [onOperationSelect],
   );
   const handleTextChange = useCallback(
-    (id: string, text: string) => onOperationUpdate(id, { text } as Partial<EditOperation>),
+    (id: string, text: string) => onOperationUpdate(id, { text }),
     [onOperationUpdate],
   );
   const handleTextCommit = useCallback(() => setEditingTextId(undefined), []);
@@ -753,7 +755,7 @@ export function PdfCanvas({
                 onLink={addLinkForOperation}
                 onMoveToggle={() =>
                   setMoveModeOperationId((current) => (current === selectedOperation.id ? undefined : selectedOperation.id))}
-                onTextPreview={(id, patch) => setTextPreview(patch ? { id, patch } : null)}
+                onTextPreview={previewTextOperation}
                 onUpdate={onOperationUpdate}
               />
             ) : null}

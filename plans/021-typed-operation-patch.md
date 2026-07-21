@@ -4,17 +4,23 @@
 > command. On any STOP condition, stop and report. Update the status row in
 > `plans/README.md` when done.
 >
-> **Drift check (run first)**: `git diff --stat <planned-at SHA>..HEAD -- src/types/editor.ts src/state/editModel.ts src/components/Inspector.tsx src/components/FloatingOperationToolbar.tsx src/components/PdfCanvas.tsx src/components/useStagePointerGestures.ts`
+> **Drift check (run first)**: `git diff --stat e9a7d80..HEAD -- src/types/editor.ts src/state/editModel.ts src/state/useEditorController.ts src/components/Inspector.tsx src/components/FloatingOperationToolbar.tsx src/components/PdfCanvas.tsx src/components/useStagePointerGestures.ts src/components/FontFamilySelect.tsx`
 > On mismatch, STOP.
+>
+> **Note (2026-07-19 refresh)**: FontFamilySelect WIP adds at least one more
+> cast site in `Inspector.tsx` (`onCommit={(patch) => update(patch as Partial<EditOperation>)}`).
+> Prefer landing plans 025–027 first so font wiring is stable, then run this plan.
+> Cast count at refresh: Inspector ~25, FloatingOperationToolbar 5, PdfCanvas 2,
+> useStagePointerGestures 1 (plus any helper `as` in toolbar `updateTextStyle`).
 
 ## Status
 
 - **Priority**: P2
 - **Effort**: M
 - **Risk**: LOW-MED
-- **Depends on**: none
+- **Depends on**: none (recommended after 025–027 if FontFamilySelect WIP is in flight)
 - **Category**: tech-debt
-- **Planned at**: commit `41f0dd9`, 2026-07-18
+- **Planned at**: commit `e9a7d80`, 2026-07-19 (refreshed from `41f0dd9`)
 
 ## Why this matters
 
@@ -22,8 +28,8 @@
 Because `EditOperation` is a discriminated union, `Partial<EditOperation>`
 only admits fields common to all 11 variants, so every variant-specific patch
 (`text`, `stroke`, `mark`, `target`, `label`, …) needs `as Partial<EditOperation>`
-— 33 casts across `Inspector.tsx` (25), `FloatingOperationToolbar.tsx` (5),
-`PdfCanvas.tsx` (2), `useStagePointerGestures.ts` (1). The casts compile away
+— ~33+ casts across `Inspector.tsx`, `FloatingOperationToolbar.tsx`,
+`PdfCanvas.tsx`, and `useStagePointerGestures.ts`. The casts compile away
 real mistakes: `onUpdate(inkOpId, { text: "x" })` type-checks today.
 
 ## Design

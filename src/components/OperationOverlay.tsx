@@ -137,8 +137,14 @@ function OperationOverlayComponent({
           tabIndex={selected ? 0 : undefined}
           style={{
             ...style,
+            // Gate on `embeddedFontKey` (props), not just `embeddedFamily` (state).
+            // When the user picks a catalog font, the update clears `embeddedFontKey`
+            // in the same render — but `embeddedFamily` stays stale until the effect
+            // runs. Preferring the stale face would leave the overlay looking unchanged
+            // after an Inspector/toolbar font change (tooltip preview hid the bug by
+            // clearing the key in its live patch too).
             fontFamily: [
-              embeddedFamily ? `"${embeddedFamily}"` : null,
+              embeddedFontKey && embeddedFamily ? `"${embeddedFamily}"` : null,
               operation.cssFontFamily ?? resolveFont(operation.fontFamily).cssFamily,
             ].filter(Boolean).join(", "),
             fontSize: operation.fontSize * scale,

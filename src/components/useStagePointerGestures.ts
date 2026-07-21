@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import type { EditOperation, EditorTool, PdfRect, TextItem, ViewportRect } from "../types/editor";
+import type { EditOperation, EditOperationPatch, EditorTool, PdfRect, TextItem, ViewportRect } from "../types/editor";
 import { isRegionTool } from "../editor/toolRegistry";
 import { clampRect, pdfRectToViewport, viewportRectToPdf } from "../utils/coordinates";
 import { collectAlignmentLines, snapViewportRect, type AlignmentLines, type GuideLine } from "../utils/alignmentGuides";
@@ -82,7 +82,7 @@ type UseStagePointerGesturesArgs = {
   /** Called whenever a gesture ends (pointerup/cancel/lost-capture), to clear any UI-level "move mode" toggle. */
   clearMoveMode: () => void;
   onOperationSelect: (ids: string[], additive?: boolean) => void;
-  onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  onOperationUpdate: (id: string, patch: EditOperationPatch) => void;
   /** Commits a completed move of one or more operations as a single undo entry. */
   onOperationsTranslate: (ids: string[], dx: number, dy: number) => void;
   /** Records where to place a new image and opens the file picker; the image tool's placement flow lives in the component. */
@@ -290,7 +290,7 @@ export function useStagePointerGestures({
   /** Dispatches the accumulated local drag/resize position (if any) to the reducer. */
   const commitLiveGesture = () => {
     if (drag?.liveDelta) onOperationsTranslate(drag.ids, drag.liveDelta.dx, drag.liveDelta.dy);
-    if (resize?.liveRect) onOperationUpdate(resize.id, { rect: resize.liveRect } as Partial<EditOperation>);
+    if (resize?.liveRect) onOperationUpdate(resize.id, { rect: resize.liveRect });
   };
 
   const finishGesture = () => {

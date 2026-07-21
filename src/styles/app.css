@@ -1578,11 +1578,29 @@ select:disabled {
   font-size: 1.1rem;
 }
 
+.font-family-select__row,
+.floating-toolbar__font-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.font-family-select__alt,
 .floating-toolbar__font-alt {
   color: color-mix(in oklch, var(--color-muted) 62%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.inspector-font-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.inspector-font-select {
+  width: 100%;
 }
 
 .floating-toolbar__doc-font {

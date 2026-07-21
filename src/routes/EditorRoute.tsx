@@ -8,6 +8,7 @@ import { PdfCanvas } from "../components/PdfCanvas";
 import { StatusBar } from "../components/StatusBar";
 import { ToolRibbon } from "../components/ToolRibbon";
 import { useEditor } from "../state/editorContext";
+import { TextPreviewProvider } from "../state/TextPreviewProvider";
 
 export function EditorRoute() {
   const editor = useEditor();
@@ -63,6 +64,9 @@ export function EditorRoute() {
 
   return (
     <AppShell
+      wrapStage={(stage) => (
+        <TextPreviewProvider selectedIds={editState.selectedIds}>{stage}</TextPreviewProvider>
+      )}
       header={(
         <ToolRibbon
           activeTool={editor.activeTool}

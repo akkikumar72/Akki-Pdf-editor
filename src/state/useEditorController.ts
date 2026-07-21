@@ -6,9 +6,23 @@ import { exportPipeline } from "../engine/exportPipeline";
 import { pdfEngine } from "../engine/pdfEngine";
 import { editReducer, getSelectedOperation, getSelectedOperations, initialEditState } from "./editModel";
 import type { EditState } from "./editModel";
-import type { DocumentFonts, EditOperation, EditorTool, ExportFormat, LoadedPdf, TextItem } from "../types/editor";
+import type {
+  DocumentFonts,
+  EditOperation, EditOperationPatch,
+  EditorTool,
+  ExportFormat,
+  LoadedPdf,
+  TextItem,
+} from "../types/editor";
 import { validatePdfFile } from "../utils/fileValidation";
-import { clearSessions, deleteSession, getLatestSession, getSession, listSessions, saveSession } from "../utils/storage";
+import {
+  clearSessions,
+  deleteSession,
+  getLatestSession,
+  getSession,
+  listSessions,
+  saveSession,
+} from "../utils/storage";
 import type { SavedSession, SessionSummary } from "../utils/storage";
 
 export function useEditorController() {
@@ -29,6 +43,7 @@ export function useEditorController() {
 
   const selectedOperation = useMemo(() => getSelectedOperation(editState), [editState]);
   const selectedOperations = useMemo(() => getSelectedOperations(editState), [editState]);
+
   const visibleOperations = useMemo(
     () => editState.operations.filter((operation) => operation.pageIndex === pageIndex),
     [editState.operations, pageIndex],
@@ -36,43 +51,43 @@ export function useEditorController() {
   // Stable identity across renders that don't touch textItems/pageIndex, so
   // consumers (PdfCanvas's groupEditableTextRuns memo, Inspector) don't re-derive
   // on every unrelated re-render (e.g. a drag/resize commit on another page).
-  const pageTextItems = useMemo(
-    () => textItems.filter((item) => item.pageIndex === pageIndex),
-    [textItems, pageIndex],
-  );
+  const pageTextItems = useMemo(() => textItems.filter((item) => item.pageIndex === pageIndex), [textItems, pageIndex]);
 
-  const loadPdfState = useCallback(async (
-    loaded: LoadedPdf,
-    savedEditState?: Partial<Pick<EditState, "operations" | "past" | "future">>,
-    // Callers that already parsed the document for its page sizes (session
-    // restore, page insert/delete/rotate) pass them through so the same bytes
-    // aren't parsed twice per load.
-    precomputedSizes?: Array<{ width: number; height: number }>,
-  ) => {
-    const [content, sizes] = await Promise.all([
-      pdfEngine.extractTextAndFonts(loaded.bytes),
-      precomputedSizes ?? pdfEngine.getPageSizes(loaded.bytes),
-    ]);
-    setDocument(loaded);
-    setTextItems(content.items);
-    setDocumentFonts(content.fonts);
-    setPageSizes(sizes);
-    // The full imported-annotation id list (not just surviving ops) so a deleted
-    // imported link still suppresses its original annotation at export.
-    setImportedLinkAnnotationIds(
-      content.links.map((link) => link.annotationRef).filter((ref): ref is string => typeof ref === "string"),
-    );
-    // Fresh opens seed the baseline with the document's own links (editable,
-    // not undoable below the baseline). Restored sessions / page mutations
-    // already carry them inside their saved operations.
-    dispatch({
-      type: "reset",
-      operations: savedEditState ? savedEditState.operations : content.links.map(importedLinkOperation),
-      past: savedEditState?.past,
-      future: savedEditState?.future,
-    });
-    setPageIndex((value) => Math.min(value, Math.max(0, loaded.pageCount - 1)));
-  }, []);
+  const loadPdfState = useCallback(
+    async (
+      loaded: LoadedPdf,
+      savedEditState?: Partial<Pick<EditState, "operations" | "past" | "future">>,
+      // Callers that already parsed the document for its page sizes (session
+      // restore, page insert/delete/rotate) pass them through so the same bytes
+      // aren't parsed twice per load.
+      precomputedSizes?: Array<{ width: number; height: number }>,
+    ) => {
+      const [content, sizes] = await Promise.all([
+        pdfEngine.extractTextAndFonts(loaded.bytes),
+        precomputedSizes ?? pdfEngine.getPageSizes(loaded.bytes),
+      ]);
+      setDocument(loaded);
+      setTextItems(content.items);
+      setDocumentFonts(content.fonts);
+      setPageSizes(sizes);
+      // The full imported-annotation id list (not just surviving ops) so a deleted
+      // imported link still suppresses its original annotation at export.
+      setImportedLinkAnnotationIds(
+        content.links.map((link) => link.annotationRef).filter((ref): ref is string => typeof ref === "string"),
+      );
+      // Fresh opens seed the baseline with the document's own links (editable,
+      // not undoable below the baseline). Restored sessions / page mutations
+      // already carry them inside their saved operations.
+      dispatch({
+        type: "reset",
+        operations: savedEditState ? savedEditState.operations : content.links.map(importedLinkOperation),
+        past: savedEditState?.past,
+        future: savedEditState?.future,
+      });
+      setPageIndex((value) => Math.min(value, Math.max(0, loaded.pageCount - 1)));
+    },
+    [],
+  );
 
   const refreshRecentSessions = useCallback(async () => {
     try {
@@ -82,56 +97,62 @@ export function useEditorController() {
     }
   }, []);
 
-  const loadSavedSession = useCallback(async (session: SavedSession, statusMessage?: string) => {
-    const sizes = await pdfEngine.getPageSizes(session.bytes);
-    const pageCount = sizes.length;
-    const loaded: LoadedPdf = {
-      name: session.name,
-      bytes: session.bytes,
-      pageCount,
-      fingerprint: session.id,
-    };
-    const savedEditState = session.editState ?? {
-      operations: session.operations ?? [],
-      past: [],
-      future: [],
-    };
-    await loadPdfState(loaded, savedEditState, sizes);
-    setPageIndex(Math.min(session.pageIndex ?? 0, Math.max(0, pageCount - 1)));
-    setScale(session.scale ?? 1.18);
-    setRotation(session.rotation ?? 0);
-    setStatus(statusMessage ?? `${session.name} restored from this browser`);
-  }, [loadPdfState]);
+  const loadSavedSession = useCallback(
+    async (session: SavedSession, statusMessage?: string) => {
+      const sizes = await pdfEngine.getPageSizes(session.bytes);
+      const pageCount = sizes.length;
+      const loaded: LoadedPdf = {
+        name: session.name,
+        bytes: session.bytes,
+        pageCount,
+        fingerprint: session.id,
+      };
+      const savedEditState = session.editState ?? {
+        operations: session.operations ?? [],
+        past: [],
+        future: [],
+      };
+      await loadPdfState(loaded, savedEditState, sizes);
+      setPageIndex(Math.min(session.pageIndex ?? 0, Math.max(0, pageCount - 1)));
+      setScale(session.scale ?? 1.18);
+      setRotation(session.rotation ?? 0);
+      setStatus(statusMessage ?? `${session.name} restored from this browser`);
+    },
+    [loadPdfState],
+  );
 
-  const openFile = useCallback(async (file: File, password?: string): Promise<boolean> => {
-    if (!password) {
-      const validation = await validatePdfFile(file);
-      if (!validation.ok) {
-        setStatus(validation.reason);
-        return false;
-      }
-    }
-    setIsBusy(true);
-    setStatus(`Opening ${file.name}...`);
-    try {
-      const loaded = await pdfEngine.loadDocument(file, password);
-      await loadPdfState(loaded);
-      setPageIndex(0);
-      setStatus(`${loaded.name} opened · ${loaded.pageCount} pages · local session`);
-      return true;
-    } catch (error) {
-      if (error instanceof Error && /password/i.test(error.message)) {
-        const passwordValue = window.prompt("This PDF is password protected. Enter password:");
-        if (passwordValue) {
-          return openFile(file, passwordValue);
+  const openFile = useCallback(
+    async (file: File, password?: string): Promise<boolean> => {
+      if (!password) {
+        const validation = await validatePdfFile(file);
+        if (!validation.ok) {
+          setStatus(validation.reason);
+          return false;
         }
       }
-      setStatus(error instanceof Error ? error.message : "Could not open PDF.");
-      return false;
-    } finally {
-      setIsBusy(false);
-    }
-  }, [loadPdfState]);
+      setIsBusy(true);
+      setStatus(`Opening ${file.name}...`);
+      try {
+        const loaded = await pdfEngine.loadDocument(file, password);
+        await loadPdfState(loaded);
+        setPageIndex(0);
+        setStatus(`${loaded.name} opened · ${loaded.pageCount} pages · local session`);
+        return true;
+      } catch (error) {
+        if (error instanceof Error && /password/i.test(error.message)) {
+          const passwordValue = window.prompt("This PDF is password protected. Enter password:");
+          if (passwordValue) {
+            return openFile(file, passwordValue);
+          }
+        }
+        setStatus(error instanceof Error ? error.message : "Could not open PDF.");
+        return false;
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [loadPdfState],
+  );
 
   const openBlank = useCallback(async (): Promise<boolean> => {
     setIsBusy(true);
@@ -150,31 +171,45 @@ export function useEditorController() {
     }
   }, [loadPdfState]);
 
-  const saveCurrentSession = useCallback(async (silent = false) => {
-    if (!document) return;
-    const sessionId = document.fingerprint ?? document.name;
-    const savedAt = Date.now();
-    await saveSession({
-      id: sessionId,
-      name: document.name,
-      updatedAt: savedAt,
-      bytes: document.bytes,
-      pageIndex,
-      scale,
-      rotation,
-      operations: editState.operations,
-      editState: {
+  const saveCurrentSession = useCallback(
+    async (silent = false) => {
+      if (!document) return;
+      const sessionId = document.fingerprint ?? document.name;
+      const savedAt = Date.now();
+      await saveSession({
+        id: sessionId,
+        name: document.name,
+        updatedAt: savedAt,
+        bytes: document.bytes,
+        pageIndex,
+        scale,
+        rotation,
         operations: editState.operations,
-        past: editState.past,
-        future: editState.future,
-      },
-    });
-    await refreshRecentSessions();
-    /* v8 ignore next 3 -- saveCurrentSession is only invoked internally with silent=true (autosave + returnHome), so the visible-status branch is unreachable from the public API */
-    if (!silent) {
-      setStatus(`${document.name} saved locally · ${new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
-    }
-  }, [document, editState.future, editState.operations, editState.past, pageIndex, refreshRecentSessions, rotation, scale]);
+        editState: {
+          operations: editState.operations,
+          past: editState.past,
+          future: editState.future,
+        },
+      });
+      await refreshRecentSessions();
+      /* v8 ignore next 3 -- saveCurrentSession is only invoked internally with silent=true (autosave + returnHome), so the visible-status branch is unreachable from the public API */
+      if (!silent) {
+        setStatus(
+          `${document.name} saved locally · ${new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+        );
+      }
+    },
+    [
+      document,
+      editState.future,
+      editState.operations,
+      editState.past,
+      pageIndex,
+      refreshRecentSessions,
+      rotation,
+      scale,
+    ],
+  );
 
   useEffect(() => {
     if (!document) return;
@@ -182,7 +217,16 @@ export function useEditorController() {
       saveCurrentSession(true).catch(() => undefined);
     }, 600);
     return () => window.clearTimeout(timeout);
-  }, [document, editState.future, editState.operations, editState.past, pageIndex, rotation, saveCurrentSession, scale]);
+  }, [
+    document,
+    editState.future,
+    editState.operations,
+    editState.past,
+    pageIndex,
+    rotation,
+    saveCurrentSession,
+    scale,
+  ]);
 
   const restoreLatestSession = useCallback(async (): Promise<boolean> => {
     setIsBusy(true);
@@ -203,33 +247,39 @@ export function useEditorController() {
     }
   }, [loadSavedSession, refreshRecentSessions]);
 
-  const resumeSession = useCallback(async (id: string): Promise<boolean> => {
-    setIsBusy(true);
-    try {
-      const session = await getSession(id);
-      if (!session) {
-        setStatus("Saved session was not found.");
+  const resumeSession = useCallback(
+    async (id: string): Promise<boolean> => {
+      setIsBusy(true);
+      try {
+        const session = await getSession(id);
+        if (!session) {
+          setStatus("Saved session was not found.");
+          return false;
+        }
+        await loadSavedSession(session);
+        return true;
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not restore saved session.");
         return false;
+      } finally {
+        setIsBusy(false);
       }
-      await loadSavedSession(session);
-      return true;
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not restore saved session.");
-      return false;
-    } finally {
-      setIsBusy(false);
-    }
-  }, [loadSavedSession]);
+    },
+    [loadSavedSession],
+  );
 
-  const removeSavedSession = useCallback(async (id: string) => {
-    try {
-      await deleteSession(id);
-      await refreshRecentSessions();
-      setStatus("Local session removed from this browser.");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not remove local session.");
-    }
-  }, [refreshRecentSessions]);
+  const removeSavedSession = useCallback(
+    async (id: string) => {
+      try {
+        await deleteSession(id);
+        await refreshRecentSessions();
+        setStatus("Local session removed from this browser.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not remove local session.");
+      }
+    },
+    [refreshRecentSessions],
+  );
 
   const clearSavedSessions = useCallback(async () => {
     try {
@@ -265,13 +315,11 @@ export function useEditorController() {
     if (operations.length === 0) return;
     dispatch({ type: "add-many", operations });
     setStatus(
-      operations.length === 1
-        ? `${operations[0].type.replace("-", " ")} added`
-        : `${operations.length} edits added`,
+      operations.length === 1 ? `${operations[0].type.replace("-", " ")} added` : `${operations.length} edits added`,
     );
   }, []);
 
-  const updateOperation = useCallback((id: string, patch: Partial<EditOperation>) => {
+  const updateOperation = useCallback((id: string, patch: EditOperationPatch) => {
     dispatch({ type: "update", id, patch });
   }, []);
 
@@ -279,9 +327,7 @@ export function useEditorController() {
     if (editState.selectedIds.length === 0) return;
     dispatch({ type: "remove-many", ids: editState.selectedIds });
     setStatus(
-      editState.selectedIds.length === 1
-        ? "Selection removed"
-        : `${editState.selectedIds.length} objects removed`,
+      editState.selectedIds.length === 1 ? "Selection removed" : `${editState.selectedIds.length} objects removed`,
     );
   }, [editState.selectedIds]);
 
@@ -313,56 +359,60 @@ export function useEditorController() {
     setStatus(selected.length === 1 ? "Duplicate added" : `${selected.length} duplicates added`);
   }, [editState]);
 
-  const updateDocumentBytes = useCallback(async (
-    bytes: Uint8Array,
-    nextPageIndex = pageIndex,
-    statusMessage = "Document updated",
-    // Applied to the live operations AND every preserved past/future history
-    // snapshot — insert/delete change which page each operation belongs to,
-    // so a stale snapshot restored via undo would reattach ops to the wrong
-    // page (or reference a page index that no longer exists). Defaults to
-    // identity because rotate doesn't renumber pages.
-    shiftOperations: (operations: EditOperation[]) => EditOperation[] = (operations) => operations,
-  ) => {
-    /* v8 ignore next -- all callers (insert/delete/rotate page) already early-return when document is null, so this guard never observes a null document */
-    if (!document) return;
-    const sizes = await pdfEngine.getPageSizes(bytes);
-    const next: LoadedPdf = {
-      ...document,
-      bytes,
-      pageCount: sizes.length,
-      // Keep the session identity stable across in-place page mutations —
-      // re-minting per mutation made every autosave write a brand-new
-      // IndexedDB row, orphaning the previous one. Mint only when the
-      // document never had a fingerprint.
-      fingerprint: document.fingerprint ?? `${document.name}-${Date.now()}`,
-    };
-    // Same shift + page-count filter for the live operations and every
-    // preserved history entry, so undo/redo/restore-history land on the
-    // same page renumbering the live document just went through.
-    const remapForNewPageCount = (operations: EditOperation[]) =>
-      shiftOperations(operations).filter((operation) => operation.pageIndex < next.pageCount);
-    // Undo/redo history survives the reload; a page mutation is an edit, not
-    // a fresh document open.
-    await loadPdfState(next, {
-      operations: remapForNewPageCount(editState.operations),
-      past: editState.past.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
-      future: editState.future.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
-    }, sizes);
-    setPageIndex(Math.min(nextPageIndex, Math.max(0, next.pageCount - 1)));
-    setStatus(statusMessage);
-  }, [document, editState.operations, editState.past, editState.future, loadPdfState, pageIndex]);
+  const updateDocumentBytes = useCallback(
+    async (
+      bytes: Uint8Array,
+      nextPageIndex = pageIndex,
+      statusMessage = "Document updated",
+      // Applied to the live operations AND every preserved past/future history
+      // snapshot — insert/delete change which page each operation belongs to,
+      // so a stale snapshot restored via undo would reattach ops to the wrong
+      // page (or reference a page index that no longer exists). Defaults to
+      // identity because rotate doesn't renumber pages.
+      shiftOperations: (operations: EditOperation[]) => EditOperation[] = (operations) => operations,
+    ) => {
+      /* v8 ignore next -- all callers (insert/delete/rotate page) already early-return when document is null, so this guard never observes a null document */
+      if (!document) return;
+      const sizes = await pdfEngine.getPageSizes(bytes);
+      const next: LoadedPdf = {
+        ...document,
+        bytes,
+        pageCount: sizes.length,
+        // Keep the session identity stable across in-place page mutations —
+        // re-minting per mutation made every autosave write a brand-new
+        // IndexedDB row, orphaning the previous one. Mint only when the
+        // document never had a fingerprint.
+        fingerprint: document.fingerprint ?? `${document.name}-${Date.now()}`,
+      };
+      // Same shift + page-count filter for the live operations and every
+      // preserved history entry, so undo/redo/restore-history land on the
+      // same page renumbering the live document just went through.
+      const remapForNewPageCount = (operations: EditOperation[]) =>
+        shiftOperations(operations).filter((operation) => operation.pageIndex < next.pageCount);
+      // Undo/redo history survives the reload; a page mutation is an edit, not
+      // a fresh document open.
+      await loadPdfState(
+        next,
+        {
+          operations: remapForNewPageCount(editState.operations),
+          past: editState.past.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
+          future: editState.future.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
+        },
+        sizes,
+      );
+      setPageIndex(Math.min(nextPageIndex, Math.max(0, next.pageCount - 1)));
+      setStatus(statusMessage);
+    },
+    [document, editState.operations, editState.past, editState.future, loadPdfState, pageIndex],
+  );
 
   const insertPageAfter = useCallback(async () => {
     if (!document) return;
     setIsBusy(true);
     try {
       const bytes = await pdfEngine.insertBlankPage(document.bytes, pageIndex);
-      await updateDocumentBytes(
-        bytes,
-        pageIndex + 1,
-        "Blank page inserted",
-        (operations) => shiftOperationsForInsertedPage(operations, pageIndex + 1),
+      await updateDocumentBytes(bytes, pageIndex + 1, "Blank page inserted", (operations) =>
+        shiftOperationsForInsertedPage(operations, pageIndex + 1),
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not insert page.");
@@ -376,11 +426,8 @@ export function useEditorController() {
     setIsBusy(true);
     try {
       const bytes = await pdfEngine.deletePage(document.bytes, pageIndex);
-      await updateDocumentBytes(
-        bytes,
-        Math.max(0, pageIndex - 1),
-        "Page deleted",
-        (operations) => shiftOperationsForDeletedPage(operations, pageIndex),
+      await updateDocumentBytes(bytes, Math.max(0, pageIndex - 1), "Page deleted", (operations) =>
+        shiftOperationsForDeletedPage(operations, pageIndex),
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete page.");
@@ -407,35 +454,38 @@ export function useEditorController() {
     setStatus("Restored selected edit checkpoint");
   }, []);
 
-  const runExport = useCallback(async (format: ExportFormat) => {
-    if (!document) return;
-    setIsBusy(true);
-    setStatus(`Exporting ${format.toUpperCase()}...`);
-    try {
-      const result = await exportPipeline.export(format, {
-        filename: document.name,
-        bytes: document.bytes,
-        operations: editState.operations,
-        textItems,
-        fonts: documentFonts,
-        suppressLinkAnnotationIds: importedLinkAnnotationIds,
-      });
-      const skipped = result.skippedOperations.length;
-      // The write failure isn't always a font-encoding issue (image decode
-      // errors, pdf-lib internal issues, etc. can hit the same per-operation
-      // catch) — keep the status honest about what's known (something failed)
-      // without over-claiming why. The real cause is logged to the console.
-      setStatus(
-        skipped > 0
-          ? `${format.toUpperCase()} exported · ${skipped} ${skipped === 1 ? "edit" : "edits"} skipped (could not be written — see console for details)`
-          : `${format.toUpperCase()} exported`,
-      );
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : `Could not export ${format}.`);
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, documentFonts, editState.operations, importedLinkAnnotationIds, textItems]);
+  const runExport = useCallback(
+    async (format: ExportFormat) => {
+      if (!document) return;
+      setIsBusy(true);
+      setStatus(`Exporting ${format.toUpperCase()}...`);
+      try {
+        const result = await exportPipeline.export(format, {
+          filename: document.name,
+          bytes: document.bytes,
+          operations: editState.operations,
+          textItems,
+          fonts: documentFonts,
+          suppressLinkAnnotationIds: importedLinkAnnotationIds,
+        });
+        const skipped = result.skippedOperations.length;
+        // The write failure isn't always a font-encoding issue (image decode
+        // errors, pdf-lib internal issues, etc. can hit the same per-operation
+        // catch) — keep the status honest about what's known (something failed)
+        // without over-claiming why. The real cause is logged to the console.
+        setStatus(
+          skipped > 0
+            ? `${format.toUpperCase()} exported · ${skipped} ${skipped === 1 ? "edit" : "edits"} skipped (could not be written — see console for details)`
+            : `${format.toUpperCase()} exported`,
+        );
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : `Could not export ${format}.`);
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [document, documentFonts, editState.operations, importedLinkAnnotationIds, textItems],
+  );
 
   return {
     document,

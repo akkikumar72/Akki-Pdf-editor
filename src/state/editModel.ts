@@ -1,4 +1,4 @@
-import type { EditOperation } from "../types/editor";
+import type { EditOperation, EditOperationPatch } from "../types/editor";
 import { moveOperationZ, translateOperation } from "../editor/selectionModel";
 import { createId } from "../utils/ids";
 
@@ -22,7 +22,7 @@ export type EditState = {
 export type EditAction =
   | { type: "add"; operation: EditOperation }
   | { type: "add-many"; operations: EditOperation[] }
-  | { type: "update"; id: string; patch: Partial<EditOperation> }
+  | { type: "update"; id: string; patch: EditOperationPatch }
   | { type: "translate"; ids: string[]; dx: number; dy: number }
   | { type: "remove"; id: string }
   | { type: "remove-many"; ids: string[] }
