@@ -33,6 +33,17 @@ describe("ToolHub", () => {
     expect(screen.getByText("Private by default")).toBeInTheDocument();
     expect(screen.getByText("Edit in context")).toBeInTheDocument();
     expect(screen.getByText("Export cleanly")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Pricing" })).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "Source code" })).toHaveAttribute(
+      "href",
+      "https://github.com/akkikumar72/Akki-Pdf-editor",
+    );
+    expect(screen.getByText(/Copyright © 2026 Akash Kumar Pathak/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Licence" })).toHaveAttribute("href", "/LICENSE.txt");
+    expect(screen.getByRole("link", { name: "Third-party notices" })).toHaveAttribute(
+      "href",
+      "/THIRD_PARTY_NOTICES.txt",
+    );
   });
 
   it("does not render the status line without a status, and renders it with one", () => {
@@ -156,12 +167,10 @@ describe("ToolHub", () => {
 
   describe("scroll effect", () => {
     it("toggles the floating class based on scrollY", () => {
-      const rafSpy = vi
-        .spyOn(window, "requestAnimationFrame")
-        .mockImplementation((cb: FrameRequestCallback) => {
-          cb(0);
-          return 1;
-        });
+      const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      });
       render(<ToolHub {...makeProps()} />);
       const nav = document.getElementById("lumen-nav") as HTMLElement;
       // Initial onScroll already ran (scrollY 0 -> not floating).

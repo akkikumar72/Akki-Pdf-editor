@@ -12,6 +12,9 @@ docs/assets/audit-*.png
 .claude/worktrees/
 *.tsbuildinfo
 .DS_Store
+.env
+.env.*
+!.env.example
 *.local
 .vercel
 video/out/

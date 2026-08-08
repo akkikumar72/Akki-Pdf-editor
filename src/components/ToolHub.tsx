@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { AuroraBackground } from "./AuroraBackground";
 import { AkkiPdfLogoLink } from "./AkkiPdfLogo";
-import {
-  LumenCloudIcon,
-  LumenShieldNetworkIcon,
-  LumenTrashIcon,
-  LumenUploadIcon,
-} from "./LumenIcons";
+import { LumenCloudIcon, LumenShieldNetworkIcon, LumenTrashIcon, LumenUploadIcon } from "./LumenIcons";
 import type { SessionSummary } from "../utils/storage";
 import { Button } from "./ui/button";
+import { LegalNotice } from "./LegalNotice";
 
 type ToolHubProps = {
   isBusy: boolean;
@@ -89,6 +85,9 @@ export function ToolHub({
       <header className="lumen-nav" id="lumen-nav" ref={navRef}>
         <nav className="lumen-nav__inner" aria-label="PDF editor">
           <AkkiPdfLogoLink className="lumen-wordmark" href="#editor" aria-label="AkkiPDF home" />
+          <a className="lumen-nav__link" href="/pricing">
+            Pricing
+          </a>
           <button className="lumen-nav__cta" type="button" onClick={() => inputRef.current?.click()}>
             Choose file
             <LumenUploadIcon aria-hidden="true" />
@@ -123,7 +122,9 @@ export function ToolHub({
             <div className="pdf-landing__heading">
               <p className="pdf-landing__eyebrow">Local-first PDF workbench</p>
               <h1>Edit PDFs with a lighter touch.</h1>
-              <p>Open a document, make small precise changes, sign, annotate, and export without sending the file away.</p>
+              <p>
+                Open a document, make small precise changes, sign, annotate, and export without sending the file away.
+              </p>
               <div className="pdf-landing__actions">
                 <Button variant="primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
                   Start editing
@@ -134,7 +135,9 @@ export function ToolHub({
               </div>
               <span className="pdf-landing__drop-copy">Drop a PDF anywhere on this section.</span>
               {status ? (
-                <p className="pdf-landing__status" role="status" aria-live="polite">{status}</p>
+                <p className="pdf-landing__status" role="status" aria-live="polite">
+                  {status}
+                </p>
               ) : null}
             </div>
 
@@ -158,7 +161,9 @@ export function ToolHub({
                     <span />
                   </div>
                   <div className="pdf-landing__dropzone">
-                    <span className="pdf-landing__drop-icon"><LumenUploadIcon aria-hidden="true" /></span>
+                    <span className="pdf-landing__drop-icon">
+                      <LumenUploadIcon aria-hidden="true" />
+                    </span>
                     <strong>Bring in a PDF</strong>
                     <small>or create a blank one.</small>
                     <div className="pdf-landing__actions pdf-landing__actions--inside">
@@ -204,7 +209,9 @@ export function ToolHub({
           <section className="pdf-recent-section" aria-label="Recent local sessions">
             <div className="pdf-recent-section__inner">
               <header className="pdf-recent-section__head">
-                <p><span aria-hidden="true" /> Local sessions</p>
+                <p>
+                  <span aria-hidden="true" /> Local sessions
+                </p>
                 <h2>Pick up where you left off.</h2>
               </header>
 
@@ -225,7 +232,9 @@ export function ToolHub({
                     <div className="lumen-recent__row" key={session.id}>
                       <button disabled={isBusy} onClick={() => void onResume(session.id)}>
                         <span>{session.name}</span>
-                        <small>{session.operationCount} edits · {formatRecentTime(session.updatedAt)}</small>
+                        <small>
+                          {session.operationCount} edits · {formatRecentTime(session.updatedAt)}
+                        </small>
                       </button>
                       <button
                         type="button"
@@ -249,7 +258,8 @@ export function ToolHub({
           <div>
             <h2>Start with one PDF.</h2>
             <p>
-              Pick a file, make the small edit, and export a clean copy. No account, no upload queue, no document leaving your browser.
+              Pick a file, make the small edit, and export a clean copy. No account, no upload queue, no document
+              leaving your browser.
             </p>
             <div className="pdf-landing__closing-actions">
               <Button variant="primary" disabled={isBusy} onClick={() => inputRef.current?.click()}>
@@ -283,21 +293,30 @@ export function ToolHub({
                   key={item}
                   type="button"
                   disabled={isBusy}
-                  onClick={() => item === "Blank PDF" ? void onBlank() : document.getElementById("editor")?.scrollIntoView({ behavior: "smooth" })}
+                  onClick={() =>
+                    item === "Blank PDF"
+                      ? void onBlank()
+                      : document.getElementById("editor")?.scrollIntoView({ behavior: "smooth" })
+                  }
                 >
                   {item}
                 </button>
               ))}
               {footerWorkflow.map((item) => (
-                <a key={item} href="#editor">{item}</a>
+                <a key={item} href="#editor">
+                  {item}
+                </a>
               ))}
+              <a href="/pricing">Pricing</a>
+              <a href="https://github.com/akkikumar72/Akki-Pdf-editor">Source code</a>
             </nav>
 
-            <p className="pdf-footer__col pdf-footer__copy">
-              <span>© 2026 AkkiPDF</span>
-              <span>PDF · TXT · CSV · XLSX</span>
-              <span><LumenShieldNetworkIcon aria-hidden="true" /> Local unless you export</span>
-            </p>
+            <div className="pdf-footer__col pdf-footer__copy">
+              <LegalNotice />
+              <span>
+                <LumenShieldNetworkIcon aria-hidden="true" /> Local unless you export
+              </span>
+            </div>
           </div>
         </div>
       </footer>

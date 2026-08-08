@@ -1,4 +1,6 @@
 import { Loader2, ShieldCheck } from "lucide-react";
+import { SOURCE_LINK_LABEL, SOURCE_VERSION_URL } from "../config/pricing";
+import { LegalNotice } from "./LegalNotice";
 
 type StatusBarProps = {
   documentName?: string;
@@ -27,11 +29,12 @@ export function StatusBar({
 }: StatusBarProps) {
   // Sejda-parity readouts take over the message slot while a multi-selection
   // exists (and while it is being dragged); the regular status returns after.
-  const message = movingCount > 1
-    ? `Moving ${movingCount} objects`
-    : selectedCount > 1
-      ? `Selected ${selectedCount} objects`
-      : status;
+  const message =
+    movingCount > 1
+      ? `Moving ${movingCount} objects`
+      : selectedCount > 1
+        ? `Selected ${selectedCount} objects`
+        : status;
   return (
     <div className="status-bar">
       <span className="status-bar__message">
@@ -42,6 +45,13 @@ export function StatusBar({
       <span>{pageCount ? `Page ${pageIndex + 1}/${pageCount}` : "Page -"}</span>
       <span>{operationCount} edits</span>
       <span>{Math.round(scale * 100)}%</span>
+      <a className="status-bar__source" href={SOURCE_VERSION_URL} rel="noreferrer" target="_blank">
+        {SOURCE_LINK_LABEL}
+      </a>
+      <details className="status-bar__legal">
+        <summary>Legal</summary>
+        <LegalNotice />
+      </details>
     </div>
   );
 }

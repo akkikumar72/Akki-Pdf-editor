@@ -2,6 +2,7 @@
   "name": "akki-pdf-editor",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -12,16 +13,19 @@
   "scripts": {
     "postinstall": "git config core.hooksPath .githooks || echo 'warning: could not configure git hooks (core.hooksPath)'",
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "bun run legal:generate && tsc -b && vite build && bun run legal:check",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc -b",
     "lint": "eslint . --max-warnings 0",
+    "legal:check": "bun scripts/check-legal-artifacts.mjs",
+    "legal:generate": "bun scripts/generate-third-party-notices.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage --coverage.include='src/**'",
     "e2e": "playwright test",
+    "polar:verify": "playwright test tests/e2e/polarCheckout.spec.ts",
     "smoke": "bash scripts/smoke-test.sh",
     "video:studio": "remotion studio video/index.ts --public-dir=video/public",
     "video:typecheck": "tsc --noEmit -p video/tsconfig.json",
