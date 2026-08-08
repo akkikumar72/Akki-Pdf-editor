@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { findNearbyTextRunForStyle, groupEditableTextRuns } from "../src/utils/textRunGrouping";
+import {
+  collapseSupersededPaintRuns,
+  findNearbyTextRunForStyle,
+  groupEditableTextRuns,
+} from "../src/utils/textRunGrouping";
 import type { TextItem } from "../src/types/editor";
 
 function item(overrides: Partial<TextItem> = {}): TextItem {
@@ -12,6 +16,37 @@ function item(overrides: Partial<TextItem> = {}): TextItem {
   };
 }
 
+describe("collapseSupersededPaintRuns", () => {
+  it("joins a fragment painted to the left of an existing run", () => {
+    const collapsed = collapseSupersededPaintRuns([
+      item({ str: "Right", rect: { x: 30, y: 700, width: 20, height: 12 } }),
+      item({ str: "Left", rect: { x: 5, y: 700, width: 20, height: 12 } }),
+    ]);
+
+    expect(collapsed.map((entry) => entry.str)).toEqual(["Right", "Left"]);
+  });
+
+  it("assigns a bridge fragment to the closest compatible run", () => {
+    const collapsed = collapseSupersededPaintRuns([
+      item({ str: "A", rect: { x: 0, y: 700, width: 10, height: 12 } }),
+      item({ str: "B", rect: { x: 35, y: 700, width: 10, height: 12 } }),
+      item({ str: "bridge", rect: { x: 20, y: 700, width: 10, height: 12 } }),
+    ]);
+
+    expect(collapsed.map((entry) => entry.str)).toEqual(["A", "B", "bridge"]);
+  });
+
+  it("keeps a bridge fragment with the first run when a later run is farther away", () => {
+    const collapsed = collapseSupersededPaintRuns([
+      item({ str: "A", rect: { x: 0, y: 700, width: 10, height: 12 } }),
+      item({ str: "B", rect: { x: 35, y: 700, width: 10, height: 12 } }),
+      item({ str: "bridge", rect: { x: 15, y: 700, width: 10, height: 12 } }),
+    ]);
+
+    expect(collapsed.map((entry) => entry.str)).toEqual(["A", "bridge", "B"]);
+  });
+});
+
 describe("groupEditableTextRuns", () => {
   it("merges adjacent same-line fragments into one run with a joined string and union rect", () => {
     const runs = groupEditableTextRuns([
@@ -21,6 +56,30 @@ describe("groupEditableTextRuns", () => {
     expect(runs).toHaveLength(1);
     expect(runs[0].str).toBe("Invoice total");
     expect(runs[0].rect).toEqual({ x: 10, y: 700, width: 88, height: 12 });
+  });
+
+  it("keeps only the later text layer when an exported replacement repaints a run", () => {
+    const runs = groupEditableTextRuns([
+      item({ str: "Invoice", rect: { x: 10, y: 700, width: 50, height: 12 } }),
+      item({ str: "total", rect: { x: 64, y: 700, width: 34, height: 12 } }),
+      // PDF export appends the replacement after the covered source operators.
+      item({ str: "Invoice subtotal", rect: { x: 10, y: 700, width: 96, height: 12 } }),
+    ]);
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].str).toBe("Invoice subtotal");
+  });
+
+  it("keeps only the newest layer across repeated exports even when the new text is shorter", () => {
+    const runs = groupEditableTextRuns([
+      item({ str: "Invoice", rect: { x: 10, y: 700, width: 50, height: 12 } }),
+      item({ str: "total", rect: { x: 64, y: 700, width: 34, height: 12 } }),
+      item({ str: "Invoice subtotal", rect: { x: 10, y: 700, width: 96, height: 12 } }),
+      item({ str: "Paid", rect: { x: 10, y: 700, width: 24, height: 12 } }),
+    ]);
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].str).toBe("Paid");
   });
 
   it("joins word fragments split mid-word without inserting a space", () => {

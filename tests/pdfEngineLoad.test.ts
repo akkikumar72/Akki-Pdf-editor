@@ -169,6 +169,21 @@ describe("PdfEngine.extractTextAndFonts", () => {
     expect(fonts.f1).toBeDefined();
   });
 
+  it("drops covered source runs when a later exported replacement restarts at the same origin", async () => {
+    const page = makePage({
+      items: [
+        { str: "Invoice", transform: [20, 0, 0, 20, 72, 700], width: 62, height: 20 },
+        { str: "total", transform: [20, 0, 0, 20, 138, 700], width: 42, height: 20 },
+        { str: "Invoice subtotal", transform: [20, 0, 0, 20, 72, 700], width: 142, height: 20 },
+      ],
+    });
+    state.getDocument.mockReturnValue({ promise: Promise.resolve(makePdf([page])) });
+
+    const { items } = await engine.extractTextAndFonts(new Uint8Array([1]));
+
+    expect(items.map((item) => item.str)).toEqual(["Invoice subtotal"]);
+  });
+
   it("reads only the requested page index", async () => {
     const page0 = makePage({ items: [{ str: "P0", fontName: "a" }] });
     const page1 = makePage({ items: [{ str: "P1", fontName: "b" }] });
@@ -265,7 +280,7 @@ describe("PdfEngine.extractTextAndFonts", () => {
     const page = makePage({
       items: [
         { str: "One", transform: [10, 0, 0, 10, 0, 0], fontName: "dup" },
-        { str: "Two", transform: [10, 0, 0, 10, 0, 0], fontName: "dup" },
+        { str: "Two", transform: [10, 0, 0, 10, 30, 0], fontName: "dup" },
       ],
       commonObjs,
     });
