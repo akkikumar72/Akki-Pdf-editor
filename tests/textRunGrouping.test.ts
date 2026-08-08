@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { findNearbyTextRunForStyle, groupEditableTextRuns } from "../src/utils/textRunGrouping";
+import {
+  collapseSupersededPaintRuns,
+  findNearbyTextRunForStyle,
+  groupEditableTextRuns,
+} from "../src/utils/textRunGrouping";
 import type { TextItem } from "../src/types/editor";
 
 function item(overrides: Partial<TextItem> = {}): TextItem {
@@ -11,6 +15,37 @@ function item(overrides: Partial<TextItem> = {}): TextItem {
     ...overrides,
   };
 }
+
+describe("collapseSupersededPaintRuns", () => {
+  it("joins a fragment painted to the left of an existing run", () => {
+    const collapsed = collapseSupersededPaintRuns([
+      item({ str: "Right", rect: { x: 30, y: 700, width: 20, height: 12 } }),
+      item({ str: "Left", rect: { x: 5, y: 700, width: 20, height: 12 } }),
+    ]);
+
+    expect(collapsed.map((entry) => entry.str)).toEqual(["Right", "Left"]);
+  });
+
+  it("assigns a bridge fragment to the closest compatible run", () => {
+    const collapsed = collapseSupersededPaintRuns([
+      item({ str: "A", rect: { x: 0, y: 700, width: 10, height: 12 } }),
+      item({ str: "B", rect: { x: 35, y: 700, width: 10, height: 12 } }),
+      item({ str: "bridge", rect: { x: 20, y: 700, width: 10, height: 12 } }),
+    ]);
+
+    expect(collapsed.map((entry) => entry.str)).toEqual(["A", "B", "bridge"]);
+  });
+
+  it("keeps a bridge fragment with the first run when a later run is farther away", () => {
+    const collapsed = collapseSupersededPaintRuns([
+      item({ str: "A", rect: { x: 0, y: 700, width: 10, height: 12 } }),
+      item({ str: "B", rect: { x: 35, y: 700, width: 10, height: 12 } }),
+      item({ str: "bridge", rect: { x: 15, y: 700, width: 10, height: 12 } }),
+    ]);
+
+    expect(collapsed.map((entry) => entry.str)).toEqual(["A", "bridge", "B"]);
+  });
+});
 
 describe("groupEditableTextRuns", () => {
   it("merges adjacent same-line fragments into one run with a joined string and union rect", () => {
