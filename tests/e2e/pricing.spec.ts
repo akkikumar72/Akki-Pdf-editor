@@ -9,6 +9,8 @@ test("pricing is honest about the free editor and exposes deployed legal files",
 
   await expect(page.getByRole("heading", { name: "The editor stays free." })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open the editor" }).first()).toHaveAttribute("href", "/");
+  await expect(page.getByText("$29", { exact: true })).toBeVisible();
+  await expect(page.getByText("suggested · $10 minimum", { exact: true })).toBeVisible();
   if (process.env.VITE_POLAR_SUPPORTER_CHECKOUT_URL) {
     await expect(page.getByRole("link", { name: "Continue to Polar" })).toHaveAttribute(
       "href",

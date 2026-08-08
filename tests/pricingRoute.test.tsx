@@ -17,6 +17,11 @@ describe("PricingRoute", () => {
     expect(within(community!).getByText("$0")).toBeInTheDocument();
     expect(within(community!).getByRole("link", { name: "Open the editor" })).toHaveAttribute("href", "/");
 
+    const supporter = screen.getByRole("heading", { name: "Supporter" }).closest("article");
+    expect(supporter).not.toBeNull();
+    expect(within(supporter!).getByText("$29")).toBeInTheDocument();
+    expect(within(supporter!).getByText("suggested · $10 minimum")).toBeInTheDocument();
+
     expect(screen.getByRole("button", { name: "Polar checkout opening soon" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Not for sale yet" })).toBeDisabled();
     expect(screen.getByText("A contribution does not unlock Pro features.")).toBeInTheDocument();

@@ -106,8 +106,8 @@ export function PricingRoute() {
               <h3>Supporter</h3>
               <p>Fund careful, local-first development without buying unfinished features.</p>
               <div className="pricing-card__price">
-                <strong>Choose</strong>
-                <span>one-time amount</span>
+                <strong>$29</strong>
+                <span>suggested · $10 minimum</span>
               </div>
               {supporterCheckoutUrl ? (
                 <a className="pricing-cta" href={supporterCheckoutUrl}>
