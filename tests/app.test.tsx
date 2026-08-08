@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-pdf", () => ({
   Document: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -22,13 +22,37 @@ vi.mock("../src/routes/EditorRoute", () => ({
   EditorRoute: () => <div>Editor</div>,
 }));
 
+vi.mock("../src/routes/PricingRoute", () => ({
+  PricingRoute: () => <div data-testid="pricing">Pricing</div>,
+}));
+
+vi.mock("../src/routes/PricingSuccessRoute", () => ({
+  PricingSuccessRoute: () => <div data-testid="pricing-success">Pricing success</div>,
+}));
+
 import { pdfjs } from "react-pdf";
 import { App } from "../src/App";
+
+afterEach(() => {
+  window.history.replaceState({}, "", "/");
+});
 
 describe("App", () => {
   it("sets the pdf worker source and mounts the landing route", () => {
     render(<App />);
     expect(screen.getByTestId("landing")).toBeInTheDocument();
     expect((pdfjs.GlobalWorkerOptions as { workerSrc: string }).workerSrc).toBe("worker.js");
+  });
+
+  it("mounts the pricing route directly", () => {
+    window.history.replaceState({}, "", "/pricing");
+    render(<App />);
+    expect(screen.getByTestId("pricing")).toBeInTheDocument();
+  });
+
+  it("mounts the Polar return route directly", () => {
+    window.history.replaceState({}, "", "/pricing/success");
+    render(<App />);
+    expect(screen.getByTestId("pricing-success")).toBeInTheDocument();
   });
 });

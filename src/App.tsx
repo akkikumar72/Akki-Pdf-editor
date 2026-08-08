@@ -5,6 +5,8 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { EditorProvider } from "./state/EditorProvider";
 import { LandingRoute } from "./routes/LandingRoute";
 import { EditorRoute } from "./routes/EditorRoute";
+import { PricingRoute } from "./routes/PricingRoute";
+import { PricingSuccessRoute } from "./routes/PricingSuccessRoute";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
@@ -16,6 +18,8 @@ export function App() {
           <Routes>
             <Route path="/" element={<LandingRoute />} />
             <Route path="/pdf-editor" element={<EditorRoute />} />
+            <Route path="/pricing" element={<PricingRoute />} />
+            <Route path="/pricing/success" element={<PricingSuccessRoute />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </EditorProvider>

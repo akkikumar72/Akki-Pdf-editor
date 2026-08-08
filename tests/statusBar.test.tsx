@@ -21,6 +21,16 @@ describe("StatusBar", () => {
     expect(screen.getByText("Page 1/5")).toBeInTheDocument();
     expect(screen.getByText("3 edits")).toBeInTheDocument();
     expect(screen.getByText("123%")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Source repository" })[0]).toHaveAttribute(
+      "href",
+      "https://github.com/akkikumar72/Akki-Pdf-editor",
+    );
+    expect(screen.getByText("Legal")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Licence" })).toHaveAttribute("href", "/LICENSE.txt");
+    expect(screen.getByRole("link", { name: "Third-party notices" })).toHaveAttribute(
+      "href",
+      "/THIRD_PARTY_NOTICES.txt",
+    );
     expect(container.querySelector(".spin")).toBeInTheDocument();
   });
 
@@ -74,14 +84,7 @@ describe("StatusBar", () => {
 
   it("renders idle state, no document, and no pages", () => {
     const { container } = render(
-      <StatusBar
-        isBusy={false}
-        operationCount={0}
-        pageIndex={0}
-        pageCount={0}
-        scale={1}
-        status="Ready"
-      />,
+      <StatusBar isBusy={false} operationCount={0} pageIndex={0} pageCount={0} scale={1} status="Ready" />,
     );
 
     expect(screen.getByText("Ready")).toBeInTheDocument();

@@ -1,21 +1,26 @@
 import { defineConfig, devices } from "@playwright/test";
+import { loadEnv } from "vite";
+
+for (const [key, value] of Object.entries(loadEnv("development", process.cwd(), "VITE_"))) {
+  process.env[key] ??= value;
+}
 
 const chromeExecutablePath = process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH;
+const port = process.env.PLAYWRIGHT_PORT ?? "5173";
+const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
   use: {
-    baseURL: "http://127.0.0.1:5173",
+    baseURL,
     launchOptions: chromeExecutablePath ? { executablePath: chromeExecutablePath } : undefined,
     trace: "on-first-retry",
   },
   webServer: {
-    command: "bun run dev -- --port 5173",
-    url: "http://127.0.0.1:5173",
+    command: `bun run dev -- --port ${port}`,
+    url: baseURL,
     reuseExistingServer: true,
   },
-  projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-  ],
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });
