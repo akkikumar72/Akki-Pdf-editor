@@ -23,6 +23,30 @@ describe("groupEditableTextRuns", () => {
     expect(runs[0].rect).toEqual({ x: 10, y: 700, width: 88, height: 12 });
   });
 
+  it("keeps only the later text layer when an exported replacement repaints a run", () => {
+    const runs = groupEditableTextRuns([
+      item({ str: "Invoice", rect: { x: 10, y: 700, width: 50, height: 12 } }),
+      item({ str: "total", rect: { x: 64, y: 700, width: 34, height: 12 } }),
+      // PDF export appends the replacement after the covered source operators.
+      item({ str: "Invoice subtotal", rect: { x: 10, y: 700, width: 96, height: 12 } }),
+    ]);
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].str).toBe("Invoice subtotal");
+  });
+
+  it("keeps only the newest layer across repeated exports even when the new text is shorter", () => {
+    const runs = groupEditableTextRuns([
+      item({ str: "Invoice", rect: { x: 10, y: 700, width: 50, height: 12 } }),
+      item({ str: "total", rect: { x: 64, y: 700, width: 34, height: 12 } }),
+      item({ str: "Invoice subtotal", rect: { x: 10, y: 700, width: 96, height: 12 } }),
+      item({ str: "Paid", rect: { x: 10, y: 700, width: 24, height: 12 } }),
+    ]);
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].str).toBe("Paid");
+  });
+
   it("joins word fragments split mid-word without inserting a space", () => {
     // Negative/zero gap between "Tech" and "nical" (same word split by the PDF).
     const runs = groupEditableTextRuns([

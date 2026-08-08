@@ -10,6 +10,7 @@ import type {
   LoadedPdf,
   TextItem,
 } from "../types/editor";
+import { collapseSupersededPaintRuns } from "../utils/textRunGrouping";
 import { sanitizeEmailToMailto, sanitizeTel, sanitizeUrl } from "../utils/url";
 import { cleanPdfFontName, inferFontWeight, inferItalic, resolvePdfFont } from "./fontResolver";
 import {
@@ -347,7 +348,7 @@ export class PdfEngine {
       void pdf.destroy().catch(() => undefined);
     }
 
-    return { items, fonts, links };
+    return { items: collapseSupersededPaintRuns(items), fonts, links };
   }
 
   async getPageSizes(bytes: Uint8Array) {
