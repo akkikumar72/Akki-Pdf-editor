@@ -1,4 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
+import { loadEnv } from "vite";
+
+for (const [key, value] of Object.entries(loadEnv("development", process.cwd(), "VITE_"))) {
+  process.env[key] ??= value;
+}
 
 const chromeExecutablePath = process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH;
 const port = process.env.PLAYWRIGHT_PORT ?? "5173";
