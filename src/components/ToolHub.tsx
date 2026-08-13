@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AuroraBackground } from "./AuroraBackground";
-import { AkkiPdfLogoLink } from "./AkkiPdfLogo";
+import { AkkivoLogoLink } from "./AkkivoLogo";
 import { LumenCloudIcon, LumenShieldNetworkIcon, LumenTrashIcon, LumenUploadIcon } from "./LumenIcons";
 import type { SessionSummary } from "../utils/storage";
 import { Button } from "./ui/button";
@@ -84,7 +84,7 @@ export function ToolHub({
     <div className={`tool-hub lumen pdf-landing ${isDragging ? "is-dragging" : ""}`}>
       <header className="lumen-nav" id="lumen-nav" ref={navRef}>
         <nav className="lumen-nav__inner" aria-label="PDF editor">
-          <AkkiPdfLogoLink className="lumen-wordmark" href="#editor" aria-label="AkkiPDF home" />
+          <AkkivoLogoLink className="lumen-wordmark" href="#editor" aria-label="Akkivo home" />
           <a className="lumen-nav__link" href="/pricing">
             Pricing
           </a>
@@ -279,7 +279,7 @@ export function ToolHub({
           <p className="pdf-footer__statement">Files stay close.</p>
 
           <div className="pdf-footer__meta">
-            <AkkiPdfLogoLink className="pdf-footer__brand" href="#editor" aria-label="AkkiPDF home" />
+            <AkkivoLogoLink className="pdf-footer__brand" href="#editor" aria-label="Akkivo home" />
 
             <p className="pdf-footer__col">
               <span>Local workbench</span>

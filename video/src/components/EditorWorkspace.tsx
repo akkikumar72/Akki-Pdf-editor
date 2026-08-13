@@ -51,13 +51,11 @@ function Logo() {
     <div style={{ display: "flex", alignItems: "center", gap: 8, paddingRight: 7 }}>
       <svg width="29" height="29" viewBox="0 0 24 24" fill="none">
         <path
-          fill={COLORS.accent}
-          d="M6 2.75h9.19L19 6.56V19.25A2.25 2.25 0 0 1 16.75 21.5H6A2.25 2.25 0 0 1 3.75 19.25V5.25A2.25 2.25 0 0 1 6 2.75Z"
-          opacity=".58"
+          fill="#32d36f"
+          d="M2.5 21.5 10.7 2.7l3.4 5.7L8 20.5l-5.5 1Z"
         />
-        <path fill={COLORS.accentDark} d="M15.25 2.75V7a1.25 1.25 0 0 0 1.25 1.25H19.5Z" />
-        <path stroke={COLORS.accentDark} strokeWidth="1.5" strokeLinecap="round" d="M7.5 11.25h6.5M7.5 14.25h4.5" />
-        <path fill={COLORS.accentDark} d="m16.72 14.03 3.25 3.25-1.94 1.94-3.25-3.25z" />
+        <path fill="#68783c" d="M10.7 2.7 22 21.5l-6.1-1-3.5-10.3-1.7-7.5Z" />
+        <path fill="#25482f" d="m10.7 2.7 3.4 5.7-1.7 1.8-1.7-7.5Z" />
       </svg>
       <span
         style={{
@@ -68,7 +66,7 @@ function Logo() {
           color: COLORS.ink,
         }}
       >
-        AkkiPDF
+        Akkivo
       </span>
     </div>
   );

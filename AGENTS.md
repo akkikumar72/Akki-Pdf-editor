@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Repo-specific guidance for AI agents and contributors working on Akki PDF Editor.
+Repo-specific guidance for AI agents and contributors working on Akkivo.
 
 ## What this is
 

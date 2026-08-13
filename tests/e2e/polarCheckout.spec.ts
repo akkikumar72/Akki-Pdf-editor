@@ -18,8 +18,8 @@ test.describe("configured Polar Supporter Checkout Link", () => {
       checkout.click(),
     ]);
 
-    await expect(page).toHaveTitle(/AkkiPDF|Polar/i);
-    await expect(page.getByText(/AkkiPDF Supporter/i).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page).toHaveTitle(/Akkivo|Polar/i);
+    await expect(page.getByText(/Akkivo Supporter/i).first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("$29", { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/\$10 minimum/i).first()).toBeVisible();
   });

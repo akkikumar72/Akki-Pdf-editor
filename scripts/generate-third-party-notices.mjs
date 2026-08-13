@@ -163,9 +163,9 @@ ${texts}`;
   })
   .join("\n\n");
 
-const notice = `THIRD-PARTY NOTICES FOR AKKIPDF
+const notice = `THIRD-PARTY NOTICES FOR AKKIVO
 
-AkkiPDF's original source code is licensed under AGPL-3.0-only. Third-party
+Akkivo's original source code is licensed under AGPL-3.0-only. Third-party
 software and assets remain subject to their respective licences and are not
 relicensed under the AGPL. This generated file records the complete licence
 and notice files shipped by the installed production dependency closure.
@@ -220,7 +220,7 @@ REPOSITORY TOOLING
 The tracked .agents/skills/better-icons material is from Better Icons,
 Copyright (c) 2026 Better Auth Inc., under the MIT License. Other tracked
 agent-tooling provenance has not been established and is excluded from any
-blanket statement that all repository tooling is AkkiPDF-authored.
+blanket statement that all repository tooling is Akkivo-authored.
 
 Copyright (c) 2026 Better Auth Inc.
 
@@ -250,7 +250,7 @@ They retain their own terms:
 ${devDependencySummary()}
 
 The Remotion packages use the separate, non-OSI Remotion License. They are
-development-only video tooling and are not covered by AkkiPDF's AGPL grant.
+development-only video tooling and are not covered by Akkivo's AGPL grant.
 Commercial organizations may require a paid Remotion licence. Complete terms:
 https://www.remotion.dev/docs/license
 

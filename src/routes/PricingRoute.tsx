@@ -1,4 +1,4 @@
-import { AkkiPdfLogoLink } from "../components/AkkiPdfLogo";
+import { AkkivoLogoLink } from "../components/AkkivoLogo";
 import { LegalNotice } from "../components/LegalNotice";
 import { parsePolarCheckoutUrl, SOURCE_VERSION_URL, SUPPORTER_CHECKOUT_ENV } from "../config/pricing";
 import "../styles/pricing.css";
@@ -43,7 +43,7 @@ export function PricingRoute() {
   return (
     <div className="pricing-page">
       <header className="pricing-nav">
-        <AkkiPdfLogoLink className="pricing-wordmark" href="/" aria-label="AkkiPDF home" />
+        <AkkivoLogoLink className="pricing-wordmark" href="/" aria-label="Akkivo home" />
         <nav aria-label="Pricing navigation">
           <a href={SOURCE_VERSION_URL} rel="noreferrer" target="_blank">
             Source code

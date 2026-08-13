@@ -43,7 +43,7 @@ describe("ToolRibbon", () => {
     render(<ToolRibbon {...props} />);
     expect(screen.getByText("125%")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText("AkkiPDF home"));
+    fireEvent.click(screen.getByLabelText("Akkivo home"));
     expect(props.onHome).toHaveBeenCalled();
 
     fireEvent.click(screen.getByTitle("Zoom in"));

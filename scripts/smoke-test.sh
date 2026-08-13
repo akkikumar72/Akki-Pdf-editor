@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real-browser smoke test for Akki PDF Editor.
+# Real-browser smoke test for Akkivo.
 #
 # Boots the Vite dev server, drives a headless Chromium via agent-browser
 # (https://agent-browser.dev), uploads a real PDF, and asserts the editor
@@ -73,7 +73,7 @@ $AB viewport 1280 800 >/dev/null 2>&1 || true
 $AB screenshot "$ART/01-landing.png" >/dev/null
 TITLE="$($AB eval "document.title" 2>/dev/null | tr -d '"')"
 echo "  title: $TITLE"
-echo "$TITLE" | grep -qi "AkkiPDF" || fail "landing title missing 'AkkiPDF'"
+echo "$TITLE" | grep -qi "Akkivo" || fail "landing title missing 'Akkivo'"
 
 # 2) Upload a real PDF through the hidden file input.
 echo "• Uploading $PDF_NAME ..."

@@ -178,7 +178,7 @@ test("local save restores the PDF session after reload and can return home", asy
   await expect(page.getByText(/local-save\.pdf restored from this browser/i)).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".operation--text").filter({ hasText: "Saved note" })).toBeVisible();
 
-  await page.getByRole("button", { name: "AkkiPDF home" }).click();
+  await page.getByRole("button", { name: "Akkivo home" }).click();
   await expect(page.getByRole("heading", { name: /lighter touch/i })).toBeVisible();
   const recentSessions = page.getByLabel("Recent local sessions");
   const resumeLocalSave = recentSessions.getByRole("button", { name: /^local-save\.pdf/i });
@@ -189,13 +189,13 @@ test("local save restores the PDF session after reload and can return home", asy
   await resumeLocalSave.click();
   await expect(page.getByText(/local-save\.pdf restored from this browser/i)).toBeVisible({ timeout: 15_000 });
 
-  await page.getByRole("button", { name: "AkkiPDF home" }).click();
+  await page.getByRole("button", { name: "Akkivo home" }).click();
   await removeLocalSave.click();
   await expect(recentSessions.getByRole("button", { name: /^local-save\.pdf/i })).toHaveCount(0);
 
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
   await expect(page.getByText(/local-save\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
-  await page.getByRole("button", { name: "AkkiPDF home" }).click();
+  await page.getByRole("button", { name: "Akkivo home" }).click();
   await expect(recentSessions.getByRole("button", { name: /^local-save\.pdf/i })).toBeVisible();
   await recentSessions.getByRole("button", { name: /clear all/i }).click();
   await expect(page.getByLabel("Recent local sessions")).toHaveCount(0);

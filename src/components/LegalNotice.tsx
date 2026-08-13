@@ -4,7 +4,7 @@ export function LegalNotice() {
   return (
     <div className="legal-notice">
       <p>
-        Copyright © 2026 {COPYRIGHT_HOLDER}. AkkiPDF is free software: you may redistribute and/or modify it under GNU
+        Copyright © 2026 {COPYRIGHT_HOLDER}. Akkivo is free software: you may redistribute and/or modify it under GNU
         AGPL v3.0 only. It is provided without warranty.
       </p>
       <nav aria-label="Legal and source links">

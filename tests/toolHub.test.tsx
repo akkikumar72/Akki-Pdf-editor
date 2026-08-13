@@ -38,7 +38,7 @@ describe("ToolHub", () => {
       "href",
       "https://github.com/akkikumar72/Akki-Pdf-editor",
     );
-    expect(screen.getByText(/Copyright © 2026 Akash Kumar Pathak/)).toBeInTheDocument();
+    expect(screen.getByText(/Copyright © 2026 Akkivo/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Licence" })).toHaveAttribute("href", "/LICENSE.txt");
     expect(screen.getByRole("link", { name: "Third-party notices" })).toHaveAttribute(
       "href",

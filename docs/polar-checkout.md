@@ -1,6 +1,6 @@
 # Polar Checkout Runbook
 
-AkkiPDF uses a public Polar Checkout Link for optional Supporter contributions. The browser redirects to Polar's
+Akkivo uses a public Polar Checkout Link for optional Supporter contributions. The browser redirects to Polar's
 hosted checkout. The app does not embed checkout, create sessions through an API, or hold Polar credentials.
 
 Official references:
@@ -18,7 +18,7 @@ Official references:
 - A visit to `/pricing/success` is not proof of payment. Polar's receipt is the customer-facing confirmation.
 - Supporter contributions do not unlock Pro features or authorize future hosted AI usage.
 - Supporter payments and future Pro subscriptions do not purchase alternative source-code terms. Those require a
-  separate written commercial agreement covering only rights AkkiPDF can grant.
+  separate written commercial agreement covering only rights Akkivo can grant.
 
 ## 1. Create the sandbox product
 
@@ -29,13 +29,13 @@ Create one product with these settings:
 
 | Field             | Value                                                                                                  |
 | ----------------- | ------------------------------------------------------------------------------------------------------ |
-| Name              | `AkkiPDF Supporter (Sandbox)`                                                                          |
+| Name              | `Akkivo Supporter (Sandbox)`                                                                           |
 | Billing cycle     | One-time                                                                                               |
 | Pricing           | Pay what you want                                                                                      |
 | Minimum           | `$10 USD`                                                                                              |
 | Suggested default | `$29 USD`                                                                                              |
 | Benefits          | None                                                                                                   |
-| Description       | `Support the open-source, local-first AkkiPDF editor. This contribution does not unlock Pro features.` |
+| Description       | `Support the open-source, local-first Akkivo editor. This contribution does not unlock Pro features.`  |
 
 Do not attach licence keys, credits, downloads, or feature flags to this product.
 
@@ -48,7 +48,7 @@ Configure:
 
 | Field          | Value                                                                 |
 | -------------- | --------------------------------------------------------------------- |
-| Product        | `AkkiPDF Supporter (Sandbox)`                                         |
+| Product        | `Akkivo Supporter (Sandbox)`                                          |
 | Return URL     | `https://<deployment-host>/pricing`                                   |
 | Success URL    | `https://<deployment-host>/pricing/success?checkout_id={CHECKOUT_ID}` |
 | Discount codes | Off initially                                                         |

@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "akki-pdf-editor",
+      "name": "akkivo",
       "dependencies": {
         "@pdf-lib/fontkit": "^1.1.1",
         "@radix-ui/react-slot": "^1.2.5",

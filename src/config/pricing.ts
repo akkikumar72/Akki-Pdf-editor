@@ -53,11 +53,8 @@ export const LICENSE_URL = SOURCE_LINKS.licenseUrl;
 export function getSourceLinkLabel(isVersionPinned: boolean): string {
   return isVersionPinned ? "Corresponding source" : "Source repository";
 }
-export function getCopyrightHolder(value: unknown): string {
-  return typeof value === "string" && value.trim() ? value.trim() : "Akash Kumar Pathak";
-}
 export const SOURCE_LINK_LABEL = getSourceLinkLabel(SOURCE_LINKS.isVersionPinned);
-export const COPYRIGHT_HOLDER = getCopyrightHolder(import.meta.env.VITE_COPYRIGHT_HOLDER);
+export const COPYRIGHT_HOLDER = "Akkivo";
 
 export const SUPPORTER_CHECKOUT_ENV = "VITE_POLAR_SUPPORTER_CHECKOUT_URL";
 

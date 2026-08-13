@@ -1,8 +1,6 @@
-# Akki PDF Editor
+# Akkivo
 
 Local-first PDF editor workbench with an import, edit, apply, and export flow. Files stay in the browser; edits are modeled as overlays until export so the original PDF bytes are preserved during the editing session.
-
-<img width="3248" height="1784" alt="AkkiPdf" src="https://github.com/user-attachments/assets/a37ee4c6-7ec2-4d77-93cc-34712342f2c1" />
 
 ## Features
 
@@ -60,7 +58,7 @@ systems should set `VITE_SOURCE_COMMIT_SHA` to the exact 7-to-40-character Git c
 
 ## Payments
 
-AkkiPDF uses a public [Polar Checkout Link](https://polar.sh/docs/features/checkout/links) for optional Supporter
+Akkivo uses a public [Polar Checkout Link](https://polar.sh/docs/features/checkout/links) for optional Supporter
 payments. The static app never receives a Polar API token.
 
 Copy `.env.example` to `.env.local` and set the public Checkout Link created in the Polar dashboard:
@@ -92,15 +90,15 @@ V1 uses professional overlay replacement instead of fragile direct rewriting of 
 
 ## License
 
-The AkkiPDF Community edition is licensed under [GNU AGPL v3.0 only](LICENSE). You may use, modify, and distribute it
-under those terms, including for commercial purposes. If you modify AkkiPDF and let users interact with that modified
+The Akkivo Community edition is licensed under [GNU AGPL v3.0 only](LICENSE). You may use, modify, and distribute it
+under those terms, including for commercial purposes. If you modify Akkivo and let users interact with that modified
 version remotely over a network, AGPL Section 13 requires the version to prominently offer those users its
 Corresponding Source. See the licence for complete terms.
 
 Commercial licences with alternative terms may be available under a separate written agreement. Open a
 [licensing inquiry](https://github.com/akkikumar72/Akki-Pdf-editor/issues) to discuss that option. Third-party
 dependencies and assets retain their own licence terms. See [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) and
-[CONTRIBUTING.md](CONTRIBUTING.md). Copyright © 2026 Akash Kumar Pathak.
+[CONTRIBUTING.md](CONTRIBUTING.md). Copyright © 2026 Akkivo.
 
 The Remotion video toolchain uses a separate, non-OSI licence and is not included in the deployed browser app. Do not
 describe the complete development toolchain as entirely open source while those dependencies remain in this repository.

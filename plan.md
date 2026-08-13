@@ -11,7 +11,7 @@ Reference: a leading online PDF editor (URL redacted)
 
 This document lists every toolbar action, dropdown, and sub-option observed in the
 the reference online PDF editor. It is meant as an implementation checklist for adding the
-same capabilities to **Akki PDF Editor**. No implementation is included here — this
+same capabilities to **Akkivo**. No implementation is included here — this
 is purely a feature map for whoever picks it up next.
 
 > Captured by walking through the live editor (loaded with a sample Uber receipt
@@ -57,7 +57,7 @@ into the PDF when you press **Apply changes / Download**.
    **Move / Clone (duplicate) / Delete** buttons. It follows the element.
 6. **Press ESC or click empty space** to deselect / exit the tool.
 
-> Implementation takeaway for Akki PDF Editor: render each annotation as an
+> Implementation takeaway for Akkivo: render each annotation as an
 > absolutely-positioned, draggable + resizable overlay (`div`/`svg`) above the
 > page, keep an in-memory list of edits, show a per-element floating toolbar on
 > selection, and only rasterize/stamp them into the PDF on export.
@@ -310,11 +310,11 @@ Observed on the live reference editor with an existing-text overlay (`#text-edit
 content **"Akki Pathak"**) on an Uber receipt PDF. Reproduced by selecting the text,
 clicking **Move** on the floating toolbar, and dragging while inspecting DOM/CSS.
 
-### 6.1 Why this matters for Akki PDF Editor
+### 6.1 Why this matters for Akkivo
 
-Akki currently differs in three ways that hurt text repositioning UX:
+Akkivo currently differs in three ways that hurt text repositioning UX:
 
-| Behavior | the reference editor (target) | Akki PDF Editor (today) |
+| Behavior | the reference editor (target) | Akkivo (today) |
 |----------|----------------|-------------------------|
 | Move activation | **Two paths:** click Move *or* direct cursor-drag on text | Any pointer-down on overlay starts drag immediately |
 | Move toolbar feedback | Cursor changes to `move` after Move click; drag works even without it | Move icon is passive/decorative (`floating-toolbar__button--passive`) |
@@ -352,7 +352,7 @@ drag immediately repositions it. Observed behavior:
 - After explicit Move click, cursor becomes `move`; during implicit drag it stays
   `auto` — both paths work.
 
-> Akki takeaway: support **both** paths. Default: pointer-down on a selected text
+> Akkivo takeaway: support **both** paths. Default: pointer-down on a selected text
 > overlay starts move-drag (with guides). Optional: clicking Move sets `moveMode` and
 > changes cursor to `move`. Do **not** require Move click before every drag — that
 > would be a regression vs the reference editor. Wire the passive Move icon in
@@ -369,7 +369,7 @@ drag immediately repositions it. Observed behavior:
   then reappears at the new position after drop.
 - Pointer cursor: `grab` in move mode, `grabbing` while dragging.
 
-> Akki takeaway: exclude `type === "text"` from `isResizableOperation()` (or add a
+> Akkivo takeaway: exclude `type === "text"` from `isResizableOperation()` (or add a
 > separate `isMoveOnlyOperation()`). Hide `FloatingOperationToolbar` while dragging.
 
 ### 6.4 Alignment guides (“grid view”)
@@ -418,7 +418,7 @@ recomputed on every drag move.
   (dashed yellow → solid orange) and the element position snaps.
 - **All guides are removed** when drag ends (`guidesLayer` innerHTML cleared).
 
-> Akki takeaway: add a `guidesLayer` sibling inside `.page-stage` in `PdfCanvas.tsx`.
+> Akkivo takeaway: add a `guidesLayer` sibling inside `.page-stage` in `PdfCanvas.tsx`.
 > On drag move, compute candidate horizontal/vertical lines from:
 > - PDF.js text layer item rects (`textItems`)
 > - Other `EditOperation` rects on the same page
@@ -444,7 +444,7 @@ Pointer up
   → edit state unchanged (text content, font, etc. preserved)
 ```
 
-### 6.6 Suggested Akki implementation checklist
+### 6.6 Suggested Akkivo implementation checklist
 
 **State (`PdfCanvas` or editor controller):**
 
@@ -480,11 +480,11 @@ Pointer up
 - [ ] E2E: select text → click Move → drag → assert position changed and no resize handles visible.
 - [ ] Unit: snap helper returns snapped rect when within tolerance.
 
-### 6.7 Floating toolbar placement — VERIFIED (Reference vs Akki gap)
+### 6.7 Floating toolbar placement — VERIFIED (Reference vs Akkivo gap)
 
 Measured live with **"Akki Pathak"** selected on both editors (same Uber receipt).
 
-| Metric | the reference editor | Akki PDF Editor (today) |
+| Metric | the reference editor | Akkivo (today) |
 |--------|-------|-------------------------|
 | Vertical gap (toolbar bottom → text top) | **~15px** | **~12px** (OK) |
 | Horizontal offset (toolbar left − text left) | **0px** (left-aligned) | **−276px** (toolbar far left of text) |
@@ -498,7 +498,7 @@ Measured live with **"Akki Pathak"** selected on both editors (same Uber receipt
 - Placed **directly above** with a tight ~15px gap.
 - Toolbar repositions on every selection/drag end to follow the element.
 
-**Akki root cause (`FloatingOperationToolbar.tsx`):**
+**Akkivo root cause (`FloatingOperationToolbar.tsx`):**
 
 ```ts
 // Current — centers toolbar on text, then clamps to page edge
@@ -512,7 +512,7 @@ When text sits on the **right side** of the page (e.g. "Akki Pathak" at
 `clampToolbarLeft` snaps it to `left: 162px` — **276px away** from the text.
 Visually the toolbar looks detached even though vertical gap is fine.
 
-**Recommended Akki fix:**
+**Recommended Akkivo fix:**
 
 1. **Left-align** toolbar with text (`left = rect.left`), matching the reference editor — not
    center-on-text with a hard page clamp.
@@ -520,7 +520,7 @@ Visually the toolbar looks detached even though vertical gap is fine.
    `estimatedWidth = 430`.
 3. Clamp relative to **both page bounds and text block** so toolbar stays adjacent:
    `clamp(left, 8, min(pageWidth - toolbarWidth - 8, textRight - toolbarWidth))`.
-4. Tighten vertical offset: the reference editor ≈ **15px** gap; Akki uses `top - 48` which works
+4. Tighten vertical offset: the reference editor ≈ **15px** gap; Akkivo uses `top - 48` which works
    only because toolbar height (~36px) absorbs the rest — prefer explicit
    `top = rect.top - toolbarHeight - 12`.
 5. After drag, **recompute placement** from updated operation rect (the reference editor does this).
@@ -539,7 +539,7 @@ Visually the toolbar looks detached even though vertical gap is fine.
 
 ---
 
-## 7. Suggested implementation priority for Akki PDF Editor
+## 7. Suggested implementation priority for Akkivo
 
 > **Near-term UX win:** Section 6 (text move + alignment guides) should land with or
 > immediately after core text — it replaces the current “always draggable + resize

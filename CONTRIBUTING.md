@@ -1,8 +1,8 @@
-# Contributing to AkkiPDF
+# Contributing to Akkivo
 
 Bug reports, reproducible examples, design feedback, and feature proposals are welcome through GitHub Issues.
 
-AkkiPDF is available under AGPL-3.0-only and may also be offered under separate commercial terms. Because that model
+Akkivo is available under AGPL-3.0-only and may also be offered under separate commercial terms. Because that model
 requires permission to relicense every contribution, the project is not accepting unsolicited third-party code
 contributions until a contributor licence agreement has been reviewed and published.
 
