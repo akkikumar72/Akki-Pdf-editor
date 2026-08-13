@@ -47,7 +47,7 @@ bun run e2e
 
 ## Deploy
 
-Deployed as a static SPA on Vercel. `vercel.json` sets the build command (`bun run build`),
+Deployed at [akkivo.app](https://akkivo.app) as a static SPA on Vercel. `vercel.json` sets the build command (`bun run build`),
 output directory (`dist`), security headers (including a Content-Security-Policy tuned for
 the PDF.js worker/WASM), and long-lived caching for the copied `/pdfjs/*` assets. The Node
 version is pinned via `.nvmrc` / the `engines` field. The build copies the canonical licence,
@@ -74,8 +74,8 @@ deployment.
 
 Follow the complete [Polar sandbox and production runbook](docs/polar-checkout.md) before enabling the checkout CTA.
 
-Configure the Checkout Link's return URL as `https://akki-pdf-editor.vercel.app/pricing` and its success URL as
-`https://akki-pdf-editor.vercel.app/pricing/success`. Never put a Polar organization access token, webhook secret,
+Configure the Checkout Link's return URL as `https://akkivo.app/pricing` and its success URL as
+`https://akkivo.app/pricing/success?checkout_id={CHECKOUT_ID}`. Never put a Polar organization access token, webhook secret,
 or AI-provider secret in a `VITE_*` variable.
 
 ## Project Shape

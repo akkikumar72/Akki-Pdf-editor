@@ -46,13 +46,13 @@ after visiting the link.
 
 Configure:
 
-| Field          | Value                                       |
-| -------------- | ------------------------------------------- |
-| Product        | `AkkiPDF Supporter (Sandbox)`               |
-| Return URL     | `https://<deployment-host>/pricing`         |
-| Success URL    | `https://<deployment-host>/pricing/success` |
-| Discount codes | Off initially                               |
-| Trial          | None                                        |
+| Field          | Value                                                                 |
+| -------------- | --------------------------------------------------------------------- |
+| Product        | `AkkiPDF Supporter (Sandbox)`                                         |
+| Return URL     | `https://<deployment-host>/pricing`                                   |
+| Success URL    | `https://<deployment-host>/pricing/success?checkout_id={CHECKOUT_ID}` |
+| Discount codes | Off initially                                                         |
+| Trial          | None                                                                  |
 
 The copied URL should use Polar's sandbox API host and contain a `polar_cl_` Checkout Link identifier.
 
@@ -96,8 +96,8 @@ Create a separate production product and Checkout Link. Do not reuse sandbox ide
 Use these production redirects:
 
 ```text
-Return:  https://akki-pdf-editor.vercel.app/pricing
-Success: https://akki-pdf-editor.vercel.app/pricing/success
+Return:  https://akkivo.app/pricing
+Success: https://akkivo.app/pricing/success?checkout_id={CHECKOUT_ID}
 ```
 
 Set `VITE_POLAR_SUPPORTER_CHECKOUT_URL` in the production deployment to the persistent production Checkout Link,
