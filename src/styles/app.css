@@ -193,7 +193,7 @@ select:disabled {
   grid-area: brand;
 }
 
-.akki-logo {
+.akkivo-logo {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
@@ -207,25 +207,24 @@ select:disabled {
   cursor: pointer;
 }
 
-.akki-logo:disabled {
+.akkivo-logo:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.akki-logo:focus-visible {
+.akkivo-logo:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 3px;
   border-radius: var(--radius-xs);
 }
 
-.akki-logo__mark {
+.akkivo-logo__mark {
   width: 1.45rem;
   height: 1.45rem;
   flex: none;
-  color: var(--color-accent);
 }
 
-.akki-logo__wordmark {
+.akkivo-logo__wordmark {
   font-family: var(--font-wordmark);
   font-size: var(--text-md);
   font-weight: 700;
@@ -233,19 +232,19 @@ select:disabled {
   white-space: nowrap;
 }
 
-.lumen-wordmark.akki-logo,
-.pdf-footer__brand.akki-logo,
-.brand-lockup.akki-logo {
+.lumen-wordmark.akkivo-logo,
+.pdf-footer__brand.akkivo-logo,
+.brand-lockup.akkivo-logo {
   width: fit-content;
 }
 
-.lumen-wordmark.akki-logo .akki-logo__wordmark {
+.lumen-wordmark.akkivo-logo .akkivo-logo__wordmark {
   font-family: var(--font-ui);
   font-size: var(--text-lg);
   font-weight: 850;
 }
 
-.pdf-footer__brand.akki-logo .akki-logo__wordmark {
+.pdf-footer__brand.akkivo-logo .akkivo-logo__wordmark {
   font-family: var(--font-ui);
   font-size: var(--text-lg);
   font-weight: 850;
@@ -4068,7 +4067,7 @@ select:disabled {
   font-weight: 850;
 }
 
-.pdf-landing .lumen-wordmark .akki-logo__wordmark {
+.pdf-landing .lumen-wordmark .akkivo-logo__wordmark {
   font-family: var(--font-ui);
   font-size: var(--text-lg);
   font-weight: 850;

@@ -50,7 +50,7 @@ export function AkkiShowcasePoster() {
               marginBottom: 14,
             }}
           >
-            AKKIPDF · LOCAL-FIRST PDF EDITOR
+            AKKIVO · LOCAL-FIRST PDF EDITOR
           </div>
           <div
             style={{

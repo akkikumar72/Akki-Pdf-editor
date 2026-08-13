@@ -50,7 +50,7 @@ test("pricing is honest about the free editor and exposes deployed legal files",
 test("pricing success explains that Polar owns payment confirmation", async ({ page }) => {
   await page.goto("/pricing/success");
 
-  await expect(page.getByRole("heading", { name: "Thank you for supporting AkkiPDF." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Thank you for supporting Akkivo." })).toBeVisible();
   await expect(page.getByText(/Polar receipt is the confirmation of payment/i)).toBeVisible();
   await expect(page.getByRole("link", { name: "Open the editor" })).toBeVisible();
   await expect(page.getByRole("link", { name: "View source" })).toHaveCount(0);

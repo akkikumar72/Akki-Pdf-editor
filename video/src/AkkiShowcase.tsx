@@ -54,7 +54,7 @@ const CAPTIONS: CaptionSegment[] = [
   { start: 690, end: 810, eyebrow: "SIGN NATURALLY", line: "Draw once. Keep it in this browser." },
   { start: 810, end: 930, eyebrow: "MANAGE PAGES", line: "Add a page. Remove a page." },
   { start: 930, end: 1050, eyebrow: "APPLY + EXPORT", line: "Locally saved. Ready anywhere." },
-  { start: 1050, end: 1140, eyebrow: "AKKIPDF", line: "Edit locally. Export cleanly." },
+  { start: 1050, end: 1140, eyebrow: "AKKIVO", line: "Edit locally. Export cleanly." },
 ];
 
 function Caption() {

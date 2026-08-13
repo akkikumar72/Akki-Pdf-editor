@@ -18,7 +18,7 @@ import { useRef, useState, type KeyboardEvent } from "react";
 import { TOOL_GROUPS } from "../editor/toolRegistry";
 import type { EditHistoryEntry } from "../state/editModel";
 import type { EditorTool, ExportFormat } from "../types/editor";
-import { AkkiPdfLogo } from "./AkkiPdfLogo";
+import { AkkivoLogo } from "./AkkivoLogo";
 import { Button } from "./ui/button";
 
 type ToolRibbonProps = {
@@ -76,9 +76,9 @@ export function ToolRibbon(props: ToolRibbonProps) {
 
   return (
     <div className="tool-ribbon" onKeyDown={handleKeyDown}>
-      <AkkiPdfLogo
+      <AkkivoLogo
         className="tool-ribbon__brand"
-        aria-label="AkkiPDF home"
+        aria-label="Akkivo home"
         disabled={props.disabled}
         title="Back to home"
         onClick={props.onHome}

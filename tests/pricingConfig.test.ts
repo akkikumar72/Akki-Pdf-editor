@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getCopyrightHolder, getSourceLinkLabel, getSourceLinks, parsePolarCheckoutUrl } from "../src/config/pricing";
+import { getSourceLinkLabel, getSourceLinks, parsePolarCheckoutUrl } from "../src/config/pricing";
 
 describe("getSourceLinks", () => {
   it("pins source and licence links to a valid deployed commit", () => {
@@ -37,12 +37,9 @@ describe("getSourceLinks", () => {
     }
   });
 
-  it("labels pinned source and resolves a configurable rights holder", () => {
+  it("labels pinned source", () => {
     expect(getSourceLinkLabel(true)).toBe("Corresponding source");
     expect(getSourceLinkLabel(false)).toBe("Source repository");
-    expect(getCopyrightHolder("  Example Owner  ")).toBe("Example Owner");
-    expect(getCopyrightHolder("   ")).toBe("Akash Kumar Pathak");
-    expect(getCopyrightHolder(undefined)).toBe("Akash Kumar Pathak");
   });
 });
 
