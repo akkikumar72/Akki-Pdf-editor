@@ -12,12 +12,11 @@ import {
   RotateCw,
   Save,
   Search,
-  SlidersHorizontal,
   Trash2,
   Undo2,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { TOOL_GROUPS } from "../editor/toolRegistry";
 import type { EditHistoryEntry } from "../state/editModel";
 import type { EditorTool, ExportFormat } from "../types/editor";
@@ -31,7 +30,6 @@ type ToolRibbonProps = {
   disabled: boolean;
   documentName: string;
   historyEntries: EditHistoryEntry[];
-  propertiesOpen: boolean;
   scale: number;
   selectedIds: string[];
   onExport: (format: ExportFormat) => void;
@@ -39,7 +37,6 @@ type ToolRibbonProps = {
   onFindReplace: () => void;
   onHome: () => void;
   onInsertPage: () => void;
-  onToggleProperties: () => void;
   onRedo: () => void;
   onRemove: () => void;
   onRestoreHistory: (id: string) => void;
@@ -53,6 +50,7 @@ type ToolRibbonProps = {
 
 export function ToolRibbon(props: ToolRibbonProps) {
   const [openGroup, setOpenGroup] = useState<string>();
+  const [compactMenuPosition, setCompactMenuPosition] = useState<Pick<CSSProperties, "left" | "top">>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const newestHistory = props.historyEntries[props.historyEntries.length - 1];
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | undefined>();
@@ -76,6 +74,37 @@ export function ToolRibbon(props: ToolRibbonProps) {
 
     document.addEventListener("pointerdown", closeOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [openGroup]);
+
+  useLayoutEffect(() => {
+    if (!openGroup || !activeMenuRef.current) {
+      setCompactMenuPosition(undefined);
+      return;
+    }
+
+    const menuHost = activeMenuRef.current;
+    const editingBar = menuHost.closest<HTMLElement>(".tool-ribbon__editing-bar");
+    const updatePosition = () => {
+      if (!window.matchMedia?.("(max-width: 74rem)").matches) {
+        setCompactMenuPosition(undefined);
+        return;
+      }
+
+      const hostRect = menuHost.getBoundingClientRect();
+      const viewportPadding = 16;
+      const menuWidth = Math.min(200, window.innerWidth - viewportPadding * 2);
+      const left = Math.min(Math.max(hostRect.left, viewportPadding), window.innerWidth - menuWidth - viewportPadding);
+
+      setCompactMenuPosition({ left, top: hostRect.bottom + 6 });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    editingBar?.addEventListener("scroll", updatePosition, { passive: true });
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      editingBar?.removeEventListener("scroll", updatePosition);
+    };
   }, [openGroup]);
 
   // Escape closes whichever overlay surface is open (tool-variant menu or the
@@ -130,18 +159,6 @@ export function ToolRibbon(props: ToolRibbonProps) {
         <div className="tool-ribbon__document-actions" role="toolbar" aria-label="Document actions">
           <button className="icon-button" aria-label="Find and replace" disabled={props.disabled} title="Find & replace" onClick={props.onFindReplace}>
             <Search aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="Properties"
-            aria-controls="editor-properties"
-            aria-expanded={props.propertiesOpen}
-            disabled={props.selectedIds.length === 0 || props.disabled}
-            title={props.selectedIds.length === 0 ? "Select an edit to view properties" : "Properties"}
-            onClick={props.onToggleProperties}
-          >
-            <SlidersHorizontal aria-hidden="true" />
           </button>
           <Button size="sm" variant="primary" disabled={props.disabled} onClick={() => props.onExport("pdf")}>
             <Save aria-hidden="true" />
@@ -244,6 +261,7 @@ export function ToolRibbon(props: ToolRibbonProps) {
                     className="tool-menu__popover"
                     role="menu"
                     aria-label={`${group.label} tools`}
+                    style={compactMenuPosition}
                     onKeyDown={handleMenuKeyDown}
                   >
                     {group.tools.map((tool, index) => {

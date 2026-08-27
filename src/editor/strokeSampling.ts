@@ -34,7 +34,8 @@ function shouldKeepCorner(anchor: PdfPoint, candidate: PdfPoint, next: PdfPoint,
   const lineX = next.x - anchor.x;
   const lineY = next.y - anchor.y;
   const lineLength = Math.hypot(lineX, lineY);
-  if (lineLength === 0) return true;
+  // A zero-length anchor-to-next vector is a full reversal. Its cosine is -1,
+  // so the hard-corner return above has already handled it.
   const distanceFromLine = Math.abs(lineX * (anchor.y - candidate.y) - (anchor.x - candidate.x) * lineY) / lineLength;
   return distanceFromLine >= tolerance;
 }

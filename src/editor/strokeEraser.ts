@@ -8,6 +8,8 @@ export type StrokePoint = Readonly<{
 export type StrokeEraserDiagnostics = {
   indexNodeVisits: number;
   candidateSegmentChecks: number;
+  /** Number of spatial indexes built while using this diagnostics object. */
+  indexBuilds?: number;
 };
 
 export type StrokeEraserOptions = Readonly<{
@@ -44,18 +46,21 @@ type PreparedEraserSegment = Bounds & {
   lengthSquared: number;
 };
 
-type SegmentIndexNode = Bounds & {
-  segments?: PreparedEraserSegment[];
-  left?: SegmentIndexNode;
-  right?: SegmentIndexNode;
-};
+type SegmentIndexNode = Bounds & (
+  | { segments: PreparedEraserSegment[]; left?: never; right?: never }
+  | { segments?: never; left: SegmentIndexNode; right: SegmentIndexNode }
+);
 
-type PreparedEraser = {
-  bounds?: Bounds;
-  index?: SegmentIndexNode;
+const preparedStrokeEraserPathBrand: unique symbol = Symbol("preparedStrokeEraserPath");
+
+/** Opaque, reusable spatial index for one eraser path and its physical dimensions. */
+export type PreparedStrokeEraserPath = Readonly<{
+  [preparedStrokeEraserPathBrand]: true;
+  bounds: Bounds;
+  index: SegmentIndexNode;
   effectiveRadius: number;
   diagnostics?: StrokeEraserDiagnostics;
-};
+}>;
 
 const GEOMETRY_EPSILON = 1e-9;
 const PARAMETER_EPSILON = 1e-10;
@@ -78,9 +83,7 @@ function clonePoints(points: readonly StrokePoint[]) {
   return clones;
 }
 
-function getPolylineBounds(points: readonly StrokePoint[]): Bounds | undefined {
-  if (points.length === 0) return undefined;
-
+function getPolylineBounds(points: readonly StrokePoint[]): Bounds {
   let minX = points[0].x;
   let minY = points[0].y;
   let maxX = minX;
@@ -137,9 +140,7 @@ function buildSegmentIndexRange(
   };
 }
 
-function buildSegmentIndex(segments: PreparedEraserSegment[]): SegmentIndexNode | undefined {
-  if (segments.length === 0) return undefined;
-
+function buildSegmentIndex(segments: PreparedEraserSegment[]): SegmentIndexNode {
   let minCenterX = (segments[0].minX + segments[0].maxX) / 2;
   let maxCenterX = minCenterX;
   let minCenterY = (segments[0].minY + segments[0].maxY) / 2;
@@ -172,7 +173,7 @@ function visitOverlappingSegments(
   if (diagnostics) diagnostics.indexNodeVisits += 1;
   if (!boundsOverlap(query, node)) return;
 
-  if (node.segments) {
+  if (node.segments !== undefined) {
     for (let index = 0; index < node.segments.length; index += 1) {
       if (diagnostics) diagnostics.candidateSegmentChecks += 1;
       const segment = node.segments[index];
@@ -180,21 +181,23 @@ function visitOverlappingSegments(
     }
     return;
   }
-  if (node.left) visitOverlappingSegments(node.left, query, diagnostics, visit);
-  if (node.right) visitOverlappingSegments(node.right, query, diagnostics, visit);
+  visitOverlappingSegments(node.left, query, diagnostics, visit);
+  visitOverlappingSegments(node.right, query, diagnostics, visit);
 }
 
-function prepareEraser(points: readonly StrokePoint[], options: StrokeEraserOptions): PreparedEraser {
+/** Builds a spatial index that can be reused while erasing many ink strokes. */
+export function prepareStrokeEraserPath(
+  points: readonly StrokePoint[],
+  options: StrokeEraserOptions,
+): PreparedStrokeEraserPath {
   validateOptions(options);
+  if (points.length === 0) throw new RangeError("An eraser path requires at least one point");
   if (options.diagnostics) {
     options.diagnostics.indexNodeVisits = 0;
     options.diagnostics.candidateSegmentChecks = 0;
+    options.diagnostics.indexBuilds = (options.diagnostics.indexBuilds ?? 0) + 1;
   }
   const effectiveRadius = options.eraserRadius + options.strokeWidth / 2;
-  if (points.length === 0) {
-    return { effectiveRadius, diagnostics: options.diagnostics };
-  }
-
   const segmentCount = Math.max(1, points.length - 1);
   const segments = new Array<PreparedEraserSegment>(segmentCount);
 
@@ -221,6 +224,7 @@ function prepareEraser(points: readonly StrokePoint[], options: StrokeEraserOpti
 
   const index = buildSegmentIndex(segments);
   return {
+    [preparedStrokeEraserPathBrand]: true,
     bounds: index,
     index,
     effectiveRadius,
@@ -359,10 +363,13 @@ function mergeIntervals(intervals: Interval[]) {
   return intervals;
 }
 
-function findEraseIntervals(inkStart: StrokePoint, inkEnd: StrokePoint, eraser: PreparedEraser, output: Interval[]) {
+function findEraseIntervals(
+  inkStart: StrokePoint,
+  inkEnd: StrokePoint,
+  eraser: PreparedStrokeEraserPath,
+  output: Interval[],
+) {
   output.length = 0;
-  if (!eraser.bounds || !eraser.index) return output;
-
   const inkBounds = segmentBounds(inkStart, inkEnd);
   if (!boundsOverlap(inkBounds, eraser.bounds)) return output;
 
@@ -393,9 +400,17 @@ export function strokeIntersectsEraser(
   options: StrokeEraserOptions,
 ) {
   if (inkPoints.length === 0 || eraserPoints.length === 0) return false;
-  const eraser = prepareEraser(eraserPoints, options);
+  return strokeIntersectsPreparedEraser(inkPoints, prepareStrokeEraserPath(eraserPoints, options));
+}
+
+/** Tests one ink stroke against an already prepared eraser path. */
+export function strokeIntersectsPreparedEraser(
+  inkPoints: readonly StrokePoint[],
+  eraser: PreparedStrokeEraserPath,
+) {
+  if (inkPoints.length === 0) return false;
   const inkBounds = getPolylineBounds(inkPoints);
-  if (!inkBounds || !eraser.bounds || !boundsOverlap(inkBounds, eraser.bounds)) return false;
+  if (!boundsOverlap(inkBounds, eraser.bounds)) return false;
 
   const intervals: Interval[] = [];
   if (inkPoints.length === 1) {
@@ -418,10 +433,17 @@ export function eraseStrokeByPath(
 ): StrokeEraseResult {
   if (inkPoints.length === 0) return { didErase: false, fragments: [] };
   if (eraserPoints.length === 0) return { didErase: false, fragments: [clonePoints(inkPoints)] };
+  return eraseStrokeByPreparedPath(inkPoints, prepareStrokeEraserPath(eraserPoints, options));
+}
 
-  const eraser = prepareEraser(eraserPoints, options);
+/** Splits one ink stroke using an already prepared eraser path. */
+export function eraseStrokeByPreparedPath(
+  inkPoints: readonly StrokePoint[],
+  eraser: PreparedStrokeEraserPath,
+): StrokeEraseResult {
+  if (inkPoints.length === 0) return { didErase: false, fragments: [] };
   const inkBounds = getPolylineBounds(inkPoints);
-  if (!inkBounds || !eraser.bounds || !boundsOverlap(inkBounds, eraser.bounds)) {
+  if (!boundsOverlap(inkBounds, eraser.bounds)) {
     return { didErase: false, fragments: [clonePoints(inkPoints)] };
   }
 

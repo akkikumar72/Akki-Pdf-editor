@@ -91,6 +91,14 @@ function textOp(overrides: Partial<TextOperation> = {}): TextOperation {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   // Sensible defaults; individual tests override.
@@ -704,6 +712,19 @@ describe("operation actions", () => {
     expect(result.current.status).toBe("Stroke erased");
   });
 
+  it("reports a plural erase status for a multi-stroke replacement", async () => {
+    const { result } = renderHook(() => useEditorController());
+
+    await act(async () => {
+      result.current.replaceOperations([
+        { id: "ink-one", operations: [] },
+        { id: "ink-two", operations: [] },
+      ]);
+    });
+
+    expect(result.current.status).toBe("2 strokes erased");
+  });
+
   it("replaceOperations ignores an empty replacement batch", async () => {
     const { result } = renderHook(() => useEditorController());
     const statusBefore = result.current.status;
@@ -795,12 +816,163 @@ describe("operation actions", () => {
 });
 
 describe("page operations", () => {
+  it("no-ops undo, redo, and an unknown history restore when no checkpoint exists", async () => {
+    const { result } = renderHook(() => useEditorController());
+
+    await act(async () => {
+      await result.current.undo();
+      await result.current.redo();
+      await result.current.restoreHistoryEntry("missing");
+    });
+
+    expect(result.current.editState).toMatchObject({ past: [], future: [], operations: [] });
+  });
+
+  it("redoes an ordinary overlay edit without restoring document bytes", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      result.current.addOperation(textOp());
+    });
+    await act(async () => {
+      await result.current.undo();
+    });
+    expect(result.current.editState.operations).toHaveLength(0);
+
+    await act(async () => {
+      await result.current.redo();
+    });
+
+    expect(result.current.editState.operations).toHaveLength(1);
+    expect(mockedEngine.getPageSizes).toHaveBeenCalledTimes(1);
+  });
+
   it("cropPages no-ops without a document", async () => {
     const { result } = renderHook(() => useEditorController());
     await act(async () => {
       await result.current.cropPages({ x: 10, y: 10, width: 100, height: 100 }, "current");
     });
     expect(mockedEngine.cropPages).not.toHaveBeenCalled();
+  });
+
+  it("reports when the selected page has no known crop geometry", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    act(() => result.current.setPageIndex(3));
+
+    await act(async () => {
+      await result.current.cropPages({ x: 10, y: 10, width: 100, height: 100 }, "current");
+    });
+
+    expect(mockedEngine.cropPages).not.toHaveBeenCalled();
+    expect(result.current.status).toBe("Could not determine the page size for cropping.");
+  });
+
+  it("keeps a pending crop authoritative instead of starting a concurrent page insertion", async () => {
+    const pendingCrop = deferred<Awaited<ReturnType<typeof pdfEngine.cropPages>>>();
+    const pendingInsert = deferred<Uint8Array>();
+    mockedEngine.cropPages.mockReturnValueOnce(pendingCrop.promise);
+    mockedEngine.insertBlankPage.mockReturnValueOnce(pendingInsert.promise);
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+
+    let cropRequest!: Promise<void>;
+    let insertRequest!: Promise<void>;
+    act(() => {
+      cropRequest = result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+      insertRequest = result.current.insertPageAfter();
+    });
+
+    await act(async () => {
+      pendingCrop.resolve({
+        bytes: new Uint8Array([9]),
+        cropBounds: [{ pageIndex: 0, rect: { x: 61.2, y: 79.2, width: 306, height: 396 } }],
+      });
+      await cropRequest;
+    });
+    await act(async () => {
+      pendingInsert.resolve(new Uint8Array([7]));
+      await insertRequest;
+    });
+
+    expect(mockedEngine.insertBlankPage).not.toHaveBeenCalled();
+    expect(Array.from(result.current.document!.bytes)).toEqual([9]);
+    expect(result.current.status).toBe("Page 1 cropped");
+    expect(result.current.isBusy).toBe(false);
+  });
+
+  it("does not dispatch ordinary undo, redo, or history restore while a page mutation is pending", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      result.current.addOperation(textOp());
+    });
+    await act(async () => {
+      result.current.addOperation(textOp({ id: "text_2" }));
+    });
+    await act(async () => {
+      await result.current.undo();
+    });
+    const checkpointId = result.current.editState.past[0].id;
+    const stateBeforeMutation = result.current.editState;
+    const pendingRotation = deferred<Uint8Array>();
+    mockedEngine.rotatePage.mockReturnValueOnce(pendingRotation.promise);
+
+    let rotationRequest!: Promise<void>;
+    act(() => {
+      rotationRequest = result.current.rotateCurrentPage();
+    });
+    await act(async () => {
+      await result.current.undo();
+    });
+    const stateAfterUndo = result.current.editState;
+    await act(async () => {
+      await result.current.redo();
+    });
+    const stateAfterRedo = result.current.editState;
+    await act(async () => {
+      await result.current.restoreHistoryEntry(checkpointId);
+    });
+    const stateAfterRestore = result.current.editState;
+
+    await act(async () => {
+      pendingRotation.resolve(new Uint8Array([9]));
+      await rotationRequest;
+    });
+
+    expect(stateAfterUndo).toEqual(stateBeforeMutation);
+    expect(stateAfterRedo).toEqual(stateBeforeMutation);
+    expect(stateAfterRestore).toEqual(stateBeforeMutation);
+  });
+
+  it("does not start a page mutation while snapshot undo is hydrating", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+    const pendingContent = deferred<Awaited<ReturnType<typeof pdfEngine.extractTextAndFonts>>>();
+    const pendingInsert = deferred<Uint8Array>();
+    mockedEngine.extractTextAndFonts.mockReturnValueOnce(pendingContent.promise);
+    mockedEngine.insertBlankPage.mockReturnValueOnce(pendingInsert.promise);
+
+    let undoRequest!: Promise<void>;
+    let insertRequest!: Promise<void>;
+    act(() => {
+      undoRequest = result.current.undo();
+      insertRequest = result.current.insertPageAfter();
+    });
+    await act(async () => {
+      pendingContent.resolve({ items: [], fonts: {}, links: [] });
+      await undoRequest;
+    });
+    await act(async () => {
+      pendingInsert.resolve(new Uint8Array([7]));
+      await insertRequest;
+    });
+
+    expect(mockedEngine.insertBlankPage).not.toHaveBeenCalled();
+    expect(Array.from(result.current.document!.bytes)).toEqual([1, 2, 3]);
   });
 
   it("normalizes a crop selection against an existing visible CropBox", async () => {
@@ -983,6 +1155,107 @@ describe("page operations", () => {
     });
     expect(mockedEngine.cropPages).toHaveBeenCalledWith(expect.any(Uint8Array), expect.any(Object), { kind: "all" });
     expect(result.current.status).toBe("Crop too small");
+  });
+
+  it("completes an all-page crop with the all-pages status", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+
+    await act(async () => {
+      await result.current.cropPages({ x: 10, y: 10, width: 100, height: 100 }, "all");
+    });
+
+    expect(result.current.status).toBe("All pages cropped");
+    expect(result.current.activeTool).toBe("select");
+  });
+
+  it("reports the crop fallback for a non-Error rejection", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    mockedEngine.cropPages.mockRejectedValueOnce("crop failed");
+
+    await act(async () => {
+      await result.current.cropPages({ x: 10, y: 10, width: 100, height: 100 }, "current");
+    });
+
+    expect(result.current.status).toBe("Could not crop the document.");
+  });
+
+  it("restores a history checkpoint that owns a document snapshot", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+    const checkpoint = result.current.editState.past.at(-1)!;
+
+    await act(async () => {
+      await result.current.restoreHistoryEntry(checkpoint.id);
+    });
+
+    expect(Array.from(result.current.document!.bytes)).toEqual([1, 2, 3]);
+    expect(result.current.status).toBe("Restored selected edit checkpoint");
+  });
+
+  it.each([
+    [new Error("undo snapshot failed"), "undo snapshot failed"],
+    ["undo snapshot failed", "Could not undo the document change."],
+  ])("reports snapshot undo failures without mutating the document", async (failure, expectedStatus) => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+    mockedEngine.getPageSizes.mockRejectedValueOnce(failure);
+
+    await act(async () => {
+      await result.current.undo();
+    });
+
+    expect(Array.from(result.current.document!.bytes)).toEqual([9]);
+    expect(result.current.status).toBe(expectedStatus);
+  });
+
+  it.each([
+    [new Error("redo snapshot failed"), "redo snapshot failed"],
+    ["redo snapshot failed", "Could not redo the document change."],
+  ])("reports snapshot redo failures without mutating the document", async (failure, expectedStatus) => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+    await act(async () => {
+      await result.current.undo();
+    });
+    mockedEngine.getPageSizes.mockRejectedValueOnce(failure);
+
+    await act(async () => {
+      await result.current.redo();
+    });
+
+    expect(Array.from(result.current.document!.bytes)).toEqual([1, 2, 3]);
+    expect(result.current.status).toBe(expectedStatus);
+  });
+
+  it.each([
+    [new Error("history snapshot failed"), "history snapshot failed"],
+    ["history snapshot failed", "Could not restore that document checkpoint."],
+  ])("reports document history restore failures without mutating the document", async (failure, expectedStatus) => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+    const checkpoint = result.current.editState.past.at(-1)!;
+    mockedEngine.getPageSizes.mockRejectedValueOnce(failure);
+
+    await act(async () => {
+      await result.current.restoreHistoryEntry(checkpoint.id);
+    });
+
+    expect(Array.from(result.current.document!.bytes)).toEqual([9]);
+    expect(result.current.status).toBe(expectedStatus);
   });
 
   it("insertPageAfter no-ops without a document", async () => {

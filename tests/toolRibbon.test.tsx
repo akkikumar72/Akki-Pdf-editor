@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToolRibbon } from "../src/components/ToolRibbon";
 import type { EditHistoryEntry } from "../src/state/editModel";
 import type { EditorTool } from "../src/types/editor";
@@ -12,7 +12,6 @@ function makeProps(overrides: Partial<React.ComponentProps<typeof ToolRibbon>> =
     disabled: false,
     documentName: "sample-invoice.pdf",
     historyEntries: [] as EditHistoryEntry[],
-    propertiesOpen: false,
     scale: 1,
     selectedIds: ["sel-1"],
     onExport: vi.fn(),
@@ -20,7 +19,6 @@ function makeProps(overrides: Partial<React.ComponentProps<typeof ToolRibbon>> =
     onFindReplace: vi.fn(),
     onHome: vi.fn(),
     onInsertPage: vi.fn(),
-    onToggleProperties: vi.fn(),
     onRedo: vi.fn(),
     onRemove: vi.fn(),
     onRestoreHistory: vi.fn(),
@@ -40,6 +38,7 @@ function entry(id: string, ts: number, ops = 1): EditHistoryEntry {
 
 describe("ToolRibbon", () => {
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
 
   it("shows the current document filename", () => {
     render(<ToolRibbon {...makeProps({ documentName: "client-contract.pdf" })} />);
@@ -49,24 +48,9 @@ describe("ToolRibbon", () => {
     );
   });
 
-  it("reflects and toggles the Properties drawer state", () => {
-    const props = makeProps();
-    const { rerender } = render(<ToolRibbon {...props} />);
-
-    const properties = screen.getByRole("button", { name: "Properties" });
-    expect(properties).toHaveAttribute("aria-expanded", "false");
-    expect(properties).toHaveAttribute("aria-controls", "editor-properties");
-    fireEvent.click(properties);
-    expect(props.onToggleProperties).toHaveBeenCalledOnce();
-
-    rerender(<ToolRibbon {...props} propertiesOpen />);
-    expect(properties).toHaveAttribute("aria-expanded", "true");
-  });
-
-  it("disables Properties until an edit is selected", () => {
-    render(<ToolRibbon {...makeProps({ selectedIds: [] })} />);
-    expect(screen.getByRole("button", { name: "Properties" })).toBeDisabled();
-    expect(screen.getByTitle("Select an edit to view properties")).toBeInTheDocument();
+  it("keeps Properties out of the document bar", () => {
+    render(<ToolRibbon {...makeProps()} />);
+    expect(screen.queryByRole("button", { name: "Properties" })).not.toBeInTheDocument();
   });
 
   it("renders zoom readout and fires home/zoom/rotate/insert/delete handlers", () => {
@@ -243,6 +227,9 @@ describe("ToolRibbon", () => {
       expect(items[1]).toHaveAttribute("tabindex", "-1");
       fireEvent.keyDown(items[0], { key: "ArrowDown" });
       expect(document.activeElement).toBe(items[1]);
+      fireEvent.keyDown(items[1], { key: "ArrowUp" });
+      expect(document.activeElement).toBe(items[0]);
+      fireEvent.keyDown(items[0], { key: "ArrowDown" });
       fireEvent.keyDown(items[1], { key: "End" });
       expect(document.activeElement).toBe(items.at(-1));
       fireEvent.keyDown(items.at(-1) as HTMLElement, { key: "ArrowDown" });
@@ -251,6 +238,54 @@ describe("ToolRibbon", () => {
       expect(document.activeElement).toBe(items.at(-1));
       fireEvent.keyDown(items.at(-1) as HTMLElement, { key: "Home" });
       expect(document.activeElement).toBe(items[0]);
+      fireEvent.keyDown(items[0], { key: "Tab" });
+      expect(document.activeElement).toBe(items[0]);
+    });
+
+    it("anchors a compact picker to its trigger and updates it on resize", () => {
+      vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+      const { container } = render(<ToolRibbon {...makeProps()} />);
+      const trigger = screen.getByRole("button", { name: /Choose Draw tool/ });
+      const menuHost = trigger.closest(".tool-menu") as HTMLElement;
+      vi.spyOn(menuHost, "getBoundingClientRect").mockReturnValue({
+        bottom: 146,
+        height: 42,
+        left: 120,
+        right: 240,
+        top: 104,
+        width: 120,
+        x: 120,
+        y: 104,
+        toJSON: () => ({}),
+      });
+
+      fireEvent.click(trigger);
+      const menu = screen.getByRole("menu", { name: "Draw tools" });
+      expect(menu).toHaveStyle({ left: "120px", top: "152px" });
+
+      vi.spyOn(menuHost, "getBoundingClientRect").mockReturnValue({
+        bottom: 186,
+        height: 42,
+        left: 160,
+        right: 280,
+        top: 144,
+        width: 120,
+        x: 160,
+        y: 144,
+        toJSON: () => ({}),
+      });
+      fireEvent.resize(window);
+      expect(menu).toHaveStyle({ left: "160px", top: "192px" });
+
+      fireEvent.pointerDown(menu);
+      expect(container.querySelector('[role="menu"]')).toBe(menu);
+    });
+
+    it("leaves desktop picker positioning to CSS", () => {
+      vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+      render(<ToolRibbon {...makeProps()} />);
+      fireEvent.click(screen.getByRole("button", { name: /Choose Draw tool/ }));
+      expect(screen.getByRole("menu", { name: "Draw tools" })).not.toHaveAttribute("style");
     });
 
     it("ignores non-Escape keys and Escape with nothing open", () => {

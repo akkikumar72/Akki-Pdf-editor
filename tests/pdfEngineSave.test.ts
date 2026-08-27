@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, decodePDFRawStream } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFString, decodePDFRawStream } from "pdf-lib";
 import { pdfEngine, PdfEngine } from "../src/engine/pdfEngine";
 import type { DocumentFonts, EditOperation, LinkOperation } from "../src/types/editor";
 
@@ -1403,6 +1403,66 @@ describe("PdfEngine page operations (pdf-lib only)", () => {
       width: 30,
       height: 20,
     });
+  });
+
+  it("crops pages without annotations", async () => {
+    const original = await blankPdfBytes();
+
+    const result = await engine.cropPages(
+      original,
+      { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
+      { kind: "current", pageIndex: 0 },
+    );
+
+    expect((await PDFDocument.load(result.bytes)).getPage(0).getSize()).toEqual({
+      width: 489.6,
+      height: 633.6,
+    });
+  });
+
+  it("translates ink annotation geometry while ignoring malformed annotation coordinates", async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([200, 100]);
+    const ink = source.context.obj({
+      Type: "Annot",
+      Subtype: "Ink",
+      Rect: [60, 30, 90, 50],
+      QuadPoints: [60, 30, PDFName.of("Malformed"), 50],
+      InkList: [[60, 30, 70, 40], PDFName.of("Malformed")],
+    });
+    page.node.set(
+      PDFName.of("Annots"),
+      source.context.obj([PDFName.of("Malformed"), source.context.register(ink)]),
+    );
+
+    const result = await engine.cropPages(
+      new Uint8Array(await source.save({ useObjectStreams: false })),
+      { x: 0.25, y: 0.2, width: 0.5, height: 0.6 },
+      { kind: "current", pageIndex: 0 },
+    );
+    const loaded = await PDFDocument.load(result.bytes);
+    const annotations = loaded.getPage(0).node.Annots()!;
+    const annotation = loaded.context.lookup(annotations.get(1), PDFDict);
+    const quadPoints = annotation.lookup(PDFName.of("QuadPoints"), PDFArray);
+    const inkList = annotation.lookup(PDFName.of("InkList"), PDFArray);
+    const stroke = inkList.lookup(0, PDFArray);
+
+    expect(annotation.lookup(PDFName.of("Rect"), PDFArray).asRectangle()).toEqual({
+      x: 10,
+      y: 10,
+      width: 30,
+      height: 20,
+    });
+    expect([
+      stroke.lookup(0, PDFNumber).asNumber(),
+      stroke.lookup(1, PDFNumber).asNumber(),
+      stroke.lookup(2, PDFNumber).asNumber(),
+      stroke.lookup(3, PDFNumber).asNumber(),
+    ]).toEqual([10, 10, 20, 20]);
+    expect(quadPoints.lookup(0, PDFNumber).asNumber()).toBe(10);
+    expect(quadPoints.lookup(1, PDFNumber).asNumber()).toBe(10);
+    expect(quadPoints.get(2)).toEqual(PDFName.of("Malformed"));
+    expect(quadPoints.lookup(3, PDFNumber).asNumber()).toBe(50);
   });
 
   it("applies the same normalized crop to every page size and returns absolute remap bounds", async () => {

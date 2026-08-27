@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { duplicateOperation, moveOperationZ } from "../src/editor/selectionModel";
-import type { AnnotationOperation, InkOperation, TextOperation } from "../src/types/editor";
+import type { AnnotationOperation, InkOperation, ShapeOperation, TextOperation } from "../src/types/editor";
 
 const baseOperation: TextOperation = {
   id: "text_1",
@@ -79,6 +79,58 @@ describe("selection model", () => {
     expect(copy.rect).toEqual({ x: 92, y: 108, width: 160, height: 60 });
     expect(copy.anchor).toEqual({ x: 47, y: 138 });
     expect(copy.elbow).toEqual({ x: 74, y: 138 });
+  });
+
+  it("translates directed line endpoints alongside its box", () => {
+    const line: ShapeOperation = {
+      id: "line_1",
+      type: "shape",
+      kind: "line",
+      pageIndex: 0,
+      rect: { x: 10, y: 20, width: 40, height: 30 },
+      start: { x: 50, y: 20 },
+      end: { x: 10, y: 50 },
+      stroke: "#111827",
+      strokeWidth: 2,
+      createdAt: 1,
+    };
+
+    const copy = duplicateOperation(line) as ShapeOperation;
+
+    expect(copy.rect).toEqual({ x: 22, y: 8, width: 40, height: 30 });
+    expect(copy.start).toEqual({ x: 62, y: 8 });
+    expect(copy.end).toEqual({ x: 22, y: 38 });
+  });
+
+  it("preserves absent directed endpoints and callout leader points", () => {
+    const line: ShapeOperation = {
+      id: "line_defaults",
+      type: "shape",
+      kind: "arrow",
+      pageIndex: 0,
+      rect: { x: 10, y: 20, width: 40, height: 30 },
+      stroke: "#111827",
+      strokeWidth: 2,
+      createdAt: 1,
+    };
+    const callout: AnnotationOperation = {
+      id: "callout_defaults",
+      type: "annotation",
+      kind: "callout",
+      pageIndex: 0,
+      rect: { x: 80, y: 120, width: 160, height: 60 },
+      color: "#4f46e5",
+      createdAt: 1,
+    };
+
+    const lineCopy = duplicateOperation(line) as ShapeOperation;
+    const calloutCopy = duplicateOperation(callout) as AnnotationOperation;
+    expect(lineCopy.rect).toEqual({ x: 22, y: 8, width: 40, height: 30 });
+    expect(lineCopy.start).toBeUndefined();
+    expect(lineCopy.end).toBeUndefined();
+    expect(calloutCopy.rect).toEqual({ x: 92, y: 108, width: 160, height: 60 });
+    expect(calloutCopy.anchor).toBeUndefined();
+    expect(calloutCopy.elbow).toBeUndefined();
   });
 
   it("preserves ink stroke shape when duplicated near the top edge", () => {

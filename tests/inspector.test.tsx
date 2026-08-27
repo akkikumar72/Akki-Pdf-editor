@@ -64,7 +64,7 @@ function renderInspector(
   const onExport = vi.fn();
   const onRemoveSelected = vi.fn();
   const onUpdate = vi.fn();
-  render(
+  const view = render(
     <Inspector
       operation={operation}
       operationCount={opts.operationCount ?? 2}
@@ -78,7 +78,7 @@ function renderInspector(
       onUpdate={onUpdate}
     />,
   );
-  return { onDuplicateSelected, onExport, onRemoveSelected, onTextPreview: textPreviewDispatchMock, onUpdate };
+  return { ...view, onDuplicateSelected, onExport, onRemoveSelected, onTextPreview: textPreviewDispatchMock, onUpdate };
 }
 
 describe("Inspector", () => {
@@ -571,6 +571,13 @@ describe("Inspector", () => {
     it("falls back to the fill color for an unset border", () => {
       renderInspector(redaction({ borderColor: undefined, overlayText: undefined }));
       expect(screen.getByLabelText("Border color")).toHaveValue("#111111");
+      expect(screen.getByLabelText("Overlay text")).toHaveValue("");
+      expect(screen.getByLabelText("Border width")).toHaveValue(1);
+    });
+
+    it("defaults an omitted border width to zero", () => {
+      renderInspector(redaction({ borderWidth: undefined }));
+      expect(screen.getByLabelText("Border width")).toHaveValue(0);
     });
   });
 
@@ -610,6 +617,22 @@ describe("Inspector", () => {
       expect(onUpdate).toHaveBeenCalledWith("callout-1", { strokeWidth: 3.5 });
       fireEvent.change(screen.getByLabelText("Opacity"), { target: { value: "0.7" } });
       expect(onUpdate).toHaveBeenCalledWith("callout-1", { opacity: 0.7 });
+    });
+
+    it("shows usable defaults for sparse callout annotations", () => {
+      renderInspector(callout({
+        text: undefined,
+        fillColor: undefined,
+        textColor: undefined,
+        fontSize: undefined,
+        strokeWidth: undefined,
+      }));
+
+      expect(screen.getByLabelText("Callout text")).toHaveValue("");
+      expect(screen.getByLabelText("Fill color")).toHaveValue("#ffffff");
+      expect(screen.getByLabelText("Text color")).toHaveValue("#17211a");
+      expect(screen.getByLabelText("Font size")).toHaveValue(12);
+      expect(screen.getByLabelText("Line width")).toHaveValue(2);
     });
   });
 
@@ -685,11 +708,59 @@ describe("Inspector", () => {
       expect(onUpdate).toHaveBeenCalledWith("form-text", { rotation: 90 });
     });
 
+    it("renders safe defaults for a sparse text field and validates numeric appearance input", () => {
+      const { onUpdate } = renderInspector(formField("text", {
+        value: undefined,
+        defaultValue: undefined,
+        tooltip: undefined,
+        required: undefined,
+        readOnly: undefined,
+        fillColor: undefined,
+        borderColor: undefined,
+        borderWidth: undefined,
+        borderStyle: undefined,
+        fontFamily: undefined,
+        fontSize: undefined,
+        textColor: undefined,
+        align: undefined,
+        rotation: undefined,
+      }));
+
+      expect(screen.getByLabelText("Value")).toHaveValue("");
+      expect(screen.getByLabelText("Default value")).toHaveValue("");
+      expect(screen.getByLabelText("Tooltip")).toHaveValue("");
+      expect(screen.getByLabelText("Required")).not.toBeChecked();
+      expect(screen.getByLabelText("Read only")).not.toBeChecked();
+      expect(screen.getByLabelText("Fill color")).toHaveValue("#ffffff");
+      expect(screen.getByLabelText("Border color")).toHaveValue("#64748b");
+      expect(screen.getByLabelText("Text color")).toHaveValue("#111827");
+      expect(screen.getByLabelText("Font family")).toHaveValue("Inter");
+      expect(screen.getByLabelText("Font size")).toHaveValue(12);
+      expect(screen.getByLabelText("Border width")).toHaveValue(1);
+      expect(screen.getByLabelText("Border style")).toHaveValue("solid");
+      expect(screen.getByRole("button", { name: "Align left" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByLabelText("Rotation")).toHaveValue("0");
+
+      const fontSize = screen.getByLabelText("Font size");
+      fireEvent.change(fontSize, { target: { value: "0" } });
+      expect(onUpdate).not.toHaveBeenCalled();
+      fireEvent.blur(fontSize, { target: { value: "-1" } });
+      expect(onUpdate).toHaveBeenCalledWith("form-text", { fontSize: 12 });
+      onUpdate.mockClear();
+      fireEvent.blur(fontSize, { target: { value: "16" } });
+      expect(onUpdate).not.toHaveBeenCalled();
+    });
+
     it("uses a textarea for multiline values", () => {
       const { onUpdate } = renderInspector(formField("multiline", { value: "Line one" }));
       expect(screen.getByLabelText("Value").tagName).toBe("TEXTAREA");
       fireEvent.change(screen.getByLabelText("Value"), { target: { value: "Line one\nLine two" } });
       expect(onUpdate).toHaveBeenCalledWith("form-multiline", { value: "Line one\nLine two" });
+    });
+
+    it("renders an empty multiline field when no value has been supplied", () => {
+      renderInspector(formField("multiline", { value: undefined }));
+      expect(screen.getByLabelText("Value")).toHaveValue("");
     });
 
     it("edits dropdown options without swallowing a trailing line and normalizes them on blur", () => {
@@ -733,6 +804,58 @@ describe("Inspector", () => {
         value: "Bespoke",
         selectedValues: ["Bespoke"],
       });
+      fireEvent.change(screen.getByLabelText("Custom value"), { target: { value: "" } });
+      expect(onUpdate).toHaveBeenCalledWith("form-dropdown", {
+        value: "",
+        selectedValues: [],
+      });
+    });
+
+    it("preserves custom and retained default choices while normalizing options", () => {
+      const custom = renderInspector(formField("dropdown", {
+        options: ["Alpha"],
+        allowCustomText: true,
+        value: "Other",
+        selectedValues: ["Other"],
+        defaultValue: "Other",
+      }));
+      fireEvent.blur(screen.getByLabelText("Options"), { target: { value: "Alpha" } });
+      expect(custom.onUpdate).toHaveBeenCalledWith("form-dropdown", {
+        options: ["Alpha"],
+        selectedValues: ["Other"],
+        value: "Other",
+        defaultValue: "Other",
+      });
+      custom.unmount();
+
+      const retained = renderInspector(formField("dropdown", {
+        options: ["Alpha", "Beta"],
+        selectedValues: ["Beta"],
+        defaultValue: "Beta",
+      }));
+      fireEvent.blur(screen.getByLabelText("Options"), { target: { value: "Alpha\nBeta" } });
+      expect(retained.onUpdate).toHaveBeenCalledWith("form-dropdown", {
+        options: ["Alpha", "Beta"],
+        selectedValues: ["Beta"],
+        value: "Beta",
+        defaultValue: "Beta",
+      });
+    });
+
+    it("renders empty choice defaults and clears an optional default", () => {
+      const { onUpdate } = renderInspector(formField("dropdown", {
+        options: undefined,
+        selectedValues: undefined,
+        value: undefined,
+        defaultValue: undefined,
+        allowCustomText: undefined,
+      }));
+      expect(screen.getByLabelText("Options")).toHaveValue("");
+      expect(screen.getByLabelText("Selected choice")).toHaveValue("");
+      expect(screen.getByLabelText("Default choice")).toHaveValue("");
+      expect(screen.getByLabelText("Allow custom text")).not.toBeChecked();
+      fireEvent.change(screen.getByLabelText("Default choice"), { target: { value: "" } });
+      expect(onUpdate).toHaveBeenCalledWith("form-dropdown", { defaultValue: undefined });
     });
 
     it("clears custom choice state when custom text is disabled", () => {
@@ -751,6 +874,26 @@ describe("Inspector", () => {
         selectedValues: [],
         value: "",
         defaultValue: undefined,
+      });
+    });
+
+    it("retains a valid default while disabling an otherwise empty custom dropdown", () => {
+      const { onUpdate } = renderInspector(formField("dropdown", {
+        options: ["Alpha", "Beta"],
+        allowCustomText: true,
+        value: undefined,
+        selectedValues: [],
+        defaultValue: "Beta",
+      }));
+      expect(screen.getByLabelText("Custom value")).toHaveValue("");
+
+      fireEvent.click(screen.getByLabelText("Allow custom text"));
+
+      expect(onUpdate).toHaveBeenCalledWith("form-dropdown", {
+        allowCustomText: false,
+        selectedValues: [],
+        value: "",
+        defaultValue: "Beta",
       });
     });
 
@@ -790,11 +933,40 @@ describe("Inspector", () => {
         selectedValues: ["Alpha", "Beta"],
         value: "Alpha",
       });
+      choiceOptions.forEach((option) => { option.selected = false; });
+      fireEvent.change(choices);
+      expect(onUpdate).toHaveBeenCalledWith("form-listbox", {
+        selectedValues: [],
+        value: "",
+      });
       fireEvent.click(screen.getByLabelText("Allow multiple selections"));
       expect(onUpdate).toHaveBeenCalledWith("form-listbox", {
         multiSelect: false,
         selectedValues: ["Alpha"],
         value: "Alpha",
+      });
+    });
+
+    it("enables multiple selection and safely disables it without a selected value", () => {
+      const disabled = renderInspector(formField("listbox", {
+        options: ["Alpha"],
+        selectedValues: undefined,
+        multiSelect: undefined,
+      }));
+      fireEvent.click(screen.getByLabelText("Allow multiple selections"));
+      expect(disabled.onUpdate).toHaveBeenCalledWith("form-listbox", { multiSelect: true });
+      disabled.unmount();
+
+      const enabled = renderInspector(formField("listbox", {
+        options: ["Alpha"],
+        selectedValues: [],
+        multiSelect: true,
+      }));
+      fireEvent.click(screen.getByLabelText("Allow multiple selections"));
+      expect(enabled.onUpdate).toHaveBeenCalledWith("form-listbox", {
+        multiSelect: false,
+        selectedValues: [],
+        value: "",
       });
     });
 
@@ -815,6 +987,18 @@ describe("Inspector", () => {
       expect(onUpdate).toHaveBeenCalledWith("form-radio", { checked: false });
     });
 
+    it("shows safe defaults for sparse checkbox and radio metadata", () => {
+      const checkbox = renderInspector(formField("checkbox", { exportValue: undefined, checked: undefined }));
+      expect(screen.getByLabelText("Export value")).toHaveValue("Yes");
+      expect(screen.getByLabelText("Checked")).not.toBeChecked();
+      checkbox.unmount();
+
+      renderInspector(formField("radio", { groupName: undefined, exportValue: undefined, checked: undefined }));
+      expect(screen.getByLabelText("Group name")).toHaveValue("");
+      expect(screen.getByLabelText("Export value")).toHaveValue("Yes");
+      expect(screen.getByLabelText("Selected")).not.toBeChecked();
+    });
+
     it("shows only button-specific behavior controls", () => {
       const { onUpdate } = renderInspector(formField("button", { buttonLabel: "Reset", buttonAction: "reset" }));
       expect(screen.queryByLabelText("Required")).not.toBeInTheDocument();
@@ -823,6 +1007,26 @@ describe("Inspector", () => {
       expect(onUpdate).toHaveBeenCalledWith("form-button", { buttonLabel: "Print" });
       fireEvent.change(screen.getByLabelText("Button action"), { target: { value: "print" } });
       expect(onUpdate).toHaveBeenCalledWith("form-button", { buttonAction: "print" });
+    });
+
+    it("derives legacy button labels and exposes the print-action notice", () => {
+      const legacy = renderInspector(formField("button", {
+        buttonLabel: undefined,
+        value: "Legacy caption",
+        buttonAction: undefined,
+      }));
+      expect(screen.getByLabelText("Button label")).toHaveValue("Legacy caption");
+      expect(screen.getByLabelText("Button action")).toHaveValue("none");
+      legacy.unmount();
+
+      const fallback = renderInspector(formField("button", {
+        buttonLabel: undefined,
+        value: undefined,
+        buttonAction: "print",
+      }));
+      expect(screen.getByLabelText("Button label")).toHaveValue("Button");
+      expect(screen.getByText(/Some PDF viewers block print actions/)).toBeInTheDocument();
+      fallback.unmount();
     });
 
     it("edits date value, default, and display format", () => {
@@ -846,6 +1050,23 @@ describe("Inspector", () => {
         defaultValue: "01/08/2026",
       });
       expect(screen.getByText(/Automatic date formatting depends/)).toBeInTheDocument();
+    });
+
+    it("uses the default date format when optional date metadata is absent", () => {
+      const { onUpdate } = renderInspector(formField("date", {
+        value: undefined,
+        defaultValue: undefined,
+        dateFormat: undefined,
+      }));
+      expect(screen.getByLabelText("Value")).toHaveAttribute("placeholder", "yyyy-MM-dd");
+      expect(screen.getByLabelText("Default value")).toHaveAttribute("placeholder", "yyyy-MM-dd");
+      expect(screen.getByLabelText("Date format")).toHaveValue("yyyy-MM-dd");
+      fireEvent.change(screen.getByLabelText("Date format"), { target: { value: "MM/dd/yyyy" } });
+      expect(onUpdate).toHaveBeenCalledWith("form-date", {
+        dateFormat: "MM/dd/yyyy",
+        value: undefined,
+        defaultValue: undefined,
+      });
     });
 
     it("clears invalid date values when changing formats", () => {

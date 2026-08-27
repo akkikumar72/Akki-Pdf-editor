@@ -146,6 +146,9 @@ export type ShapeOperation = BaseOperation & {
   stroke: string;
   fill?: string;
   strokeWidth: number;
+  /** Exact PDF-space endpoints for line/arrow shapes. Optional for sessions saved before endpoint tracking. */
+  start?: PdfPoint;
+  end?: PdfPoint;
 };
 
 export type InkOperation = BaseOperation & {

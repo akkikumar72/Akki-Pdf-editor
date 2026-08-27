@@ -140,6 +140,28 @@ test("imports a PDF and adds a text overlay", async ({ page }, testInfo) => {
   await expect(page.getByText(/PDF exported|Exporting PDF/i)).toBeVisible();
 });
 
+test("preserves Shift+Enter line breaks in edited text", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("multiline-text.pdf");
+  await makeSamplePdf(pdfPath);
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/multiline-text\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
+  const canvas = page.getByRole("region", { name: "PDF editor canvas" });
+  await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 360 } });
+  const editor = canvas.locator(".operation--text[contenteditable='true']");
+  await editor.pressSequentially("First line");
+  await editor.press("Shift+Enter");
+  await editor.pressSequentially("Second line");
+  await page.getByRole("toolbar", { name: "Inline edit tools" }).getByRole("button", { name: "Done" }).click();
+
+  const committed = canvas.locator(".operation--text").last();
+  await expect(committed).toHaveAttribute("contenteditable", "false");
+  expect(await committed.textContent()).toBe("First line\nSecond line");
+});
+
 test("keeps every page and view control clickable at tablet width", async ({ page }, testInfo) => {
   const pdfPath = testInfo.outputPath("tablet-toolbar.pdf");
   await makeSamplePdf(pdfPath);
@@ -170,6 +192,75 @@ test("keeps every page and view control clickable at tablet width", async ({ pag
   await controls.getByRole("button", { name: "Rotate page permanently" }).click();
 
   await expect(page.getByRole("region", { name: "PDF editor canvas" })).toBeVisible();
+});
+
+test("keeps grouped tool pickers compact and anchored at tablet width", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("compact-tool-picker.pdf");
+  await makeSamplePdf(pdfPath);
+  await page.setViewportSize({ width: 1100, height: 760 });
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/compact-tool-picker\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  const editingTools = page.getByRole("toolbar", { name: "Editing tools" });
+  const drawButton = editingTools.getByRole("button", { name: "Draw", exact: true });
+  const trigger = editingTools.getByRole("button", { name: /Choose Draw tool/ });
+  await trigger.click();
+
+  const menu = page.getByRole("menu", { name: "Draw tools" });
+  await expect(menu).toBeVisible();
+  const [drawBox, triggerBox, menuBox, itemBoxes] = await Promise.all([
+    drawButton.boundingBox(),
+    trigger.boundingBox(),
+    menu.boundingBox(),
+    menu.getByRole("menuitemradio").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height)),
+  ]);
+
+  expect(drawBox).not.toBeNull();
+  expect(triggerBox).not.toBeNull();
+  expect(menuBox).not.toBeNull();
+  expect(menuBox!.width).toBeGreaterThanOrEqual(184);
+  expect(menuBox!.width).toBeLessThanOrEqual(202);
+  expect(Math.abs(menuBox!.x - drawBox!.x)).toBeLessThanOrEqual(2);
+  expect(menuBox!.y - (triggerBox!.y + triggerBox!.height)).toBeGreaterThanOrEqual(4);
+  expect(menuBox!.y - (triggerBox!.y + triggerBox!.height)).toBeLessThanOrEqual(8);
+  for (const height of itemBoxes) {
+    expect(height).toBeGreaterThanOrEqual(34);
+    expect(height).toBeLessThanOrEqual(38);
+  }
+});
+
+test("scopes direct-touch handling to canvas gesture targets", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("touch-gestures.pdf");
+  await makeSamplePdf(pdfPath);
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/touch-gestures\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  const editingTools = page.getByRole("toolbar", { name: "Editing tools" });
+  await editingTools.getByRole("button", { name: "Crop", exact: true }).click();
+  const stage = page.locator(".page-stage");
+  await expect(stage).toHaveCSS("touch-action", "none");
+  const stageBox = await stage.boundingBox();
+  expect(stageBox).not.toBeNull();
+  await page.mouse.move(stageBox!.x + 100, stageBox!.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(stageBox!.x + 300, stageBox!.y + 300);
+  await page.mouse.up();
+  await expect(page.locator(".crop-handle").first()).toHaveCSS("touch-action", "none");
+  await page.getByRole("button", { name: "Cancel crop" }).click();
+
+  await editingTools.getByRole("button", { name: "Callout", exact: true }).click();
+  await page.mouse.move(stageBox!.x + 180, stageBox!.y + 220);
+  await page.mouse.down();
+  await page.mouse.move(stageBox!.x + 380, stageBox!.y + 310);
+  await page.mouse.up();
+
+  await expect(page.locator(".operation--annotation-callout")).toHaveCSS("touch-action", "none");
+  await expect(page.locator(".resize-handle").first()).toHaveCSS("touch-action", "none");
+  await expect(page.locator(".callout-point-handle").first()).toHaveCSS("touch-action", "none");
 });
 
 test("draws a sampled freehand stroke and restores it through keyboard history", async ({ page }, testInfo) => {

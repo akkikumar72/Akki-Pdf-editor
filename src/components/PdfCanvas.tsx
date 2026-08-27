@@ -14,7 +14,11 @@ import type {
   TextItem,
   ViewportRect,
 } from "../types/editor";
-import { eraseStrokeByPath } from "../editor/strokeEraser";
+import {
+  eraseStrokeByPreparedPath,
+  prepareStrokeEraserPath,
+  type PreparedStrokeEraserPath,
+} from "../editor/strokeEraser";
 import {
   createInkOperation,
   createOperationsForTool,
@@ -60,6 +64,8 @@ import { marqueeRect, useStagePointerGestures } from "./useStagePointerGestures"
 
 type PdfCanvasProps = {
   activeTool: EditorTool;
+  /** Prevents canvas/context actions while document bytes are being replaced. */
+  disabled?: boolean;
   document: LoadedPdf;
   documentFonts?: DocumentFonts;
   operations: EditOperation[];
@@ -94,6 +100,44 @@ type PdfCanvasProps = {
   onPropertiesOpen: () => void;
 };
 
+type CropHandle = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+
+const CROP_MIN_SIZE_PX = 32;
+
+function resizeCropRect(
+  rect: ViewportRect,
+  handle: CropHandle,
+  dx: number,
+  dy: number,
+  pageViewportWidth: number,
+  pageViewportHeight: number,
+) {
+  let { left, top, width, height } = rect;
+  if (handle.includes("e")) width += dx;
+  if (handle.includes("s")) height += dy;
+  if (handle.includes("w")) {
+    left += dx;
+    width -= dx;
+  }
+  if (handle.includes("n")) {
+    top += dy;
+    height -= dy;
+  }
+  if (width < CROP_MIN_SIZE_PX) {
+    if (handle.includes("w")) left -= CROP_MIN_SIZE_PX - width;
+    width = CROP_MIN_SIZE_PX;
+  }
+  if (height < CROP_MIN_SIZE_PX) {
+    if (handle.includes("n")) top -= CROP_MIN_SIZE_PX - height;
+    height = CROP_MIN_SIZE_PX;
+  }
+  left = Math.max(0, Math.min(left, pageViewportWidth - CROP_MIN_SIZE_PX));
+  top = Math.max(0, Math.min(top, pageViewportHeight - CROP_MIN_SIZE_PX));
+  width = Math.min(width, pageViewportWidth - left);
+  height = Math.min(height, pageViewportHeight - top);
+  return { left, top, width, height };
+}
+
 function isTextAnnotationTool(tool: EditorTool): tool is "highlight" | "strikeout" | "underline" | "redact" {
   return tool === "highlight" || tool === "strikeout" || tool === "underline" || tool === "redact";
 }
@@ -104,7 +148,7 @@ function isResizableOperation(operation: EditOperation) {
   // promise a local-axis resize it cannot perform safely.
   if (operation.type === "form-field" && operation.rotation) return false;
   if (operation.type === "text") return true;
-  if (operation.type === "shape") return operation.kind === "rectangle" || operation.kind === "ellipse";
+  if (operation.type === "shape") return true;
   if (operation.type === "annotation") return operation.kind === "highlight" || operation.kind === "note" || operation.kind === "callout";
   if (operation.type === "ink" || operation.type === "link") return false;
   return true;
@@ -129,6 +173,7 @@ function createInkFragment(
   const minY = Math.min(...points.map((point) => point.y));
   const maxX = Math.max(...points.map((point) => point.x));
   const maxY = Math.max(...points.map((point) => point.y));
+  /* v8 ignore next -- the current eraser emits retained ranges with two endpoints; this legacy guard only protects older/custom replacement data */
   const normalizedPoints = points.length === 1
     ? [
         points[0],
@@ -160,6 +205,7 @@ function readFileAsDataUrl(file: File) {
 
 export function PdfCanvas({
   activeTool,
+  disabled = false,
   document,
   documentFonts,
   operations,
@@ -213,7 +259,7 @@ export function PdfCanvas({
   const [cropSelection, setCropSelection] = useState<ViewportRect | null>(null);
   const [eraserHover, setEraserHover] = useState<PdfPoint | null>(null);
   const [cropResize, setCropResize] = useState<{
-    handle: "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+    handle: CropHandle;
     start: { x: number; y: number };
     rect: ViewportRect;
   } | null>(null);
@@ -430,7 +476,7 @@ export function PdfCanvas({
   }, [isPageRendered, suppressedSourceRects, pageHeight, scale, stageRef]);
 
   useEffect(() => {
-    if (selectedIds.length === 0) return;
+    if (disabled || selectedIds.length === 0) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       if (editingTextId) return;
@@ -441,7 +487,7 @@ export function PdfCanvas({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, editingTextId, onOperationsRemove]);
+  }, [disabled, selectedIds, editingTextId, onOperationsRemove]);
 
   useEffect(() => {
     if (!documentFonts) return;
@@ -466,7 +512,12 @@ export function PdfCanvas({
     }
   };
 
-  const addAt = async (viewportRect: ViewportRect, sourceTextItem?: TextItem, clickPoint?: { x: number; y: number }) => {
+  const addAt = async (
+    viewportRect: ViewportRect,
+    sourceTextItem?: TextItem,
+    clickPoint?: { x: number; y: number },
+    lineGesture?: { start: PdfPoint; current: PdfPoint },
+  ) => {
     if (activeTool === "signature") {
       // The signature tool routes through the signature studio: saved
       // signatures get a one-click picker, otherwise the modal opens directly.
@@ -552,6 +603,8 @@ export function PdfCanvas({
           sampledBackgroundColor,
           sampledTextColor,
           sampledFontWeight,
+          lineStart: lineGesture ? viewportPointToPdf(lineGesture.start, pageHeight, scale) : undefined,
+          lineEnd: lineGesture ? viewportPointToPdf(lineGesture.current, pageHeight, scale) : undefined,
         }),
       );
 
@@ -627,6 +680,7 @@ export function PdfCanvas({
       viewportPoints.map((point) => viewportPointToPdf(point, pageHeight, scale)),
       { width: pageWidth, height: pageHeight },
     );
+    /* v8 ignore next -- an active StrokeSampler always commits at least one point, the only input for which createInkOperation returns undefined */
     if (!operation) return;
     onOperationAdd(operation);
     onOperationSelect([operation.id]);
@@ -634,13 +688,21 @@ export function PdfCanvas({
 
   const commitEraseStroke = (viewportPoints: PdfPoint[]) => {
     const eraserPoints = viewportPoints.map((point) => viewportPointToPdf(point, pageHeight, scale));
+    /* v8 ignore next -- an active eraser StrokeSampler always commits at least its pointer-down point */
+    if (eraserPoints.length === 0) return;
     const replacements: OperationReplacement[] = [];
+    const preparedByStrokeWidth = new Map<number, PreparedStrokeEraserPath>();
     for (const operation of operations) {
       if (operation.type !== "ink" || operation.pageIndex !== pageIndex || operation.locked) continue;
-      const result = eraseStrokeByPath(operation.points, eraserPoints, {
-        strokeWidth: operation.strokeWidth,
-        eraserRadius: 12 / scale,
-      });
+      let prepared = preparedByStrokeWidth.get(operation.strokeWidth);
+      if (!prepared) {
+        prepared = prepareStrokeEraserPath(eraserPoints, {
+          strokeWidth: operation.strokeWidth,
+          eraserRadius: 12 / scale,
+        });
+        preparedByStrokeWidth.set(operation.strokeWidth, prepared);
+      }
+      const result = eraseStrokeByPreparedPath(operation.points, prepared);
       if (!result.didErase) continue;
       replacements.push({
         id: operation.id,
@@ -723,33 +785,14 @@ export function PdfCanvas({
       const point = stagePointFromEvent(event);
       const dx = point.x - cropResize.start.x;
       const dy = point.y - cropResize.start.y;
-      const pageViewportWidth = pageWidth * scale;
-      const pageViewportHeight = pageHeight * scale;
-      const minSize = 32;
-      let { left, top, width, height } = cropResize.rect;
-      if (cropResize.handle.includes("e")) width += dx;
-      if (cropResize.handle.includes("s")) height += dy;
-      if (cropResize.handle.includes("w")) {
-        left += dx;
-        width -= dx;
-      }
-      if (cropResize.handle.includes("n")) {
-        top += dy;
-        height -= dy;
-      }
-      if (width < minSize) {
-        if (cropResize.handle.includes("w")) left -= minSize - width;
-        width = minSize;
-      }
-      if (height < minSize) {
-        if (cropResize.handle.includes("n")) top -= minSize - height;
-        height = minSize;
-      }
-      left = Math.max(0, Math.min(left, pageViewportWidth - minSize));
-      top = Math.max(0, Math.min(top, pageViewportHeight - minSize));
-      width = Math.min(width, pageViewportWidth - left);
-      height = Math.min(height, pageViewportHeight - top);
-      setCropSelection({ left, top, width, height });
+      setCropSelection(resizeCropRect(
+        cropResize.rect,
+        cropResize.handle,
+        dx,
+        dy,
+        pageWidth * scale,
+        pageHeight * scale,
+      ));
       return;
     }
     stagePointerHandlers.onPointerMove(event);
@@ -782,7 +825,7 @@ export function PdfCanvas({
   };
 
   const startCropResize = (
-    handle: "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw",
+    handle: CropHandle,
     event: React.PointerEvent<HTMLButtonElement>,
   ) => {
     if (!cropSelection || !stageRef.current) return;
@@ -795,6 +838,26 @@ export function PdfCanvas({
       start: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
       rect: cropSelection,
     });
+  };
+
+  const resizeCropWithKeyboard = (handle: CropHandle, event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (disabled || !cropSelection) return;
+    const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+    const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+    if ((!horizontal && !vertical) || (horizontal && !/[ew]/.test(handle)) || (vertical && !/[ns]/.test(handle))) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 10 : 1;
+    const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+    const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+    setCropSelection(resizeCropRect(
+      cropSelection,
+      handle,
+      dx,
+      dy,
+      pageWidth * scale,
+      pageHeight * scale,
+    ));
   };
 
   const startCalloutPointDrag = (
@@ -811,6 +874,28 @@ export function PdfCanvas({
       // Pointer capture improves out-of-bounds dragging but is not required.
     }
     setCalloutPointDrag({ id: selectedOperation.id, key, point });
+  };
+
+  const moveCalloutPointWithKeyboard = (
+    key: "anchor" | "elbow",
+    point: PdfPoint,
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    if (
+      disabled ||
+      !selectedOperation ||
+      selectedOperation.type !== "annotation" ||
+      selectedOperation.kind !== "callout" ||
+      !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+    ) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const step = (event.shiftKey ? 10 : 1) / scale;
+    const next = {
+      x: Math.max(0, Math.min(pageWidth, point.x + (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0))),
+      y: Math.max(0, Math.min(pageHeight, point.y + (event.key === "ArrowDown" ? -step : event.key === "ArrowUp" ? step : 0))),
+    };
+    onOperationUpdate(selectedOperation.id, key === "anchor" ? { anchor: next } : { elbow: next });
   };
 
   const applyCrop = (scope: "current" | "all") => {
@@ -870,7 +955,9 @@ export function PdfCanvas({
     if (drag?.liveDelta && drag.ids.includes(operation.id)) {
       return translateOperation(operation, drag.liveDelta.dx, drag.liveDelta.dy);
     }
-    if (resize?.id === operation.id && resize.liveRect) return { ...operation, rect: resize.liveRect };
+    if (resize?.id === operation.id && resize.liveRect) {
+      return { ...operation, rect: resize.liveRect, ...resize.liveEndpoints };
+    }
     return operation;
   };
   const liveSelectedOperation = selectedOperation ? gestureOverride(selectedOperation) : undefined;
@@ -961,7 +1048,12 @@ export function PdfCanvas({
   }, [activeTool, draw, inkDraw, eraseDraw]);
 
   return (
-    <div className="canvas-workbench">
+    <div
+      className={`canvas-workbench${disabled ? " is-disabled" : ""}`}
+      aria-busy={disabled || undefined}
+      aria-disabled={disabled || undefined}
+      {...(disabled ? ({ inert: "" } as Record<string, string>) : {})}
+    >
       <div className={`contextual-toolbar-shell${isEditingSelectedText ? " is-active" : ""}`}>
         {cropSelection ? (
           <div className="crop-context-toolbar" role="toolbar" aria-label="Crop page actions">
@@ -1142,6 +1234,12 @@ export function PdfCanvas({
                     type="button"
                     className={`crop-handle crop-handle--${handle}`}
                     aria-label={`Resize crop ${handle}`}
+                    aria-keyshortcuts={handle.length === 2
+                      ? "ArrowUp ArrowDown ArrowLeft ArrowRight"
+                      : handle === "n" || handle === "s"
+                        ? "ArrowUp ArrowDown"
+                        : "ArrowLeft ArrowRight"}
+                    onKeyDown={(event) => resizeCropWithKeyboard(handle, event)}
                     onPointerDown={(event) => startCropResize(handle, event)}
                   />
                 ))}
@@ -1241,7 +1339,9 @@ export function PdfCanvas({
                       type="button"
                       className={`callout-point-handle callout-point-handle--${key}`}
                       aria-label={`Move callout ${key}`}
+                      aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
                       style={{ left: viewportPoint.x, top: viewportPoint.y }}
+                      onKeyDown={(event) => moveCalloutPointWithKeyboard(key, point, event)}
                       onPointerDown={(event) => startCalloutPointDrag(key, point, event)}
                     />
                   );

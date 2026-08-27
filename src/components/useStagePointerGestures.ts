@@ -34,8 +34,14 @@ type ResizeState = {
   handle: ResizeHandle;
   startPointer: { x: number; y: number };
   startRect: ViewportRect;
+  linearGeometry?: {
+    rect: PdfRect;
+    start: PdfPoint;
+    end: PdfPoint;
+  };
   // Same deferred-commit strategy as DragState.liveDelta.
   liveRect?: PdfRect;
+  liveEndpoints?: { start: PdfPoint; end: PdfPoint };
 };
 
 export type DrawState = {
@@ -106,6 +112,17 @@ function pointFromEvent(event: React.PointerEvent<HTMLElement> | React.MouseEven
   };
 }
 
+function resizePointWithinRect(point: PdfPoint, source: PdfRect, target: PdfRect): PdfPoint {
+  // Operation rectangles are created with positive dimensions and every resize
+  // is clamped to MIN_RESIZE_PX, so these affine ratios have non-zero divisors.
+  const xRatio = (point.x - source.x) / source.width;
+  const yRatio = (point.y - source.y) / source.height;
+  return {
+    x: target.x + xRatio * target.width,
+    y: target.y + yRatio * target.height,
+  };
+}
+
 type UseStagePointerGesturesArgs = {
   activeTool: EditorTool;
   operations: EditOperation[];
@@ -139,7 +156,12 @@ type UseStagePointerGesturesArgs = {
    * resolved to a plain click, so tools that snap to text can target the run
    * under the press instead of the fallback-sized rect.
    */
-  addAt: (viewportRect: ViewportRect, sourceTextItem?: TextItem, clickPoint?: { x: number; y: number }) => void;
+  addAt: (
+    viewportRect: ViewportRect,
+    sourceTextItem?: TextItem,
+    clickPoint?: { x: number; y: number },
+    lineGesture?: DrawState,
+  ) => void;
 };
 
 /**
@@ -214,10 +236,11 @@ export function useStagePointerGestures({
   useEffect(() => () => cancelInkPreviewFrame(), []);
 
   useEffect(() => {
-    if (!draw && !inkDraw && !eraseDraw && !selectDraw) return;
+    if (!draw && !inkDraw && !eraseDraw && !selectDraw && !drag && !resize) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      if (drag || resize) dragMoved.current = true;
       setDraw(null);
       cancelInkPreviewFrame();
       inkSampler.current = null;
@@ -225,10 +248,14 @@ export function useStagePointerGestures({
       setInkDraw(null);
       setEraseDraw(null);
       setSelectDraw(null);
+      setDrag(null);
+      setResize(null);
+      setActiveGuides([]);
+      if (drag || resize) clearMoveMode();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [draw, inkDraw, eraseDraw, selectDraw]);
+  }, [draw, inkDraw, eraseDraw, selectDraw, drag, resize, clearMoveMode]);
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     // Selection changes only apply when pressing empty page area, so selecting
@@ -404,10 +431,16 @@ export function useStagePointerGestures({
         height = Math.min(height, viewportPageHeight - top);
       }
       const rect = clampRect(viewportRectToPdf({ left, top, width, height }, pageHeight, scale), pageWidth, pageHeight);
+      const liveEndpoints = resize.linearGeometry
+        ? {
+            start: resizePointWithinRect(resize.linearGeometry.start, resize.linearGeometry.rect, rect),
+            end: resizePointWithinRect(resize.linearGeometry.end, resize.linearGeometry.rect, rect),
+          }
+        : undefined;
       // Local-only update: the reducer commit (and the full operations-array
       // rebuild + overlay re-render it triggers) happens once, at gesture end.
       /* v8 ignore next -- this updater only runs while `resize` is non-null (checked above), so `current` is always truthy */
-      setResize((current) => (current ? { ...current, liveRect: rect } : current));
+      setResize((current) => (current ? { ...current, liveRect: rect, liveEndpoints } : current));
       return;
     }
     if (!drag || !stageRef.current) return;
@@ -443,9 +476,27 @@ export function useStagePointerGestures({
     viewportRect = snapped.rect;
     setActiveGuides(snapped.guides);
     const rect = clampRect(viewportRectToPdf(viewportRect, pageHeight, scale), pageWidth, pageHeight);
-    // One delta for the whole group, derived from the pressed op's snapped and
-    // clamped rect, so every member moves in lockstep with it.
-    const liveDelta = { dx: rect.x - primaryOrigin.x, dy: rect.y - primaryOrigin.y };
+    // Clamp one shared delta against every member so the group remains in
+    // lockstep without allowing a non-primary member to leave the page.
+    let minDx = Number.NEGATIVE_INFINITY;
+    let maxDx = Number.POSITIVE_INFINITY;
+    let minDy = Number.NEGATIVE_INFINITY;
+    let maxDy = Number.POSITIVE_INFINITY;
+    for (const id of drag.ids) {
+      const member = operations.find((operation) => operation.id === id);
+      const origin = drag.origins[id];
+      if (!member || !origin) continue;
+      minDx = Math.max(minDx, -origin.x);
+      maxDx = Math.min(maxDx, pageWidth - member.rect.width - origin.x);
+      minDy = Math.max(minDy, -origin.y);
+      maxDy = Math.min(maxDy, pageHeight - member.rect.height - origin.y);
+    }
+    const requestedDx = rect.x - primaryOrigin.x;
+    const requestedDy = rect.y - primaryOrigin.y;
+    const liveDelta = {
+      dx: Math.max(minDx, Math.min(requestedDx, maxDx)),
+      dy: Math.max(minDy, Math.min(requestedDy, maxDy)),
+    };
     // Local-only update; committed once at gesture end (see finishGesture).
     /* v8 ignore next -- this updater only runs while `drag` is non-null (checked above), so `current` is always truthy */
     setDrag((current) => (current ? { ...current, liveDelta } : current));
@@ -454,7 +505,7 @@ export function useStagePointerGestures({
   /** Dispatches the accumulated local drag/resize position (if any) to the reducer. */
   const commitLiveGesture = () => {
     if (drag?.liveDelta) onOperationsTranslate(drag.ids, drag.liveDelta.dx, drag.liveDelta.dy);
-    if (resize?.liveRect) onOperationUpdate(resize.id, { rect: resize.liveRect });
+    if (resize?.liveRect) onOperationUpdate(resize.id, { rect: resize.liveRect, ...resize.liveEndpoints });
   };
 
   const finishGesture = () => {
@@ -494,14 +545,16 @@ export function useStagePointerGestures({
 
   const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     if (eraseDraw) {
-      const point = pointFromEvent(event, stageRef.current ?? event.currentTarget);
-      const points = eraserSampler.current?.finish(point) ?? [...eraseDraw.points, point];
+      const point = pointFromEvent(event, event.currentTarget);
+      // eraseDraw and its sampler are created and cleared in the same state-machine transitions.
+      const points = eraserSampler.current!.finish(point);
       onEraseCommit(points);
       dragMoved.current = true;
     }
     if (inkDraw) {
-      const point = pointFromEvent(event, stageRef.current ?? event.currentTarget);
-      const points = inkSampler.current?.finish(point) ?? inkDraw.points;
+      const point = pointFromEvent(event, event.currentTarget);
+      // inkDraw and its sampler are created and cleared in the same state-machine transitions.
+      const points = inkSampler.current!.finish(point);
       cancelInkPreviewFrame();
       onInkCommit(points);
       dragMoved.current = true;
@@ -534,7 +587,7 @@ export function useStagePointerGestures({
       if (activeTool === "crop") {
         if (dragged) onCropSelect(viewportRect);
       } else {
-        addAt(viewportRect, undefined, dragged ? undefined : draw.start);
+        addAt(viewportRect, undefined, dragged ? undefined : draw.start, dragged ? draw : undefined);
       }
     }
     // A press-and-release with no movement in between is a click, not a
@@ -573,11 +626,22 @@ export function useStagePointerGestures({
     }
     const point = pointFromEvent(event, stageRef.current);
     dragMoved.current = false;
+    const linearGeometry = operation.type === "shape" && (operation.kind === "line" || operation.kind === "arrow")
+      ? {
+          rect: operation.rect,
+          start: operation.start ?? { x: operation.rect.x, y: operation.rect.y },
+          end: operation.end ?? {
+            x: operation.rect.x + operation.rect.width,
+            y: operation.rect.y + operation.rect.height,
+          },
+        }
+      : undefined;
     setResize({
       id: operation.id,
       handle,
       startPointer: point,
       startRect: pdfRectToViewport(operation.rect, pageHeight, scale),
+      linearGeometry,
     });
   };
 

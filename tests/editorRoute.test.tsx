@@ -28,7 +28,6 @@ type ToolRibbonStubProps = {
   activeTool: EditorTool;
   scale: number;
   documentName: string;
-  propertiesOpen: boolean;
   onFindReplace: () => void;
   onHome: () => void;
   onUndo: () => void;
@@ -36,7 +35,6 @@ type ToolRibbonStubProps = {
   onRemove: () => void;
   onDeletePage: () => void;
   onInsertPage: () => void;
-  onToggleProperties: () => void;
   onRotate: () => void;
   onRotatePage: () => void;
   onRestoreHistory: (id: string) => void;
@@ -67,6 +65,7 @@ type StatusBarStubProps = {
 
 type PdfCanvasStubProps = {
   activeTool: EditorTool;
+  disabled?: boolean;
   pageIndex: number;
   searchHighlight?: { pageIndex: number; rect: { x: number; y: number; width: number; height: number } } | null;
   selectedIds: string[];
@@ -126,7 +125,6 @@ vi.mock("../src/components/ToolRibbon", () => ({
       <span data-testid="activeTool">{props.activeTool}</span>
       <span data-testid="scale">{props.scale}</span>
       <span data-testid="toolbar-document-name">{props.documentName}</span>
-      <span data-testid="properties-open">{String(props.propertiesOpen)}</span>
       <button onClick={props.onHome}>home</button>
       <button onClick={props.onUndo}>undo</button>
       <button onClick={props.onRedo}>redo</button>
@@ -143,7 +141,6 @@ vi.mock("../src/components/ToolRibbon", () => ({
       <button onClick={props.onZoomIn}>zoom-in</button>
       <button onClick={props.onZoomOut}>zoom-out</button>
       <button onClick={props.onFindReplace}>find-replace</button>
-      <button onClick={props.onToggleProperties}>toggle-properties</button>
     </div>
   ),
 }));
@@ -183,6 +180,7 @@ vi.mock("../src/components/PdfCanvas", () => ({
   PdfCanvas: (props: PdfCanvasStubProps) => (
     <div data-testid="pdf-canvas">
       <span data-testid="canvas-tool">{props.activeTool}</span>
+      <span data-testid="canvas-disabled">{String(Boolean(props.disabled))}</span>
       <span data-testid="canvas-page">{props.pageIndex}</span>
       <span data-testid="canvas-highlight">{props.searchHighlight ? String(props.searchHighlight.pageIndex) : "none"}</span>
       <button onClick={() => props.onNotice("hi")}>canvas-notice</button>
@@ -352,6 +350,19 @@ describe("EditorRoute - with document", () => {
     expect(screen.getByTestId("canRedo").textContent).toBe("true");
   });
 
+  it("keeps the properties-selection effect idle while an operation remains selected", () => {
+    renderRoute(makeController({
+      editState: {
+        past: [],
+        future: [],
+        operations: [],
+        selectedIds: ["selected"],
+      },
+    }));
+
+    expect(screen.getByTestId("app-shell")).toBeInTheDocument();
+  });
+
   it("fires the ToolRibbon handlers", () => {
     const controller = makeController();
     renderRoute(controller);
@@ -397,6 +408,17 @@ describe("EditorRoute - with document", () => {
     expect(controller.setStatus).toHaveBeenCalledWith("Cross inserted at page center");
   });
 
+  it("reports when Cross cannot resolve the current page size", () => {
+    const controller = makeController({ pageSizes: [] });
+    renderRoute(controller);
+
+    fireEvent.click(screen.getByText("cross-tool"));
+
+    expect(controller.addOperation).not.toHaveBeenCalled();
+    expect(controller.setActiveTool).not.toHaveBeenCalled();
+    expect(controller.setStatus).toHaveBeenCalledWith("Could not determine the page center for Cross.");
+  });
+
   it("resets a rotated view before arming Crop", () => {
     const controller = makeController({ rotation: 90 });
     renderRoute(controller);
@@ -436,8 +458,7 @@ describe("EditorRoute - with document", () => {
     fireEvent.click(screen.getByText("select-page"));
     expect(controller.setPageIndex).toHaveBeenCalledWith(2);
 
-    fireEvent.click(screen.getByText("toggle-properties"));
-    expect(screen.getByTestId("properties-open").textContent).toBe("true");
+    fireEvent.click(screen.getByText("canvas-properties"));
     fireEvent.click(screen.getByText("inspector-update"));
     expect(controller.updateOperation).toHaveBeenCalledWith("id-1", { text: "x" });
     fireEvent.click(screen.getByText("inspector-export"));
@@ -459,8 +480,6 @@ describe("EditorRoute - with document", () => {
     expect(controller.translateOperations).toHaveBeenCalledWith(["o1", "o2"], 4, 5);
     fireEvent.click(screen.getByText("canvas-update"));
     expect(controller.updateOperation).toHaveBeenCalledWith("o", { text: "y" });
-    fireEvent.click(screen.getByText("canvas-properties"));
-    expect(screen.getByTestId("properties-open").textContent).toBe("true");
     // onDraggingChange feeds the StatusBar's movingCount state without crashing.
     fireEvent.click(screen.getByText("canvas-dragging"));
   });
@@ -480,21 +499,51 @@ describe("EditorRoute - with document", () => {
       ] satisfies TextItem[],
     });
     renderRoute(controller);
-    fireEvent.click(screen.getByText("toggle-properties"));
+    fireEvent.click(screen.getByText("canvas-properties"));
     expect(screen.getByTestId("page-text-count").textContent).toBe("1");
     expect(screen.getByTestId("canvas-page").textContent).toBe("1");
   });
 
-  it("closes the properties drawer from its close action and Escape", () => {
+  it("closes the properties drawer from its close action and Escape", async () => {
     renderRoute(makeController());
-    fireEvent.click(screen.getByText("toggle-properties"));
+    fireEvent.click(screen.getByText("canvas-properties"));
     expect(screen.getByTestId("inspector-cmp")).toBeInTheDocument();
     fireEvent.click(screen.getByText("close-properties"));
     expect(screen.queryByTestId("inspector-cmp")).toBeNull();
 
-    fireEvent.click(screen.getByText("toggle-properties"));
+    fireEvent.click(screen.getByText("canvas-properties"));
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(screen.getByTestId("inspector-cmp")).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("inspector-cmp")).toBeNull());
+  });
+
+  it("keeps Properties open when a later gesture listener handles Escape", async () => {
+    renderRoute(makeController());
+    fireEvent.click(screen.getByText("canvas-properties"));
+    const preventGestureEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") event.preventDefault();
+    };
+    window.addEventListener("keydown", preventGestureEscape);
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+
+    await act(async () => {
+      window.dispatchEvent(event);
+      await Promise.resolve();
+    });
+    window.removeEventListener("keydown", preventGestureEscape);
+
+    expect(screen.getByTestId("inspector-cmp")).toBeInTheDocument();
+  });
+
+  it("disables canvas editing and hides edit panels while document bytes are changing", () => {
+    renderRoute(makeController({ isBusy: true }));
+
+    expect(screen.getByTestId("canvas-disabled")).toHaveTextContent("true");
+    fireEvent.click(screen.getByText("canvas-properties"));
+    fireEvent.click(screen.getByText("find-replace"));
     expect(screen.queryByTestId("inspector-cmp")).toBeNull();
+    expect(screen.queryByTestId("find-replace-dialog")).toBeNull();
   });
 });
 

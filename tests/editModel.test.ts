@@ -210,6 +210,40 @@ describe("edit reducer", () => {
     expect(erased.selectedIds).toEqual([]);
   });
 
+  it("replaces multiple selected strokes while preserving unrelated operations and selection", () => {
+    const first: InkOperation = {
+      id: "ink_first", type: "ink", pageIndex: 0,
+      rect: { x: 0, y: 0, width: 10, height: 10 },
+      points: [{ x: 0, y: 0 }, { x: 10, y: 10 }], stroke: "#111827", strokeWidth: 2, createdAt: 1,
+    };
+    const second: InkOperation = { ...first, id: "ink_second", rect: { x: 20, y: 0, width: 10, height: 10 } };
+    const fragment: InkOperation = { ...first, id: "ink_fragment", rect: { x: 0, y: 0, width: 4, height: 4 } };
+    let state = editReducer(initialEditState, { type: "add-many", operations: [first, second, operation] });
+    state = editReducer(state, { type: "select", ids: [first.id, second.id, operation.id] });
+
+    const replaced = editReducer(state, {
+      type: "replace-many",
+      replacements: [
+        { id: first.id, operations: [fragment] },
+        { id: second.id, operations: [] },
+      ],
+    });
+
+    expect(replaced.operations.map((item) => item.id)).toEqual([fragment.id, operation.id]);
+    expect(replaced.selectedIds).toEqual([fragment.id, operation.id]);
+    expect(replaced.past.at(-1)?.label).toBe("Erased 2 strokes");
+  });
+
+  it("honors an explicit replacement history label", () => {
+    const state = editReducer(initialEditState, { type: "add", operation });
+    const replaced = editReducer(state, {
+      type: "replace-many",
+      replacements: [{ id: operation.id, operations: [] }],
+      label: "Removed source overlay",
+    });
+    expect(replaced.past.at(-1)?.label).toBe("Removed source overlay");
+  });
+
   it("translate moves every listed operation by the same delta", () => {
     const second: TextOperation = { ...operation, id: "text_2", rect: { x: 100, y: 200, width: 50, height: 20 } };
     let state = editReducer(initialEditState, { type: "add", operation });
@@ -475,6 +509,20 @@ describe("edit reducer", () => {
 
     const whiteAdd = editReducer(initialEditState, { type: "add", operation: whiteout });
     expect(whiteAdd.past[0].label).toBe("Whiteout added");
+
+    const redactionAdd = editReducer(initialEditState, {
+      type: "add",
+      operation: {
+        id: "redaction_1",
+        type: "redaction",
+        mode: "area",
+        pageIndex: 0,
+        rect: { x: 0, y: 0, width: 10, height: 10 },
+        fillColor: "#111827",
+        createdAt: 1,
+      },
+    });
+    expect(redactionAdd.past[0].label).toBe("Redaction added");
 
     const fieldAdd = editReducer(initialEditState, { type: "add", operation: formField });
     expect(fieldAdd.past[0].label).toBe("Form edit added");

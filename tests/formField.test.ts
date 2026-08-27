@@ -159,6 +159,7 @@ describe("form field validation", () => {
   });
 
   it("reformats valid dates without changing the calendar value", () => {
+    expect(reformatDateFieldValue("02/29/2024", "MM/dd/yyyy", "yyyy-MM-dd")).toBe("2024-02-29");
     expect(reformatDateFieldValue("2024-02-29", "yyyy-MM-dd", "MM/dd/yyyy")).toBe("02/29/2024");
     expect(reformatDateFieldValue("02/29/2024", "MM/dd/yyyy", "dd/MM/yyyy")).toBe("29/02/2024");
     expect(reformatDateFieldValue("31/02/2024", "dd/MM/yyyy", "yyyy-MM-dd")).toBeUndefined();

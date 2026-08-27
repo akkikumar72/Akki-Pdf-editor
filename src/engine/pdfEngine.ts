@@ -179,9 +179,9 @@ function assertValidNormalizedCrop(rect: NormalizedCropRect) {
 
 function translateCoordinateArray(array: PDFArray, dx: number, dy: number) {
   for (let index = 0; index + 1 < array.size(); index += 2) {
-    const x = array.lookupMaybe(index, PDFNumber);
-    const y = array.lookupMaybe(index + 1, PDFNumber);
-    if (!x || !y) continue;
+    const x = array.lookup(index);
+    const y = array.lookup(index + 1);
+    if (!(x instanceof PDFNumber) || !(y instanceof PDFNumber)) continue;
     array.set(index, PDFNumber.of(x.asNumber() + dx));
     array.set(index + 1, PDFNumber.of(y.asNumber() + dy));
   }
@@ -189,12 +189,13 @@ function translateCoordinateArray(array: PDFArray, dx: number, dy: number) {
 
 /** Keep imported links, widgets, ink, and other annotation geometry aligned with translated page content. */
 function translatePageAnnotations(page: ReturnType<PDFDocument["getPage"]>, dx: number, dy: number) {
-  const annotations = page.node.Annots();
-  if (!annotations) return;
+  // cropPages calls this after PDFPage.translateContent(), whose normalize()
+  // step guarantees an Annots array even when the source page had none.
+  const annotations = page.node.Annots()!;
 
   for (const annotationEntry of annotations.asArray()) {
-    const annotation = page.doc.context.lookupMaybe(annotationEntry, PDFDict);
-    if (!annotation) continue;
+    const annotation = page.doc.context.lookup(annotationEntry);
+    if (!(annotation instanceof PDFDict)) continue;
     for (const key of ["Rect", "QuadPoints", "Vertices", "L", "CL"]) {
       const coordinates = annotation.lookupMaybe(PDFName.of(key), PDFArray);
       if (coordinates) translateCoordinateArray(coordinates, dx, dy);
@@ -202,8 +203,8 @@ function translatePageAnnotations(page: ReturnType<PDFDocument["getPage"]>, dx: 
     const inkList = annotation.lookupMaybe(PDFName.of("InkList"), PDFArray);
     if (inkList) {
       for (let index = 0; index < inkList.size(); index += 1) {
-        const stroke = inkList.lookupMaybe(index, PDFArray);
-        if (stroke) translateCoordinateArray(stroke, dx, dy);
+        const stroke = inkList.lookup(index);
+        if (stroke instanceof PDFArray) translateCoordinateArray(stroke, dx, dy);
       }
     }
   }

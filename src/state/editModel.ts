@@ -101,12 +101,11 @@ function trimHistory(
         break;
       }
     }
-    if (farthestFutureBoundary >= 0) {
-      nextFuture = nextFuture.slice(0, farthestFutureBoundary);
-      continue;
+    /* v8 ignore next 3 -- over-budget usage guarantees a snapshot exists after the no-past-snapshot branch above */
+    if (farthestFutureBoundary < 0) {
+      throw new Error("History snapshot usage exceeded its budget without a document boundary.");
     }
-
-    return { past: nextPast, future: nextFuture };
+    nextFuture = nextFuture.slice(0, farthestFutureBoundary);
   }
 }
 

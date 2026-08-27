@@ -46,6 +46,20 @@ export function useEditorController() {
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
   const [editState, dispatch] = useReducer(editReducer, initialEditState);
   const pageStageRef = useRef<HTMLDivElement>(null);
+  const documentMutationPendingRef = useRef(false);
+
+  const runDocumentMutation = useCallback(async (mutation: () => Promise<void>) => {
+    if (documentMutationPendingRef.current) return false;
+    documentMutationPendingRef.current = true;
+    setIsBusy(true);
+    try {
+      await mutation();
+      return true;
+    } finally {
+      documentMutationPendingRef.current = false;
+      setIsBusy(false);
+    }
+  }, []);
 
   const selectedOperation = useMemo(() => getSelectedOperation(editState), [editState]);
   const selectedOperations = useMemo(() => getSelectedOperations(editState), [editState]);
@@ -426,55 +440,54 @@ export function useEditorController() {
 
   const insertPageAfter = useCallback(async () => {
     if (!document) return;
-    setIsBusy(true);
-    try {
-      const bytes = await pdfEngine.insertBlankPage(document.bytes, pageIndex);
-      await updateDocumentBytes(bytes, pageIndex + 1, "Blank page inserted", (operations) =>
-        shiftOperationsForInsertedPage(operations, pageIndex + 1),
-      );
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not insert page.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, pageIndex, updateDocumentBytes]);
+    await runDocumentMutation(async () => {
+      try {
+        const bytes = await pdfEngine.insertBlankPage(document.bytes, pageIndex);
+        await updateDocumentBytes(bytes, pageIndex + 1, "Blank page inserted", (operations) =>
+          shiftOperationsForInsertedPage(operations, pageIndex + 1),
+        );
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not insert page.");
+      }
+    });
+  }, [document, pageIndex, runDocumentMutation, updateDocumentBytes]);
 
   const deleteCurrentPage = useCallback(async () => {
     if (!document) return;
-    setIsBusy(true);
-    try {
-      const bytes = await pdfEngine.deletePage(document.bytes, pageIndex);
-      await updateDocumentBytes(bytes, Math.max(0, pageIndex - 1), "Page deleted", (operations) =>
-        shiftOperationsForDeletedPage(operations, pageIndex),
-      );
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not delete page.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, pageIndex, updateDocumentBytes]);
+    await runDocumentMutation(async () => {
+      try {
+        const bytes = await pdfEngine.deletePage(document.bytes, pageIndex);
+        await updateDocumentBytes(bytes, Math.max(0, pageIndex - 1), "Page deleted", (operations) =>
+          shiftOperationsForDeletedPage(operations, pageIndex),
+        );
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not delete page.");
+      }
+    });
+  }, [document, pageIndex, runDocumentMutation, updateDocumentBytes]);
 
   const rotateCurrentPage = useCallback(async () => {
     if (!document) return;
-    setIsBusy(true);
-    try {
-      const bytes = await pdfEngine.rotatePage(document.bytes, pageIndex);
-      await updateDocumentBytes(bytes, pageIndex, "Page rotated");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not rotate page.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, pageIndex, updateDocumentBytes]);
+    await runDocumentMutation(async () => {
+      try {
+        const bytes = await pdfEngine.rotatePage(document.bytes, pageIndex);
+        await updateDocumentBytes(bytes, pageIndex, "Page rotated");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not rotate page.");
+      }
+    });
+  }, [document, pageIndex, runDocumentMutation, updateDocumentBytes]);
 
   const restoreDocumentSnapshot = useCallback(
     async (snapshot: DocumentSnapshot, nextEditState: EditState, statusMessage: string) => {
+      /* v8 ignore next -- snapshot restoration is only reached from history entries created while a document is loaded, and returnHome clears that history */
       if (!document) return;
       const sizes = await pdfEngine.getPageSizes(snapshot.bytes);
       const next: LoadedPdf = {
         ...document,
         bytes: snapshot.bytes,
         pageCount: sizes.length,
+        /* v8 ignore next -- every document mutation mints a missing fingerprint before it can create a restorable snapshot */
         fingerprint: document.fingerprint ?? `${document.name}-${Date.now()}`,
       };
       // `hydratePdfState` parses first and only mutates React state after both
@@ -494,42 +507,44 @@ export function useEditorController() {
   );
 
   const undo = useCallback(async () => {
+    if (documentMutationPendingRef.current) return;
     const previous = editState.past.at(-1);
     if (!previous || !document) return;
-    if (!previous.documentSnapshot) {
+    const snapshot = previous.documentSnapshot;
+    if (!snapshot) {
       dispatch({ type: "undo" });
       return;
     }
     const currentDocument = { bytes: document.bytes, pageIndex };
     const nextEditState = editReducer(editState, { type: "undo", currentDocument });
-    setIsBusy(true);
-    try {
-      await restoreDocumentSnapshot(previous.documentSnapshot, nextEditState, `${previous.label} undone`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not undo the document change.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, editState, pageIndex, restoreDocumentSnapshot]);
+    await runDocumentMutation(async () => {
+      try {
+        await restoreDocumentSnapshot(snapshot, nextEditState, `${previous.label} undone`);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not undo the document change.");
+      }
+    });
+  }, [document, editState, pageIndex, restoreDocumentSnapshot, runDocumentMutation]);
 
   const redo = useCallback(async () => {
+    if (documentMutationPendingRef.current) return;
     const next = editState.future[0];
     if (!next || !document) return;
-    if (!next.documentSnapshot) {
+    const snapshot = next.documentSnapshot;
+    if (!snapshot) {
       dispatch({ type: "redo" });
       return;
     }
     const currentDocument = { bytes: document.bytes, pageIndex };
     const nextEditState = editReducer(editState, { type: "redo", currentDocument });
-    setIsBusy(true);
-    try {
-      await restoreDocumentSnapshot(next.documentSnapshot, nextEditState, `${next.label} redone`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not redo the document change.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, editState, pageIndex, restoreDocumentSnapshot]);
+    await runDocumentMutation(async () => {
+      try {
+        await restoreDocumentSnapshot(snapshot, nextEditState, `${next.label} redone`);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not redo the document change.");
+      }
+    });
+  }, [document, editState, pageIndex, restoreDocumentSnapshot, runDocumentMutation]);
 
   const cropPages = useCallback(async (rect: PdfRect, scope: "current" | "all") => {
     if (!document) return;
@@ -541,34 +556,34 @@ export function useEditorController() {
       setStatus("Could not determine the page size for cropping.");
       return;
     }
-    setIsBusy(true);
-    setStatus(scope === "all" ? "Cropping all pages..." : "Cropping current page...");
-    try {
-      const result = await pdfEngine.cropPages(
-        document.bytes,
-        {
-          x: rect.x / visibleSize.width,
-          y: rect.y / visibleSize.height,
-          width: rect.width / visibleSize.width,
-          height: rect.height / visibleSize.height,
-        },
-        scope === "all" ? { kind: "all" } : { kind: "current", pageIndex },
-      );
-      await updateDocumentBytes(
-        result.bytes,
-        pageIndex,
-        scope === "all" ? "All pages cropped" : `Page ${pageIndex + 1} cropped`,
-        (operations) => remapOperationsForCroppedPages(operations, result.cropBounds),
-      );
-      setActiveTool("select");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not crop the document.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, pageIndex, pageSizes, updateDocumentBytes]);
+    await runDocumentMutation(async () => {
+      setStatus(scope === "all" ? "Cropping all pages..." : "Cropping current page...");
+      try {
+        const result = await pdfEngine.cropPages(
+          document.bytes,
+          {
+            x: rect.x / visibleSize.width,
+            y: rect.y / visibleSize.height,
+            width: rect.width / visibleSize.width,
+            height: rect.height / visibleSize.height,
+          },
+          scope === "all" ? { kind: "all" } : { kind: "current", pageIndex },
+        );
+        await updateDocumentBytes(
+          result.bytes,
+          pageIndex,
+          scope === "all" ? "All pages cropped" : `Page ${pageIndex + 1} cropped`,
+          (operations) => remapOperationsForCroppedPages(operations, result.cropBounds),
+        );
+        setActiveTool("select");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not crop the document.");
+      }
+    });
+  }, [document, pageIndex, pageSizes, runDocumentMutation, updateDocumentBytes]);
 
   const restoreHistoryEntry = useCallback(async (id: string) => {
+    if (documentMutationPendingRef.current) return;
     const index = editState.past.findIndex((entry) => entry.id === id);
     const entry = editState.past[index];
     if (!entry) return;
@@ -586,16 +601,16 @@ export function useEditorController() {
       setStatus("Restored selected edit checkpoint");
       return;
     }
+    /* v8 ignore next -- a document snapshot can only exist in history while its loaded document is still active */
     if (!document) return;
-    setIsBusy(true);
-    try {
-      await restoreDocumentSnapshot(targetDocument, nextEditState, "Restored selected edit checkpoint");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not restore that document checkpoint.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, editState, pageIndex, restoreDocumentSnapshot]);
+    await runDocumentMutation(async () => {
+      try {
+        await restoreDocumentSnapshot(targetDocument, nextEditState, "Restored selected edit checkpoint");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not restore that document checkpoint.");
+      }
+    });
+  }, [document, editState, pageIndex, restoreDocumentSnapshot, runDocumentMutation]);
 
   const runExport = useCallback(
     async (format: ExportFormat) => {

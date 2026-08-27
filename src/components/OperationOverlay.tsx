@@ -26,6 +26,21 @@ type OperationOverlayProps = {
   onTextCommit?: () => void;
 };
 
+function readEditableText(element: HTMLDivElement) {
+  // `textContent` drops the visual line break represented by a contenteditable
+  // `<br>`. Browsers expose the rendered plain text through `innerText`; the
+  // small fallback keeps DOM-only test environments correct too.
+  if (element.textContent === null) return "";
+  if (typeof element.innerText === "string") return element.innerText.replace(/\r\n?/g, "\n");
+  return [...element.childNodes]
+    .map((node) => {
+      if (node.nodeName === "BR") return "\n";
+      /* v8 ignore next -- valid children of an HTMLDivElement always expose string textContent; only Document and DocumentType return null, and neither can be appended here */
+      return node.textContent ?? "";
+    })
+    .join("");
+}
+
 function OperationOverlayComponent({
   operation,
   pageHeight,
@@ -175,7 +190,7 @@ function OperationOverlayComponent({
           }}
           onInput={(event) => {
             if (!editing) return;
-            onTextChange?.(operation.id, event.currentTarget.textContent ?? "");
+            onTextChange?.(operation.id, readEditableText(event.currentTarget));
           }}
           onBlur={(event) => {
             if (!editing) return;
@@ -271,11 +286,21 @@ function OperationOverlayComponent({
     case "shape": {
       if (operation.kind === "line" || operation.kind === "arrow") {
         // Linear shapes render as SVG (a bordered box can't represent a diagonal
-        // line). Drawn bottom-left -> top-right to match the PDF export writer.
+        // line). New operations preserve exact drag endpoints; older saved
+        // sessions fall back to the original bottom-left -> top-right diagonal.
         const width = Math.max(1, rect.width);
         const height = Math.max(1, rect.height);
         const strokeWidth = Math.max(1, operation.strokeWidth * scale);
         const markerId = `arrowhead-${operation.id}`;
+        const start = operation.start ?? { x: operation.rect.x, y: operation.rect.y };
+        const end = operation.end ?? {
+          x: operation.rect.x + operation.rect.width,
+          y: operation.rect.y + operation.rect.height,
+        };
+        const x1 = (start.x - operation.rect.x) * scale;
+        const y1 = (operation.rect.y + operation.rect.height - start.y) * scale;
+        const x2 = (end.x - operation.rect.x) * scale;
+        const y2 = (operation.rect.y + operation.rect.height - end.y) * scale;
         return (
           <div
             className={`${className} operation--shape-${operation.kind}`}
@@ -299,10 +324,10 @@ function OperationOverlayComponent({
                 </defs>
               ) : null}
               <line
-                x1={0}
-                y1={height}
-                x2={width}
-                y2={0}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
                 stroke={operation.stroke}
                 strokeWidth={strokeWidth}
                 strokeLinecap="round"

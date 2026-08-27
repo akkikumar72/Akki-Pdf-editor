@@ -389,6 +389,18 @@ describe("operation factory", () => {
     expect(immediate).toMatchObject({ type: "annotation", kind: "callout", text: "Callout" });
   });
 
+  it("places a callout leader on the left when there is room", () => {
+    const [callout] = createOperationsForTool({
+      ...baseInput,
+      activeTool: "callout",
+      viewportRect: { left: 120, top: 50, width: 40, height: 30 },
+    });
+
+    if (callout.type !== "annotation") throw new Error("Expected annotation");
+    expect(callout.anchor!.x).toBeLessThan(callout.rect.x);
+    expect(callout.elbow!.x).toBeLessThan(callout.rect.x);
+  });
+
   it("creates every shape variant", () => {
     const kinds = (["shape", "shape-ellipse", "shape-line", "shape-arrow"] as const).map((tool) => {
       const [operation] = createOperationsForTool({ ...baseInput, activeTool: tool });
@@ -396,6 +408,22 @@ describe("operation factory", () => {
       return operation.kind;
     });
     expect(kinds).toEqual(["rectangle", "ellipse", "line", "arrow"]);
+  });
+
+  it("preserves the exact drag direction for lines and arrows", () => {
+    const lineStart = { x: 80, y: 730 };
+    const lineEnd = { x: 50, y: 700 };
+    for (const activeTool of ["shape-line", "shape-arrow"] as const) {
+      const [operation] = createOperationsForTool({
+        ...baseInput,
+        activeTool,
+        lineStart,
+        lineEnd,
+      });
+      if (operation.type !== "shape") throw new Error("Expected shape");
+      expect(operation.start).toEqual(lineStart);
+      expect(operation.end).toEqual(lineEnd);
+    }
   });
 
   it("creates ink and draw strokes with variant-specific styling", () => {
@@ -442,6 +470,14 @@ describe("operation factory", () => {
     expect(dot?.rect.width).toBeCloseTo(2, 1);
     expect(dot?.rect.height).toBeCloseTo(2, 1);
     expect(createInkOperation("ink", 0, [])).toBeUndefined();
+  });
+
+  it("keeps a single-point ink dot inside the page at the top-right boundary", () => {
+    const dot = createInkOperation("ink", 0, [{ x: 611, y: 791 }], { width: 612, height: 792 });
+
+    expect(dot?.points).toHaveLength(2);
+    expect(dot?.points[1].x).toBeLessThan(dot!.points[0].x);
+    expect(dot?.points[1].y).toBeLessThan(dot!.points[0].y);
   });
 
   it("clamps sampled ink points and geometry to the PDF page", () => {
@@ -597,6 +633,28 @@ describe("operation factory", () => {
     expect(listbox).toMatchObject({ kind: "listbox", options: ["Admin", "Viewer"], selectedValues: [], multiSelect: false });
     expect(date).toMatchObject({ kind: "date", dateFormat: "yyyy-MM-dd" });
     expect(button).toMatchObject({ kind: "button", buttonLabel: "Start over", buttonAction: "reset" });
+  });
+
+  it("uses safe defaults for a button with blank optional settings", () => {
+    const [button] = createOperationsForTool({
+      ...baseInput,
+      activeTool: "form-button",
+      resolvedFields: { name: "reset", buttonLabel: "   " },
+    });
+
+    expect(button).toMatchObject({ kind: "button", buttonLabel: "Reset form", buttonAction: "reset" });
+  });
+
+  it("passes page bounds through the generic ink factory path", () => {
+    const [ink] = createOperationsForTool({
+      ...baseInput,
+      activeTool: "ink",
+      pageWidth: 60,
+      pageHeight: 80,
+    });
+
+    if (ink.type !== "ink") throw new Error("Expected ink");
+    expect(ink.points.every((point) => point.x >= 1 && point.x <= 59 && point.y >= 1 && point.y <= 79)).toBe(true);
   });
 
   it("bails when the form field name is empty", () => {

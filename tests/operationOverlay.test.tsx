@@ -1,6 +1,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OperationOverlay } from "../src/components/OperationOverlay";
+import { NEW_TEXT_PLACEHOLDER } from "../src/editor/operationFactory";
 import type {
   AnnotationOperation,
   DocumentFonts,
@@ -206,6 +207,26 @@ describe("OperationOverlay - text", () => {
     expect(onTextCommit).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves contenteditable line breaks when reporting edited text", () => {
+    const { container, onTextChange } = renderOverlay(baseText(), { editing: true });
+    const el = container.querySelector(".operation--text") as HTMLDivElement;
+    el.innerHTML = "First line<br>Second line";
+
+    fireEvent.input(el);
+
+    expect(onTextChange).toHaveBeenCalledWith("text-1", "First line\nSecond line");
+  });
+
+  it("normalizes browser innerText line endings when reporting edited text", () => {
+    const { container, onTextChange } = renderOverlay(baseText(), { editing: true });
+    const el = container.querySelector(".operation--text") as HTMLDivElement;
+    Object.defineProperty(el, "innerText", { configurable: true, get: () => "First\r\nSecond\rThird" });
+
+    fireEvent.input(el);
+
+    expect(onTextChange).toHaveBeenCalledWith("text-1", "First\nSecond\nThird");
+  });
+
   it("input with null textContent falls back to empty string", () => {
     const { container, onTextChange } = renderOverlay(baseText(), { editing: true });
     const el = container.querySelector(".operation--text") as HTMLDivElement;
@@ -223,6 +244,20 @@ describe("OperationOverlay - text", () => {
     fireEvent.keyDown(el, { key: "Escape" });
     expect(onTextChange).not.toHaveBeenCalled();
     expect(onTextCommit).not.toHaveBeenCalled();
+  });
+
+  it("keeps text editing active when focus moves into the floating toolbar", () => {
+    const toolbar = document.createElement("div");
+    toolbar.className = "floating-toolbar";
+    const control = document.createElement("button");
+    toolbar.appendChild(control);
+    document.body.appendChild(toolbar);
+    const { container, onTextCommit } = renderOverlay(baseText(), { editing: true });
+
+    fireEvent.blur(container.querySelector(".operation--text") as HTMLDivElement, { relatedTarget: control });
+
+    expect(onTextCommit).not.toHaveBeenCalled();
+    toolbar.remove();
   });
 
   it("works when optional callbacks are omitted (no crash)", () => {
@@ -284,6 +319,15 @@ describe("OperationOverlay - text", () => {
   });
 
   describe("editing focus / caret effect", () => {
+    it("selects the untouched new-text placeholder for immediate replacement", () => {
+      const { container } = renderOverlay(baseText({ text: NEW_TEXT_PLACEHOLDER }), { editing: true });
+      const element = container.querySelector(".operation--text") as HTMLDivElement;
+      const selection = window.getSelection();
+
+      expect(selection?.toString()).toBe(NEW_TEXT_PLACEHOLDER);
+      expect(element.contains(selection?.anchorNode ?? null)).toBe(true);
+    });
+
     it("uses a clicked caret range contained in the element", () => {
       lastPoint = { x: 5, y: 5 };
       caretRangeMode = "inside-active";
@@ -539,6 +583,22 @@ describe("OperationOverlay - non-text branches", () => {
     expect(line?.getAttribute("marker-end")).toContain("arrowhead-shape-arrow");
   });
 
+  it("renders a line from its preserved PDF-space endpoints", () => {
+    const op: ShapeOperation = {
+      id: "shape-directed", type: "shape", kind: "line", pageIndex: 0, rect: RECT, createdAt: 1,
+      stroke: "#123456", strokeWidth: 2,
+      start: { x: 20, y: 30 },
+      end: { x: 90, y: 50 },
+    };
+    const { container } = renderOverlay(op);
+    const line = container.querySelector(".operation--shape-line line");
+
+    expect(line).toHaveAttribute("x1", "20");
+    expect(line).toHaveAttribute("y1", "60");
+    expect(line).toHaveAttribute("x2", "160");
+    expect(line).toHaveAttribute("y2", "20");
+  });
+
   it("renders ink with mapped polyline points", () => {
     const op: InkOperation = {
       id: "ink", type: "ink", pageIndex: 0,
@@ -550,6 +610,18 @@ describe("OperationOverlay - non-text branches", () => {
     const polyline = container.querySelector("polyline");
     expect(polyline).toBeTruthy();
     expect(polyline?.getAttribute("points")).toContain(",");
+  });
+
+  it("renders freehand highlight ink with multiply blending", () => {
+    const op: InkOperation = {
+      id: "ink-highlight", type: "ink", variant: "freehand-highlight", pageIndex: 0,
+      rect: { x: 0, y: 0, width: 10, height: 10 }, createdAt: 1,
+      points: [{ x: 0, y: 0 }, { x: 5, y: 5 }],
+      stroke: "#ffff00", strokeWidth: 8,
+    };
+    const { container } = renderOverlay(op);
+    const element = container.querySelector(".operation--ink-freehand-highlight") as HTMLDivElement;
+    expect(element.style.mixBlendMode).toBe("multiply");
   });
 
   it("renders ink clamping zero-size rect to at least 1", () => {
@@ -650,6 +722,18 @@ describe("OperationOverlay - non-text branches", () => {
     expect(el.textContent).toBe("REDACTED");
   });
 
+  it("renders redaction defaults without border text", () => {
+    const op: RedactionOperation = {
+      id: "redaction-defaults", type: "redaction", mode: "area", pageIndex: 0, rect: RECT, createdAt: 1,
+      fillColor: "#111827",
+    };
+    const { container } = renderOverlay(op);
+    const element = container.querySelector(".operation--redaction-area") as HTMLDivElement;
+    expect(element.style.borderColor).toBe("rgb(17, 24, 39)");
+    expect(element.style.borderWidth).toBe("0px");
+    expect(element.textContent).toBe("");
+  });
+
   it("renders callout text with a leader and anchor", () => {
     const op: AnnotationOperation = {
       id: "callout-1", type: "annotation", kind: "callout", pageIndex: 0, rect: RECT, createdAt: 1,
@@ -660,6 +744,24 @@ describe("OperationOverlay - non-text branches", () => {
     expect(container.querySelector(".operation__callout-box")?.textContent).toBe("Review this");
     expect(container.querySelector(".operation__callout-leader polyline")?.getAttribute("points")).toBeTruthy();
     expect(container.querySelector(".operation__callout-leader circle")).toBeTruthy();
+  });
+
+  it("renders sparse callouts with defaults on either side of the box", () => {
+    const base: AnnotationOperation = {
+      id: "callout-default", type: "annotation", kind: "callout", pageIndex: 0, rect: RECT, createdAt: 1,
+      color: "#2563eb",
+    };
+    const fallback = renderOverlay(base);
+    const fallbackBox = fallback.container.querySelector(".operation__callout-box") as HTMLDivElement;
+    expect(fallbackBox).toHaveTextContent("Callout");
+    expect(fallbackBox.style.background).toBe("rgb(255, 255, 255)");
+    expect(fallbackBox.style.fontSize).toBe("24px");
+    expect(fallback.container.querySelector(".operation__callout-leader polyline")?.getAttribute("points")).not.toContain("undefined");
+    fallback.unmount();
+
+    const right = renderOverlay({ ...base, id: "callout-right", anchor: { x: 200, y: 40 } });
+    const points = right.container.querySelector(".operation__callout-leader polyline")?.getAttribute("points") ?? "";
+    expect(points).toContain(`${RECT.width * SCALE},`);
   });
 
   it("renders checkbox, listbox, button, signature, and date form variants", () => {
@@ -679,6 +781,61 @@ describe("OperationOverlay - non-text branches", () => {
       expect(container.querySelector(selector)?.textContent).toContain(expected);
       unmount();
     });
+  });
+
+  it("renders sparse form-field fallbacks and unchecked choice states", () => {
+    const cases: Array<[Partial<FormFieldOperation>, string]> = [
+      [{ kind: "checkbox" }, ""],
+      [{ kind: "radio" }, ""],
+      [{ kind: "dropdown" }, "field_2⌄"],
+      [{ kind: "listbox" }, "field_3"],
+      [{ kind: "button" }, "Button"],
+      [{ kind: "date" }, "yyyy-MM-dd▣"],
+    ];
+
+    cases.forEach(([overrides, expected], index) => {
+      const operation: FormFieldOperation = {
+        id: `sparse-field-${index}`,
+        type: "form-field",
+        kind: "text",
+        pageIndex: 0,
+        rect: RECT,
+        createdAt: 1,
+        name: `field_${index}`,
+        ...overrides,
+      };
+      const view = renderOverlay(operation);
+      expect((view.container.querySelector(".operation--form-field") as HTMLDivElement).textContent).toBe(expected);
+      view.unmount();
+    });
+
+    const listbox = renderOverlay({
+      id: "listbox-unselected", type: "form-field", kind: "listbox", pageIndex: 0, rect: RECT, createdAt: 1,
+      name: "roles", options: ["Admin"],
+    });
+    expect(listbox.container.querySelector(".operation__form-list .is-selected")).toBeNull();
+  });
+
+  it("renders form-field appearance modifiers and legacy value fallbacks", () => {
+    const modified: FormFieldOperation = {
+      id: "field-modified", type: "form-field", kind: "text", pageIndex: 0, rect: RECT, createdAt: 1,
+      name: "profile", value: "Ada", tooltip: "Profile name", borderStyle: "dashed", rotation: 90,
+      readOnly: true, required: true,
+    };
+    const modifiedView = renderOverlay(modified);
+    const modifiedElement = modifiedView.container.querySelector(".operation--form-field") as HTMLDivElement;
+    expect(modifiedElement).toHaveTextContent("Ada");
+    expect(modifiedElement).toHaveClass("is-read-only", "is-required");
+    expect(modifiedElement).toHaveAttribute("title", "Profile name");
+    expect(modifiedElement.style.borderStyle).toBe("dashed");
+    expect(modifiedElement.style.transform).toBe("rotate(90deg)");
+    modifiedView.unmount();
+
+    const underline = renderOverlay({
+      id: "field-underline-default", type: "form-field", kind: "text", pageIndex: 0, rect: RECT, createdAt: 1,
+      name: "underlined", borderStyle: "underline",
+    });
+    expect((underline.container.querySelector(".operation--form-field") as HTMLDivElement).style.borderBottomWidth).toBe("2px");
   });
 
   it("renders an underline form border only along the bottom edge", () => {

@@ -83,36 +83,57 @@ export class ExportPipeline {
    * Merges the original PDF text extraction with in-editor edits so data
    * exports (txt/csv/xlsx) reflect what the user sees, not stale source
    * text: drops original runs a `whiteout`, `redaction`, or replacement `text` op covers,
-   * and appends every `text` op (replacement or newly added) as a
-   * synthetic run positioned by its own rect.
+   * and appends each visible `text` op (replacement or newly added) as a
+   * synthetic run positioned by its own rect. A later `whiteout` or
+   * `redaction` suppresses synthetic text beneath it, while text added after
+   * the cover stays visible.
    */
   private effectiveTextItems(textItems: TextItem[], operations: EditOperation[]): TextItem[] {
-    const coverRects: Array<{ pageIndex: number; rect: PdfRect }> = [];
-    const additions: TextItem[] = [];
+    const sourceCoverRects: Array<{ pageIndex: number; rect: PdfRect }> = [];
+    const orderedCoverRects: Array<{ pageIndex: number; rect: PdfRect; operationIndex: number }> = [];
+    const additions: Array<{ item: TextItem; operationIndex: number }> = [];
 
-    for (const operation of operations) {
+    operations.forEach((operation, operationIndex) => {
       if (operation.type === "whiteout" || operation.type === "redaction") {
-        coverRects.push({ pageIndex: operation.pageIndex, rect: operation.rect });
+        const cover = { pageIndex: operation.pageIndex, rect: operation.rect };
+        sourceCoverRects.push(cover);
+        orderedCoverRects.push({ ...cover, operationIndex });
       } else if (operation.type === "text") {
         // Shared with Find (see replacementCoverRect's own doc comment for
         // why this deliberately differs from the PDF writer's paint condition).
         const coverRect = replacementCoverRect(operation);
         if (coverRect) {
-          coverRects.push({ pageIndex: operation.pageIndex, rect: coverRect });
+          const cover = { pageIndex: operation.pageIndex, rect: coverRect };
+          sourceCoverRects.push(cover);
+          orderedCoverRects.push({ ...cover, operationIndex });
         }
-        additions.push({ str: operation.text, pageIndex: operation.pageIndex, rect: operation.rect });
+        additions.push({
+          item: { str: operation.text, pageIndex: operation.pageIndex, rect: operation.rect },
+          operationIndex,
+        });
       }
-    }
+    });
 
     const remaining = textItems.filter(
       (item) =>
-        !coverRects.some(
+        !sourceCoverRects.some(
           (cover) =>
             cover.pageIndex === item.pageIndex && isTextRectSignificantlyCovered(item.rect, cover.rect),
         ),
     );
+    const visibleAdditions = additions
+      .filter(
+        ({ item, operationIndex }) =>
+          !orderedCoverRects.some(
+            (cover) =>
+              cover.operationIndex > operationIndex &&
+              cover.pageIndex === item.pageIndex &&
+              isTextRectSignificantlyCovered(item.rect, cover.rect),
+          ),
+      )
+      .map(({ item }) => item);
 
-    return [...remaining, ...additions];
+    return [...remaining, ...visibleAdditions];
   }
 
   private tableRows(textItems: TextItem[], operations: EditOperation[]) {

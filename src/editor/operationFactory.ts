@@ -49,6 +49,9 @@ type CreateOperationInput = {
   sampledBackgroundColor?: string;
   sampledTextColor?: string;
   sampledFontWeight?: number;
+  /** Exact PDF-space drag endpoints for line/arrow tools. */
+  lineStart?: PdfPoint;
+  lineEnd?: PdfPoint;
 };
 
 const DEFAULT_COLORS = {
@@ -295,6 +298,8 @@ export function createOperationsForTool({
   sampledBackgroundColor,
   sampledTextColor,
   sampledFontWeight,
+  lineStart,
+  lineEnd,
 }: CreateOperationInput): EditOperation[] {
   const rect = viewportRectToPdf(viewportRect, pageHeight, scale);
   const now = Date.now();
@@ -517,6 +522,8 @@ export function createOperationsForTool({
         stroke: "#ef4444",
         fill: "transparent",
         strokeWidth: 2,
+        start: isLinear ? lineStart : undefined,
+        end: isLinear ? lineEnd : undefined,
         opacity: 1,
         createdAt: now,
       },
@@ -535,7 +542,10 @@ export function createOperationsForTool({
       ],
       pageWidth ? { width: pageWidth, height: pageHeight } : undefined,
     );
-    return operation ? [operation] : [];
+    // The preview path above always contains four points, so creation cannot
+    // return null. Keep that invariant explicit instead of carrying a dead
+    // fallback branch into the public factory.
+    return [operation as InkOperation];
   }
 
   if (activeTool === "stamp") {

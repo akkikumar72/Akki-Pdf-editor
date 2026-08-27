@@ -160,6 +160,35 @@ describe("writeInteractiveFormField", () => {
     expect(underline).toMatch(/\d+(?:\.\d+)? \d+(?:\.\d+)? l\nS\nQ\n$/);
   });
 
+  it("omits custom border strokes when a non-solid border is invisible", async () => {
+    const { pdf, page } = await documentWithPage();
+    await writeInteractiveFormField(
+      pdf,
+      page,
+      operation({
+        name: "zero_width_dashed",
+        value: "",
+        borderStyle: "dashed",
+        borderWidth: 0,
+      }),
+    );
+    await writeInteractiveFormField(
+      pdf,
+      page,
+      operation({
+        name: "transparent_underline",
+        borderStyle: "underline",
+        borderColor: "transparent",
+        borderWidth: 2,
+      }),
+    );
+
+    const loaded = await reload(pdf);
+    expect(loaded.getForm().getTextField("zero_width_dashed").getText()).toBeUndefined();
+    expect(normalAppearanceText(loaded, "zero_width_dashed")).not.toContain("[3 2] 0 d");
+    expect(normalAppearanceText(loaded, "transparent_underline")).not.toMatch(/\nS\nQ\n$/);
+  });
+
   it("writes multiline, dropdown, and list box values as live AcroForm controls", async () => {
     const { pdf, page } = await documentWithPage();
     await writeInteractiveFormField(
@@ -331,7 +360,7 @@ describe("writeInteractiveFormField", () => {
   it("avoids a non-radio group-name collision", async () => {
     const { pdf, page } = await documentWithPage();
     await writeInteractiveFormField(pdf, page, operation({ name: "status", value: "Existing" }));
-    const result = await writeInteractiveFormField(
+    const firstRadio = await writeInteractiveFormField(
       pdf,
       page,
       operation({
@@ -342,8 +371,51 @@ describe("writeInteractiveFormField", () => {
         checked: false,
       }),
     );
-    expect(result).toMatchObject({ fieldName: "status_2", reusedField: false });
-    expect(pdf.getForm().getRadioGroup("status_2").getSelected()).toBeUndefined();
+    const secondRadio = await writeInteractiveFormField(
+      pdf,
+      page,
+      operation({
+        id: "status_radio_closed",
+        kind: "radio",
+        name: "status_radio_closed",
+        groupName: "status",
+        exportValue: "Closed",
+        checked: true,
+      }),
+    );
+
+    expect(firstRadio).toMatchObject({ fieldName: "status_2", reusedField: false });
+    expect(secondRadio).toMatchObject({ fieldName: "status_2", reusedField: true });
+    expect(pdf.getForm().getRadioGroup("status_2").getOptions()).toEqual(["Open", "Closed"]);
+    expect(pdf.getForm().getRadioGroup("status_2").getSelected()).toBe("Closed");
+    const distinctGroup = await writeInteractiveFormField(
+      pdf,
+      page,
+      operation({
+        id: "literal_status_2_open",
+        kind: "radio",
+        name: "literal_status_2_open",
+        groupName: "status_2",
+        exportValue: "Pending",
+        checked: false,
+      }),
+    );
+    const distinctGroupSecondOption = await writeInteractiveFormField(
+      pdf,
+      page,
+      operation({
+        id: "literal_status_2_closed",
+        kind: "radio",
+        name: "literal_status_2_closed",
+        groupName: "status_2",
+        exportValue: "Done",
+        checked: true,
+      }),
+    );
+    expect(distinctGroup).toMatchObject({ fieldName: "status_2_2", reusedField: false });
+    expect(distinctGroupSecondOption).toMatchObject({ fieldName: "status_2_2", reusedField: true });
+    expect(pdf.getForm().getRadioGroup("status_2_2").getOptions()).toEqual(["Pending", "Done"]);
+    expect(pdf.getForm().getFields().map((field) => field.getName())).toEqual(["status", "status_2", "status_2_2"]);
     const ungrouped = await writeInteractiveFormField(
       pdf,
       page,
@@ -351,6 +423,28 @@ describe("writeInteractiveFormField", () => {
     );
     expect(ungrouped.fieldName).toBe("standalone");
     expect(pdf.getForm().getRadioGroup("standalone").getSelected()).toBeUndefined();
+  });
+
+  it("reuses a radio group that already exists in the source PDF", async () => {
+    const { pdf, page } = await documentWithPage();
+    const existing = pdf.getForm().createRadioGroup("existing_group");
+    existing.addOptionToPage("Existing", page);
+
+    const result = await writeInteractiveFormField(
+      pdf,
+      page,
+      operation({
+        kind: "radio",
+        name: "new_option",
+        groupName: "existing_group",
+        exportValue: "Added",
+        checked: true,
+      }),
+    );
+
+    expect(result).toMatchObject({ fieldName: "existing_group", reusedField: true });
+    expect(existing.getOptions()).toEqual(["Existing", "Added"]);
+    expect(existing.getSelected()).toBe("Added");
   });
 
   it("writes button actions, date semantics, and the documented signature fallback", async () => {

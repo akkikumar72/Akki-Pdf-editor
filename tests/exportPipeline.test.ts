@@ -261,6 +261,152 @@ describe("export pipeline – edit-aware data export", () => {
     expect(sheet).toContain("$42");
   });
 
+  it("omits added and replacement text covered by later redaction or whiteout operations", () => {
+    const addedRect = { x: 10, y: 640, width: 80, height: 12 };
+    const replacementRect = { x: 110, y: 640, width: 100, height: 12 };
+    const operations = [
+      {
+        id: "added_secret",
+        type: "text" as const,
+        pageIndex: 0,
+        rect: addedRect,
+        text: "ADDED_SECRET",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left" as const,
+        createdAt: 1,
+      },
+      {
+        id: "replacement_secret",
+        type: "text" as const,
+        pageIndex: 0,
+        rect: replacementRect,
+        sourceCoverRect: replacementRect,
+        text: "REPLACEMENT_SECRET",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left" as const,
+        whiteout: true,
+        createdAt: 2,
+      },
+      {
+        id: "redact_added_secret",
+        type: "redaction" as const,
+        mode: "text" as const,
+        pageIndex: 0,
+        rect: addedRect,
+        fillColor: "#111827",
+        createdAt: 3,
+      },
+      {
+        id: "whiteout_replacement_secret",
+        type: "whiteout" as const,
+        pageIndex: 0,
+        rect: replacementRect,
+        color: "#ffffff",
+        createdAt: 4,
+      },
+    ];
+    const pipeline = new ExportPipeline();
+
+    expect(pipeline.toText([], operations)).not.toMatch(/ADDED_SECRET|REPLACEMENT_SECRET/);
+    expect(pipeline.toCsv([], operations)).not.toMatch(/ADDED_SECRET|REPLACEMENT_SECRET/);
+    const sheet = strFromU8(unzipSync(pipeline.toXlsxBytes([], operations))["xl/worksheets/sheet1.xml"]);
+    expect(sheet).not.toMatch(/ADDED_SECRET|REPLACEMENT_SECRET/);
+  });
+
+  it("keeps added and replacement text that comes after redaction or whiteout operations", () => {
+    const addedRect = { x: 10, y: 640, width: 80, height: 12 };
+    const replacementRect = { x: 110, y: 640, width: 100, height: 12 };
+    const operations = [
+      {
+        id: "redact_before_added_text",
+        type: "redaction" as const,
+        mode: "text" as const,
+        pageIndex: 0,
+        rect: addedRect,
+        fillColor: "#111827",
+        createdAt: 1,
+      },
+      {
+        id: "whiteout_before_replacement_text",
+        type: "whiteout" as const,
+        pageIndex: 0,
+        rect: replacementRect,
+        color: "#ffffff",
+        createdAt: 2,
+      },
+      {
+        id: "visible_added_text",
+        type: "text" as const,
+        pageIndex: 0,
+        rect: addedRect,
+        text: "VISIBLE_ADDED",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left" as const,
+        createdAt: 3,
+      },
+      {
+        id: "visible_replacement_text",
+        type: "text" as const,
+        pageIndex: 0,
+        rect: replacementRect,
+        sourceCoverRect: replacementRect,
+        text: "VISIBLE_REPLACEMENT",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left" as const,
+        whiteout: true,
+        createdAt: 4,
+      },
+    ];
+    const pipeline = new ExportPipeline();
+
+    expect(pipeline.toText([], operations)).toMatch(/VISIBLE_ADDED.*VISIBLE_REPLACEMENT/);
+    expect(pipeline.toCsv([], operations)).toMatch(/VISIBLE_ADDED.*VISIBLE_REPLACEMENT/);
+    const sheet = strFromU8(unzipSync(pipeline.toXlsxBytes([], operations))["xl/worksheets/sheet1.xml"]);
+    expect(sheet).toMatch(/VISIBLE_ADDED.*VISIBLE_REPLACEMENT/);
+  });
+
+  it("treats a later replacement mask as covering earlier added text", () => {
+    const rect = { x: 10, y: 640, width: 100, height: 12 };
+    const operations = [
+      {
+        id: "old_added_text",
+        type: "text" as const,
+        pageIndex: 0,
+        rect,
+        text: "OLD_ADDITION",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left" as const,
+        createdAt: 1,
+      },
+      {
+        id: "replacement",
+        type: "text" as const,
+        pageIndex: 0,
+        rect,
+        sourceCoverRect: rect,
+        text: "CURRENT_REPLACEMENT",
+        fontFamily: "Helvetica",
+        fontSize: 12,
+        color: "#000000",
+        align: "left" as const,
+        whiteout: true,
+        createdAt: 2,
+      },
+    ];
+
+    expect(new ExportPipeline().toText([], operations)).toBe("CURRENT_REPLACEMENT");
+  });
+
   it("includes a newly added text op with no overlap as its own cell", () => {
     const csv = new ExportPipeline().toCsv(items, [
       {

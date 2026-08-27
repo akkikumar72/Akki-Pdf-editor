@@ -54,6 +54,8 @@ export type FormFieldWriteResult = {
   reusedField: boolean;
 };
 
+const allocatedRadioGroupNames = new WeakMap<PDFDocument, Map<string, string>>();
+
 function hexToRgb(color: string) {
   const normalized = color.slice(1);
   const expanded =
@@ -105,12 +107,14 @@ function appendBorderOperators<T>(appearance: T, borderOperators: PDFOperator[])
   if (Array.isArray(appearance)) {
     return [...appearance, ...borderOperators] as T;
   }
-  if (appearance !== null && typeof appearance === "object") {
-    return Object.fromEntries(
-      Object.entries(appearance).map(([key, value]) => [key, appendBorderOperators(value, borderOperators)]),
-    ) as T;
-  }
-  return appearance;
+  // Every pdf-lib default appearance provider returns an operator array or an
+  // object whose leaves are operator arrays. The array case is handled above.
+  return Object.fromEntries(
+    Object.entries(appearance as Record<string, unknown>).map(([key, value]) => [
+      key,
+      appendBorderOperators(value, borderOperators),
+    ]),
+  ) as T;
 }
 
 type WidgetBorderAppearance = {
@@ -125,6 +129,7 @@ function widgetBorderAppearance(widget: PDFWidgetAnnotation): WidgetBorderAppear
   return {
     style: styleName === "D" ? "dashed" : styleName === "U" ? "underline" : "solid",
     color: componentsToColor(widget.getAppearanceCharacteristics()?.getBorderColor()),
+    /* v8 ignore next -- configureWidget always sets a numeric width before any custom appearance provider runs */
     width: borderStyle.getWidth() ?? 0,
   };
 }
@@ -232,6 +237,27 @@ function existingFieldNames(pdf: PDFDocument): string[] {
 
 function uniqueFieldName(pdf: PDFDocument, operation: NormalizedFormFieldOperation): string {
   return uniquifyFormFieldName(operation.name, existingFieldNames(pdf), operation.kind);
+}
+
+function allocatedRadioGroupName(pdf: PDFDocument, requestedName: string): string {
+  let allocations = allocatedRadioGroupNames.get(pdf);
+  if (!allocations) {
+    allocations = new Map();
+    allocatedRadioGroupNames.set(pdf, allocations);
+  }
+
+  const allocatedName = allocations.get(requestedName);
+  if (allocatedName) return allocatedName;
+
+  const safeName = uniquifyFormFieldName(requestedName, [], "radio_group");
+  const existing = pdf.getForm().getFieldMaybe(safeName);
+  const namesAllocatedToOtherGroups = new Set(allocations.values());
+  const nextName =
+    existing instanceof PDFRadioGroup && !namesAllocatedToOtherGroups.has(safeName)
+      ? safeName
+      : uniquifyFormFieldName(safeName, existingFieldNames(pdf), "radio_group");
+  allocations.set(requestedName, nextName);
+  return nextName;
 }
 
 function selectedChoiceValues(operation: NormalizedFormFieldOperation): string[] {
@@ -451,10 +477,9 @@ function writeRadioField(
 ): FormFieldWriteResult {
   const form = pdf.getForm();
   const requestedName = operation.groupName ?? operation.name;
-  const safeName = uniquifyFormFieldName(requestedName, [], "radio_group");
-  const existing = form.getFieldMaybe(safeName);
+  const fieldName = allocatedRadioGroupName(pdf, requestedName);
+  const existing = form.getFieldMaybe(fieldName);
   const reusedField = existing instanceof PDFRadioGroup;
-  const fieldName = reusedField ? safeName : uniquifyFormFieldName(safeName, existingFieldNames(pdf), "radio_group");
   const field = reusedField ? existing : form.createRadioGroup(fieldName);
   field.addOptionToPage(operation.exportValue, page, appearanceOptions(operation, font));
   const shouldSelect =

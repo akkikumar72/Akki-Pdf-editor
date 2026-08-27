@@ -27,6 +27,38 @@ describe("stroke sampling", () => {
     ]);
   });
 
+  it("collapses duplicate points without dividing by a zero-length segment", () => {
+    expect(simplifyStroke([
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+    ])).toEqual([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+    ]);
+
+    expect(simplifyStroke([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 0 },
+    ])).toEqual([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+    ]);
+  });
+
+  it("retains a full reversal as a hard corner", () => {
+    expect(simplifyStroke([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 0, y: 0 },
+    ])).toEqual([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 0, y: 0 },
+    ]);
+  });
+
   it("simplifies the same large path deterministically", () => {
     const path = Array.from({ length: 20_000 }, (_, index) => ({
       x: index,

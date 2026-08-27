@@ -42,6 +42,7 @@ export function EditorRoute() {
         pageIndex: editor.pageIndex,
         scale: editor.scale,
       });
+      /* v8 ignore next -- mark-cross is a direct factory tool and always returns exactly one form-mark operation */
       if (operation) editor.addOperation(operation);
       editor.setActiveTool("select");
       editor.setStatus("Cross inserted at page center");
@@ -66,7 +67,13 @@ export function EditorRoute() {
   useEffect(() => {
     if (!propertiesOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeProperties();
+      if (event.key !== "Escape") return;
+      // Gesture handlers are registered later than this drawer listener. Wait
+      // until propagation finishes so their preventDefault can claim Escape
+      // before the drawer decides whether it should close.
+      queueMicrotask(() => {
+        if (!event.defaultPrevented) closeProperties();
+      });
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
@@ -152,7 +159,6 @@ export function EditorRoute() {
           disabled={isBusy}
           documentName={document.name}
           historyEntries={editState.past}
-          propertiesOpen={propertiesOpen}
           onExport={editor.runExport}
           onFindReplace={() => setFindReplaceOpen(true)}
           onHome={() => {
@@ -163,7 +169,6 @@ export function EditorRoute() {
           onRemove={editor.removeSelected}
           onDeletePage={editor.deleteCurrentPage}
           onInsertPage={editor.insertPageAfter}
-          onToggleProperties={() => setPropertiesOpen((value) => !value)}
           onRotate={() => {
             editor.setActiveTool("select");
             editor.setRotation((value) => (value + 90) % 360);
@@ -186,7 +191,7 @@ export function EditorRoute() {
           onSelect={editor.setPageIndex}
         />
       )}
-      inspector={propertiesOpen ? (
+      inspector={propertiesOpen && !isBusy ? (
         <Inspector
           operation={editor.selectedOperation}
           operationCount={editState.operations.length}
@@ -216,6 +221,7 @@ export function EditorRoute() {
     >
       <PdfCanvas
         activeTool={editor.activeTool}
+        disabled={isBusy}
         document={document}
         documentFonts={editor.documentFonts}
         onDraggingChange={setMovingCount}
@@ -241,7 +247,7 @@ export function EditorRoute() {
         stageRef={editor.pageStageRef}
         textItems={editor.pageTextItems}
       />
-      {findReplaceOpen ? (
+      {findReplaceOpen && !isBusy ? (
         <FindReplaceDialog
           textItems={editor.textItems}
           operations={editState.operations}

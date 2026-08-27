@@ -95,9 +95,13 @@ export function FloatingOperationToolbar({
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         if (!isContextual || event.key !== "Escape" || !onDone) return;
+        if (event.defaultPrevented) return;
         event.preventDefault();
         event.stopPropagation();
-        setOpenMenu(undefined);
+        if (openMenu) {
+          setOpenMenu(undefined);
+          return;
+        }
         onDone();
       }}
       onPointerDown={(event) => event.stopPropagation()}

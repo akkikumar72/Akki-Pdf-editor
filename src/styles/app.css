@@ -671,11 +671,10 @@ select:disabled {
   top: calc(100% + 0.35rem);
   left: 0;
   display: grid;
-  gap: var(--space-2xs);
-  width: max-content;
-  min-width: 11.5rem;
-  max-width: min(18rem, calc(100vw - 2rem));
-  padding: var(--space-xs);
+  gap: 0.125rem;
+  width: min(12.5rem, calc(100vw - 2rem));
+  min-width: 0;
+  padding: 0.35rem;
   border: var(--rule-hair) solid var(--color-rule-2);
   border-radius: var(--radius-md);
   background: var(--color-paper);
@@ -1534,6 +1533,10 @@ select:disabled {
   cursor: crosshair;
 }
 
+.page-stage.is-crop-tool {
+  touch-action: none;
+}
+
 .page-stage.is-crop-tool .operation,
 .page-stage.is-crop-tool .text-hit {
   pointer-events: none;
@@ -2263,6 +2266,10 @@ select:disabled {
     box-shadow var(--dur-fast) var(--ease-out);
 }
 
+.operation:not(.is-editing) {
+  touch-action: none;
+}
+
 .operation:active:not(.is-editing) {
   cursor: grabbing;
 }
@@ -2676,6 +2683,7 @@ select:disabled {
   border: 2px solid var(--color-accent);
   border-radius: 2px;
   background: #fff;
+  touch-action: none;
 }
 
 .crop-handle--nw { top: 0; left: 0; transform: translate(-50%, -50%); cursor: nwse-resize; }
@@ -2898,6 +2906,7 @@ select:disabled {
   background: var(--color-paper);
   box-shadow: 0 1px 4px color-mix(in oklch, var(--color-ink-1) 22%, transparent);
   pointer-events: auto;
+  touch-action: none;
   transform: translate(-50%, -50%);
   cursor: move;
 }
@@ -3624,11 +3633,15 @@ select:disabled {
   .tool-menu__popover {
     position: fixed;
     top: 6.9rem;
-    right: var(--space-sm);
-    left: var(--space-sm);
-    width: auto;
-    max-width: 26rem;
-    margin-inline: auto;
+    right: auto;
+    left: 50%;
+    width: min(12.5rem, calc(100vw - 2rem));
+    margin: 0;
+    transform: translateX(-50%);
+  }
+
+  .tool-menu__popover[style] {
+    transform: none;
   }
 }
 
