@@ -131,9 +131,12 @@ function makeProps(overrides: Partial<Props> = {}): Props {
     onOperationsAdd: vi.fn(),
     onOperationRemove: vi.fn(),
     onOperationsRemove: vi.fn(),
+    onOperationsReplace: vi.fn(),
     onOperationSelect: vi.fn(),
     onOperationsTranslate: vi.fn(),
     onOperationUpdate: vi.fn(),
+    onCropApply: vi.fn(),
+    onPropertiesOpen: vi.fn(),
     ...overrides,
   };
 }
@@ -728,18 +731,35 @@ describe("PdfCanvas - text hit layer", () => {
     expect(container.querySelector(".text-hit")).toBeTruthy();
   });
 
-  it("clicking a hit target creates a replacement text operation", async () => {
+  it("selects source text without mutation, then creates the replacement on the second click", async () => {
     const onOperationAdd = vi.fn();
     const onOperationSelect = vi.fn();
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => { cb(0); return 1; });
-    const { container } = renderCanvas({ activeTool: "text", textItems, onOperationAdd, onOperationSelect });
-    await waitFor(() => expect(container.querySelector(".text-hit")).toBeTruthy());
+    const { container } = renderCanvas({ activeTool: "select", textItems, onOperationAdd, onOperationSelect });
+    const hit = await waitFor(() => {
+      const element = container.querySelector(".text-hit") as HTMLButtonElement | null;
+      expect(element).toBeTruthy();
+      return element!;
+    });
     await act(async () => {
-      fireEvent.click(container.querySelector(".text-hit") as HTMLButtonElement);
+      fireEvent.click(hit);
+      await Promise.resolve();
+    });
+    expect(onOperationAdd).not.toHaveBeenCalled();
+    expect(hit.className).toContain("is-source-selected");
+    expect(hit.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      fireEvent.click(hit);
       await Promise.resolve();
     });
     expect(onOperationAdd).toHaveBeenCalled();
     expect(onOperationAdd.mock.calls[0][0].type).toBe("text");
+  });
+
+  it("keeps Add Text separate from source-text replacement", async () => {
+    const { container } = renderCanvas({ activeTool: "text", textItems });
+    await waitFor(() => expect(container.querySelector(".react-pdf__Page__canvas")).toBeTruthy());
+    expect(container.querySelector(".text-hit-layer.is-active")).toBeNull();
   });
 
   it("hides hit target once an overlapping replacement exists", async () => {
@@ -752,10 +772,21 @@ describe("PdfCanvas - text hit layer", () => {
     expect(container.querySelector(".text-hit")).toBeNull();
   });
 
+  it("hides replacement hit targets under a dedicated redaction", async () => {
+    const redaction: EditOperation = {
+      id: "redaction-1", type: "redaction", mode: "text", pageIndex: 0,
+      rect: { x: 40, y: 700, width: 80, height: 14 }, fillColor: "#111827", createdAt: 1,
+    };
+    const { container } = renderCanvas({ activeTool: "select", textItems, operations: [redaction] });
+    await waitFor(() => expect(container.querySelector(".react-pdf__Page__canvas")).toBeTruthy());
+    expect(container.querySelector(".text-hit")).toBeNull();
+  });
+
   it("hit layer is inert when select/text tools are not active", () => {
     const { container } = renderCanvas({ activeTool: "whiteout", textItems });
     const layer = container.querySelector(".text-hit-layer") as HTMLElement;
     expect(layer.getAttribute("aria-hidden")).toBe("true");
+    expect(layer.querySelectorAll("button")).toHaveLength(0);
   });
 });
 
@@ -782,21 +813,52 @@ describe("PdfCanvas - operation overlays and selection", () => {
     expect(container.querySelector(".resize-frame")).toBeTruthy();
   });
 
-  it("does not render resize handles for a non-resizable (text) operation", () => {
+  it("renders only horizontal FormaDoc-style handles for selected text", () => {
     const op = textOp();
     const { container } = renderCanvas({ operations: [op], selectedIds: [op.id] });
-    expect(container.querySelector(".resize-frame")).toBeNull();
+    const frame = container.querySelector(".resize-frame--text");
+    expect(frame).toBeTruthy();
+    expect(frame?.querySelectorAll(".resize-handle")).toHaveLength(2);
+    expect(frame?.querySelector('[data-handle="w"]')).toBeTruthy();
+    expect(frame?.querySelector('[data-handle="e"]')).toBeTruthy();
   });
 
-  it("forwards toolbar delete/duplicate to the host callbacks", () => {
+  it("keeps rotated form-field selection aligned without page-axis resize handles", () => {
+    const form: EditOperation = {
+      id: "form-rotated",
+      type: "form-field",
+      kind: "text",
+      name: "rotated_field",
+      pageIndex: 0,
+      rect: { x: 80, y: 520, width: 160, height: 30 },
+      rotation: 0,
+      createdAt: 1,
+    };
+    const rendered = renderCanvas({ operations: [form], selectedIds: [form.id] });
+    expect(rendered.container.querySelector(".resize-frame")).toBeTruthy();
+
+    for (const rotation of [90, 180, 270] as const) {
+      const rotated = { ...form, rotation };
+      rendered.rerender(<PdfCanvas {...rendered.props} operations={[rotated]} selectedIds={[rotated.id]} />);
+      const overlay = rendered.container.querySelector(".operation--form-field") as HTMLElement;
+      expect(overlay.className).toContain("is-selected");
+      expect(overlay.style.transform).toBe(`rotate(${rotation}deg)`);
+      expect(rendered.container.querySelector(".resize-frame")).toBeNull();
+    }
+  });
+
+  it("forwards toolbar delete, duplicate, and properties actions to the host callbacks", () => {
     const op = shapeOp();
     const onOperationRemove = vi.fn();
     const onOperationAdd = vi.fn();
-    const { getByLabelText } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationRemove, onOperationAdd });
+    const onPropertiesOpen = vi.fn();
+    const { getByLabelText } = renderCanvas({ operations: [op], selectedIds: [op.id], onOperationRemove, onOperationAdd, onPropertiesOpen });
     fireEvent.click(getByLabelText("Delete"));
     expect(onOperationRemove).toHaveBeenCalledWith(op.id);
     fireEvent.click(getByLabelText("Duplicate"));
     expect(onOperationAdd).toHaveBeenCalled();
+    fireEvent.click(getByLabelText("Properties"));
+    expect(onPropertiesOpen).toHaveBeenCalled();
   });
 
   it("toggles move mode from the toolbar", () => {
@@ -1101,6 +1163,399 @@ describe("PdfCanvas - drag-to-draw region tools", () => {
   });
 });
 
+describe("PdfCanvas - crop, eraser, marker, and Cross tools", () => {
+  it("keeps an adjustable crop selection and applies it to the current page", () => {
+    const onCropApply = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, getByRole, stage } = renderCanvas({ activeTool: "crop", onCropApply, stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 100, clientY: 100, pointerId: 21 });
+    fireEvent.pointerMove(stage, { clientX: 400, clientY: 500, pointerId: 21 });
+    fireEvent.pointerUp(stage, { clientX: 400, clientY: 500, pointerId: 21 });
+
+    expect(container.querySelector(".crop-selection")).toBeTruthy();
+    expect(container.querySelectorAll(".crop-handle")).toHaveLength(8);
+    const toolbar = getByRole("toolbar", { name: "Crop page actions" });
+    expect(within(toolbar).getByText("300 × 400 pt")).toBeTruthy();
+    fireEvent.click(within(toolbar).getByRole("button", { name: "Crop current page" }));
+
+    expect(onCropApply).toHaveBeenCalledWith({ x: 100, y: 292, width: 300, height: 400 }, "current");
+    expect(container.querySelector(".crop-selection")).toBeNull();
+  });
+
+  it("resizes a crop selection, supports all pages, and cancels on Escape", () => {
+    const onCropApply = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, getByRole, stage } = renderCanvas({ activeTool: "crop", onCropApply, stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 100, clientY: 100, pointerId: 22 });
+    fireEvent.pointerMove(stage, { clientX: 300, clientY: 300, pointerId: 22 });
+    fireEvent.pointerUp(stage, { clientX: 300, clientY: 300, pointerId: 22 });
+    const southEast = getByRole("button", { name: "Resize crop se" });
+    fireEvent.pointerDown(southEast, { clientX: 300, clientY: 300, pointerId: 23 });
+    fireEvent.pointerMove(stage, { clientX: 350, clientY: 360, pointerId: 23 });
+    fireEvent.pointerUp(stage, { clientX: 350, clientY: 360, pointerId: 23 });
+    fireEvent.click(getByRole("button", { name: "Crop all pages" }));
+
+    expect(onCropApply).toHaveBeenCalledWith({ x: 100, y: 432, width: 250, height: 260 }, "all");
+
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 24 });
+    fireEvent.pointerMove(stage, { clientX: 240, clientY: 250, pointerId: 24 });
+    fireEvent.pointerUp(stage, { clientX: 240, clientY: 250, pointerId: 24 });
+    expect(container.querySelector(".crop-selection")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(container.querySelector(".crop-selection")).toBeNull();
+  });
+
+  it("converts a zoomed crop selection back to PDF points", () => {
+    const onCropApply = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { getByRole, stage } = renderCanvas({ activeTool: "crop", scale: 2, onCropApply, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 200, clientY: 200, pointerId: 241 });
+    fireEvent.pointerMove(stage, { clientX: 800, clientY: 1000, pointerId: 241 });
+    fireEvent.pointerUp(stage, { clientX: 800, clientY: 1000, pointerId: 241 });
+    fireEvent.click(getByRole("button", { name: "Crop current page" }));
+    expect(onCropApply).toHaveBeenCalledWith({ x: 100, y: 292, width: 300, height: 400 }, "current");
+  });
+
+  it("splits only unlocked ink crossed by one fast eraser stroke in a single action", () => {
+    const ink: InkOperation = {
+      id: "ink-a", type: "ink", pageIndex: 0,
+      rect: { x: 19, y: 441, width: 522, height: 2 },
+      points: [{ x: 20, y: 442 }, { x: 540, y: 442 }],
+      stroke: "#123456", strokeWidth: 2, variant: "draw", opacity: 0.8, createdAt: 1,
+    };
+    const locked: InkOperation = { ...ink, id: "ink-locked", locked: true };
+    const shape = shapeOp({ id: "shape-untouched", rect: { x: 200, y: 390, width: 160, height: 110 } });
+    const onOperationsReplace = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "erase", operations: [ink, locked, shape], onOperationsReplace, stageRef,
+    });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 280, clientY: 300, pointerId: 25 });
+    fireEvent.pointerMove(stage, { clientX: 280, clientY: 400, pointerId: 25 });
+    expect(container.querySelectorAll(".operation.is-erasing")).toHaveLength(1);
+    fireEvent.pointerUp(stage, { clientX: 280, clientY: 400, pointerId: 25 });
+
+    expect(onOperationsReplace).toHaveBeenCalledTimes(1);
+    const replacements = onOperationsReplace.mock.calls[0][0] as Array<{ id: string; operations: InkOperation[] }>;
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0].id).toBe("ink-a");
+    expect(replacements[0].operations).toHaveLength(2);
+    expect(replacements[0].operations.every((fragment) =>
+      fragment.stroke === "#123456" && fragment.strokeWidth === 2 && fragment.variant === "draw" && fragment.opacity === 0.8,
+    )).toBe(true);
+    expect(container.querySelector(".eraser-cursor")).toBeTruthy();
+    fireEvent.pointerLeave(stage);
+    expect(container.querySelector(".eraser-cursor")).toBeNull();
+  });
+
+  it("ignores rejected eraser samples before hit-testing or updating the active path", () => {
+    const ink: InkOperation = {
+      id: "ink-nearby",
+      type: "ink",
+      pageIndex: 0,
+      rect: { x: 19, y: 491, width: 522, height: 2 },
+      points: [{ x: 20, y: 492 }, { x: 540, y: 492 }],
+      stroke: "#111827",
+      strokeWidth: 2,
+      createdAt: 1,
+    };
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({ activeTool: "erase", operations: [ink], stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 280, clientY: 286, pointerId: 250 });
+    expect(container.querySelector(".operation.is-erasing")).toBeNull();
+
+    // This 1.5px move crosses the eraser's hit boundary but is below the
+    // sampler's 2px minimum distance, so it must not advance state or hit-test.
+    fireEvent.pointerMove(stage, { clientX: 280, clientY: 287.5, pointerId: 250 });
+    expect(container.querySelector(".operation.is-erasing")).toBeNull();
+    expect((container.querySelector(".eraser-cursor") as HTMLElement).style.top).toBe("286px");
+
+    fireEvent.pointerMove(stage, { clientX: 280, clientY: 289, pointerId: 250 });
+    expect(container.querySelector(".operation.is-erasing")).toBeTruthy();
+    expect((container.querySelector(".eraser-cursor") as HTMLElement).style.top).toBe("289px");
+  });
+
+  it("does not erase a stroke merely because the eraser is inside its bounding box", () => {
+    const diagonal: InkOperation = {
+      id: "ink-diagonal", type: "ink", pageIndex: 0,
+      rect: { x: 99, y: 491, width: 202, height: 202 },
+      points: [{ x: 100, y: 692 }, { x: 300, y: 492 }],
+      stroke: "#111827", strokeWidth: 2, createdAt: 1,
+    };
+    const onOperationsReplace = vi.fn();
+    const onNotice = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({ activeTool: "erase", operations: [diagonal], onOperationsReplace, onNotice, stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 100, clientY: 300, pointerId: 251 });
+    fireEvent.pointerUp(stage, { clientX: 100, clientY: 300, pointerId: 251 });
+
+    expect(onOperationsReplace).not.toHaveBeenCalled();
+    expect(onNotice).toHaveBeenCalledWith("No added ink strokes were touched.");
+  });
+
+  it("cancels an eraser stroke on Escape without committing", () => {
+    const ink: InkOperation = {
+      id: "ink-a", type: "ink", pageIndex: 0,
+      rect: { x: 19, y: 441, width: 522, height: 2 },
+      points: [{ x: 20, y: 442 }, { x: 540, y: 442 }],
+      stroke: "#111827", strokeWidth: 2, createdAt: 1,
+    };
+    const onOperationsReplace = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({ activeTool: "erase", operations: [ink], onOperationsReplace, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 280, clientY: 300, pointerId: 252 });
+    fireEvent.pointerMove(stage, { clientX: 280, clientY: 400, pointerId: 252 });
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(onOperationsReplace).not.toHaveBeenCalled();
+    expect(container.querySelector(".eraser-cursor")).toBeTruthy();
+  });
+
+  it("commits freehand highlighting with marker-specific appearance", () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({ activeTool: "freehand-highlight", onOperationAdd, stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 30, clientY: 90, pointerId: 26 });
+    fireEvent.pointerMove(stage, { clientX: 130, clientY: 92, pointerId: 26 });
+    const preview = container.querySelector(".ink-draw-preview polyline") as SVGPolylineElement;
+    expect(preview.getAttribute("stroke")).toBe("#ffe066");
+    expect(preview.getAttribute("stroke-width")).toBe("18");
+    expect(preview.getAttribute("opacity")).toBe("0.42");
+    fireEvent.pointerUp(stage, { clientX: 230, clientY: 94, pointerId: 26 });
+
+    expect(onOperationAdd.mock.calls[0][0]).toMatchObject({
+      type: "ink", variant: "freehand-highlight", stroke: "#ffe066", strokeWidth: 18, opacity: 0.42,
+    });
+  });
+
+  it("creates and selects a callout immediately without an input dialog", () => {
+    const onOperationAdd = vi.fn();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { queryByRole, stage } = renderCanvas({ activeTool: "callout", onOperationAdd, onOperationSelect, stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 180, clientY: 220, pointerId: 261 });
+    fireEvent.pointerMove(stage, { clientX: 380, clientY: 310, pointerId: 261 });
+    fireEvent.pointerUp(stage, { clientX: 380, clientY: 310, pointerId: 261 });
+
+    expect(queryByRole("dialog", { name: "Add callout" })).toBeNull();
+    expect(onOperationAdd).toHaveBeenCalledWith(expect.objectContaining({
+      type: "annotation", kind: "callout", text: "Callout",
+    }));
+    expect(onOperationSelect).toHaveBeenCalledWith([onOperationAdd.mock.calls[0][0].id]);
+  });
+
+  it("drags the selected callout anchor as one committed update", () => {
+    const callout: EditOperation = {
+      id: "callout-1", type: "annotation", kind: "callout", pageIndex: 0,
+      rect: { x: 180, y: 480, width: 200, height: 90 },
+      anchor: { x: 100, y: 500 }, elbow: { x: 160, y: 525 },
+      text: "Callout", color: "#4f46e5", fillColor: "#fff", textColor: "#111827",
+      fontSize: 12, strokeWidth: 1.5, opacity: 1, createdAt: 1,
+    };
+    const onOperationUpdate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { getByRole, stage } = renderCanvas({
+      operations: [callout], selectedIds: [callout.id], onOperationUpdate, stageRef,
+    });
+    stageRef.current = stage;
+    const anchor = getByRole("button", { name: "Move callout anchor" });
+    fireEvent.pointerDown(anchor, { clientX: 100, clientY: 292, pointerId: 262 });
+    fireEvent.pointerMove(stage, { clientX: 130, clientY: 250, pointerId: 262 });
+    expect(onOperationUpdate).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage, { clientX: 130, clientY: 250, pointerId: 262 });
+
+    expect(onOperationUpdate).toHaveBeenCalledTimes(1);
+    expect(onOperationUpdate).toHaveBeenCalledWith("callout-1", { anchor: { x: 130, y: 542 } });
+  });
+
+  it("inserts a Cross directly at the clicked page point", () => {
+    const onOperationAdd = vi.fn();
+    const { stage } = renderCanvas({ activeTool: "mark-cross", onOperationAdd });
+    fireEvent.click(stage, { clientX: 50, clientY: 50 });
+    expect(onOperationAdd).toHaveBeenCalledTimes(1);
+    expect(onOperationAdd.mock.calls[0][0]).toMatchObject({
+      type: "form-mark", mark: "cross", rect: { x: 39, y: 731, width: 22, height: 22 },
+    });
+  });
+});
+
+describe("PdfCanvas - freehand ink gestures", () => {
+  it("coalesces rapid preview updates into one animation frame", () => {
+    let queued: FrameRequestCallback | undefined;
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      queued = callback;
+      return 77;
+    });
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({ activeTool: "draw", stageRef });
+    stageRef.current = stage;
+    fireEvent.pointerDown(stage, { clientX: 20, clientY: 20, pointerId: 2601 });
+    fireEvent.pointerMove(stage, { clientX: 40, clientY: 40, pointerId: 2601 });
+    fireEvent.pointerMove(stage, { clientX: 60, clientY: 60, pointerId: 2601 });
+    fireEvent.pointerMove(stage, { clientX: 80, clientY: 80, pointerId: 2601 });
+
+    expect(raf).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".ink-draw-preview polyline")?.getAttribute("points")).not.toContain("80,80");
+    act(() => queued?.(16));
+    expect(container.querySelector(".ink-draw-preview polyline")?.getAttribute("points")).toContain("80,80");
+  });
+
+  it("previews and commits the sampled pointer path as one operation", () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
+    const onOperationAdd = vi.fn();
+    const onOperationSelect = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "draw",
+      onOperationAdd,
+      onOperationSelect,
+      stageRef,
+    });
+    stageRef.current = stage;
+    expect(stage).toHaveClass("is-ink-tool");
+
+    fireEvent.pointerDown(stage, { clientX: 40, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 80, clientY: 90, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 100, clientY: 110, pointerId: 1 });
+    expect(container.querySelector(".ink-draw-preview polyline")?.getAttribute("points")).toContain("100,110");
+    expect(container.querySelector(".canvas-hint")?.textContent).toContain("Press ESC to cancel");
+
+    fireEvent.pointerUp(stage, { clientX: 120, clientY: 140, pointerId: 1 });
+
+    expect(onOperationAdd).toHaveBeenCalledTimes(1);
+    const created = onOperationAdd.mock.calls[0][0] as InkOperation;
+    expect(created.type).toBe("ink");
+    expect(created.variant).toBe("draw");
+    expect(created.points).toEqual([
+      { x: 40, y: 742 },
+      { x: 100, y: 682 },
+      { x: 120, y: 652 },
+    ]);
+    expect(created.rect.width).toBeCloseTo(82.4);
+    expect(created.rect.height).toBeCloseTo(92.4);
+    expect(onOperationSelect).toHaveBeenLastCalledWith([created.id]);
+    expect(container.querySelector(".ink-draw-preview")).toBeNull();
+
+    fireEvent.click(stage, { clientX: 120, clientY: 140 });
+    expect(onOperationAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards an in-progress stroke on pointer cancel", () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({ activeTool: "ink", onOperationAdd, stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 20, clientY: 30, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 60, clientY: 80, pointerId: 1 });
+    expect(container.querySelector(".ink-draw-preview")).toBeTruthy();
+    fireEvent.pointerCancel(stage, { pointerId: 1 });
+    expect(container.querySelector(".ink-draw-preview")).toBeNull();
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("discards ink on Escape and lost pointer capture", () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({ activeTool: "ink", onOperationAdd, stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 20, clientY: 30, pointerId: 2 });
+    fireEvent.pointerMove(stage, { clientX: 60, clientY: 80, pointerId: 2 });
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.pointerUp(stage, { clientX: 70, clientY: 90, pointerId: 2 });
+    expect(container.querySelector(".ink-draw-preview")).toBeNull();
+
+    fireEvent.pointerDown(stage, { clientX: 20, clientY: 30, pointerId: 3 });
+    fireEvent.pointerMove(stage, { clientX: 60, clientY: 80, pointerId: 3 });
+    fireEvent.lostPointerCapture(stage, { pointerId: 3 });
+    fireEvent.pointerUp(stage, { clientX: 70, clientY: 90, pointerId: 3 });
+    expect(container.querySelector(".ink-draw-preview")).toBeNull();
+    expect(onOperationAdd).not.toHaveBeenCalled();
+  });
+
+  it("captures touch drawing without allowing page-pan takeover", () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({ activeTool: "draw", onOperationAdd, stageRef });
+    stageRef.current = stage;
+
+    expect(stage).toHaveClass("is-ink-tool");
+    fireEvent.pointerDown(stage, { clientX: 30, clientY: 40, pointerId: 8, pointerType: "touch" });
+    fireEvent.pointerMove(stage, { clientX: 70, clientY: 80, pointerId: 8, pointerType: "touch" });
+    fireEvent.pointerUp(stage, { clientX: 90, clientY: 100, pointerId: 8, pointerType: "touch" });
+
+    expect(onOperationAdd).toHaveBeenCalledTimes(1);
+    expect((onOperationAdd.mock.calls[0][0] as InkOperation).points).toHaveLength(2);
+  });
+
+  it("keeps a captured stroke inside all four page edges", () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({ activeTool: "draw", onOperationAdd, stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: -40, clientY: -50, pointerId: 9 });
+    fireEvent.pointerMove(stage, { clientX: 700, clientY: 850, pointerId: 9 });
+    fireEvent.pointerUp(stage, { clientX: 760, clientY: 900, pointerId: 9 });
+
+    const created = onOperationAdd.mock.calls[0][0] as InkOperation;
+    expect(created.points.every((point) => point.x >= 1.2 && point.x <= 610.8)).toBe(true);
+    expect(created.points.every((point) => point.y >= 1.2 && point.y <= 790.8)).toBe(true);
+    expect(created.rect.x + created.rect.width).toBeLessThanOrEqual(612);
+    expect(created.rect.y + created.rect.height).toBeLessThanOrEqual(792);
+  });
+
+  it("turns a tap into a visible round ink dot", () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({ activeTool: "ink", onOperationAdd, stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 25, clientY: 35, pointerId: 1 });
+    fireEvent.pointerUp(stage, { clientX: 25, clientY: 35, pointerId: 1 });
+
+    const created = onOperationAdd.mock.calls[0][0] as InkOperation;
+    expect(created.points).toHaveLength(2);
+    expect(created.rect.width).toBeCloseTo(2, 1);
+    expect(created.rect.height).toBeCloseTo(2, 1);
+  });
+
+  it("reduces a long straight gesture before committing while preserving its endpoints", () => {
+    const onOperationAdd = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { stage } = renderCanvas({ activeTool: "ink", onOperationAdd, stageRef });
+    stageRef.current = stage;
+
+    fireEvent.pointerDown(stage, { clientX: 10, clientY: 100, pointerId: 11 });
+    for (let x = 12; x <= 510; x += 2) {
+      fireEvent.pointerMove(stage, { clientX: x, clientY: 100, pointerId: 11 });
+    }
+    fireEvent.pointerUp(stage, { clientX: 512, clientY: 100, pointerId: 11 });
+
+    const created = onOperationAdd.mock.calls[0][0] as InkOperation;
+    expect(created.points).toEqual([
+      { x: 10, y: 692 },
+      { x: 512, y: 692 },
+    ]);
+  });
+});
+
 describe("PdfCanvas - overlay pointer interactions (drag)", () => {
   function setupStageRef(stage: HTMLDivElement) {
     // pointFromEvent relies on getBoundingClientRect (already stubbed to 0,0)
@@ -1197,8 +1652,8 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     // Live preview: BOTH members render at their dragged position mid-gesture.
     const liveOverlays = container.querySelectorAll(".operation--shape-rectangle");
     expect((liveOverlays[1] as HTMLElement).style.left).not.toBe(secondLeftBefore);
-    // Group toolbar hides while the drag is live.
-    expect(container.querySelector(".group-toolbar")).toBeNull();
+    // Selection actions stay in the stable contextual row while the page chrome moves.
+    expect(container.querySelector(".contextual-selection-toolbar")).toBeTruthy();
     expect(onDraggingChange).toHaveBeenLastCalledWith(2);
     fireEvent.pointerUp(stage);
     expect(onOperationsTranslate).toHaveBeenCalledTimes(1);
@@ -1263,6 +1718,111 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     expect(overlay.getAttribute("contenteditable")).toBe("true");
   });
 
+  it("treats small pointer jitter on the second Edit text click as editing, not dragging", () => {
+    const op = textOp();
+    const onOperationsTranslate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select",
+      operations: [op],
+      selectedIds: [op.id],
+      stageRef,
+      onOperationsTranslate,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--text") as HTMLElement;
+
+    fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 11 });
+    fireEvent.pointerMove(stage, { clientX: 62, clientY: 612, pointerId: 11 });
+    fireEvent.pointerUp(stage, { clientX: 62, clientY: 612, pointerId: 11 });
+
+    expect(onOperationsTranslate).not.toHaveBeenCalled();
+    expect(overlay.getAttribute("contenteditable")).toBe("true");
+  });
+
+  it("moves text controls into a stable contextual row while editing", () => {
+    const op = textOp();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "text",
+      operations: [op],
+      selectedIds: [op.id],
+      stageRef,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--text") as HTMLElement;
+
+    fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerUp(stage);
+
+    const contextualToolbar = container.querySelector(".floating-toolbar--contextual") as HTMLElement;
+    expect(contextualToolbar).toBeTruthy();
+    expect(container.querySelector(".contextual-toolbar-shell")?.contains(contextualToolbar)).toBe(true);
+    expect(stage.contains(contextualToolbar)).toBe(false);
+
+    fireEvent.click(within(contextualToolbar).getByRole("button", { name: "Done" }));
+    expect(overlay.getAttribute("contenteditable")).toBe("false");
+    const selectedToolbar = container.querySelector(".floating-toolbar--contextual") as HTMLElement;
+    expect(selectedToolbar).toBeTruthy();
+    expect(within(selectedToolbar).queryByRole("button", { name: "Done" })).toBeNull();
+    expect(stage.querySelector(".floating-toolbar")).toBeNull();
+  });
+
+  it("commits inline text editing when the Properties drawer opens", () => {
+    const op = textOp();
+    const stageRef = { current: null } as Props["stageRef"];
+    const rendered = renderCanvas({
+      activeTool: "text",
+      operations: [op],
+      selectedIds: [op.id],
+      stageRef,
+    });
+    stageRef.current = rendered.stage;
+    const overlay = rendered.container.querySelector(".operation--text") as HTMLElement;
+
+    fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerUp(rendered.stage);
+    expect(overlay.getAttribute("contenteditable")).toBe("true");
+    const propertiesButton = within(rendered.container).getByRole("button", { name: "Properties" });
+    propertiesButton.focus();
+
+    rendered.rerender(<PdfCanvas {...rendered.props} propertiesOpen />);
+
+    expect(overlay.getAttribute("contenteditable")).toBe("false");
+    expect(within(rendered.container).queryByRole("button", { name: "Done" })).toBeNull();
+    expect(document.activeElement).toBe(propertiesButton);
+
+    fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 2 });
+    fireEvent.pointerUp(rendered.stage);
+    expect(overlay.getAttribute("contenteditable")).toBe("true");
+  });
+
+  it("ends contextual text editing on Escape and returns focus to the page", () => {
+    const op = textOp();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "text",
+      operations: [op],
+      selectedIds: [op.id],
+      stageRef,
+    });
+    stageRef.current = stage;
+    const overlay = container.querySelector(".operation--text") as HTMLElement;
+
+    fireEvent.pointerDown(overlay, { clientX: 60, clientY: 610, pointerId: 1 });
+    fireEvent.pointerUp(stage);
+    const bold = within(container.querySelector(".floating-toolbar--contextual") as HTMLElement)
+      .getByRole("button", { name: "Bold" });
+    bold.focus();
+    fireEvent.keyDown(bold, { key: "Escape" });
+
+    expect(overlay.getAttribute("contenteditable")).toBe("false");
+    const selectedToolbar = container.querySelector(".floating-toolbar--contextual") as HTMLElement;
+    expect(selectedToolbar).toBeTruthy();
+    expect(within(selectedToolbar).queryByRole("button", { name: "Done" })).toBeNull();
+    expect(document.activeElement).toBe(stage);
+  });
+
   it("clicking a non-text overlay with no movement resolves to a no-op (not edit mode)", () => {
     const op = shapeOp();
     const onOperationsTranslate = vi.fn();
@@ -1278,12 +1838,12 @@ describe("PdfCanvas - overlay pointer interactions (drag)", () => {
     expect(onOperationsTranslate).not.toHaveBeenCalled();
   });
 
-  it("dragging a text overlay in the Text tool moves it instead of entering edit mode", () => {
+  it("dragging selected text past the jitter threshold moves it instead of entering Edit text", () => {
     const op = textOp();
     const onOperationsTranslate = vi.fn();
     const stageRef = { current: null } as Props["stageRef"];
     const { container, stage } = renderCanvas({
-      activeTool: "text", operations: [op], selectedIds: [op.id], stageRef, onOperationsTranslate,
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationsTranslate,
     });
     stageRef.current = stage;
     const overlay = container.querySelector(".operation--text") as HTMLElement;
@@ -1545,7 +2105,7 @@ describe("PdfCanvas - multi-selection group chrome", () => {
     const { container, getByLabelText } = renderCanvas({
       operations: ops, selectedIds: ["shape-1", "shape-2"], onOperationsAdd, onOperationsRemove, onOperationSelect,
     });
-    expect(container.querySelector(".group-toolbar__count")?.textContent).toBe("Selected 2 objects");
+    expect(container.querySelector(".contextual-selection-toolbar strong")?.textContent).toBe("Selected 2 objects");
     fireEvent.click(getByLabelText("Duplicate selected"));
     expect(onOperationsAdd).toHaveBeenCalledTimes(1);
     const clones = onOperationsAdd.mock.calls[0][0] as EditOperation[];
@@ -1564,7 +2124,7 @@ describe("PdfCanvas - multi-selection group chrome", () => {
       operations: [ops[0]], selectedIds: ["shape-1", "op-from-another-page"],
     });
     expect(container.querySelector(".group-selection-outline")).toBeNull();
-    expect(container.querySelector(".group-toolbar")).toBeNull();
+    expect(container.querySelector(".contextual-selection-toolbar")).toBeNull();
   });
 });
 
@@ -1722,6 +2282,42 @@ describe("PdfCanvas - resize interactions", () => {
     // East/south handles clamp size only — the NW anchor must not move.
     expect(rect.x).toBeCloseTo(100, 5);
     expect(rect.y + rect.height).toBeCloseTo(420, 5);
+  });
+
+  it("keeps the west edge fixed when a text east handle crosses the page boundary", () => {
+    const op = textOp({ rect: { x: 472, y: 600, width: 140, height: 30 } });
+    const onOperationUpdate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationUpdate,
+    });
+    stageRef.current = stage;
+    const eastHandle = container.querySelector('[data-handle="e"]') as HTMLElement;
+    fireEvent.pointerDown(eastHandle, { clientX: 612, clientY: 177, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 700, clientY: 177 });
+    fireEvent.pointerUp(stage);
+    const [, patch] = onOperationUpdate.mock.calls.at(-1)!;
+    const rect = (patch as { rect: { x: number; width: number } }).rect;
+    expect(rect.x).toBeCloseTo(472, 5);
+    expect(rect.x + rect.width).toBeCloseTo(612, 5);
+  });
+
+  it("keeps the east edge fixed when a text west handle crosses the page boundary", () => {
+    const op = textOp({ rect: { x: 0, y: 600, width: 140, height: 30 } });
+    const onOperationUpdate = vi.fn();
+    const stageRef = { current: null } as Props["stageRef"];
+    const { container, stage } = renderCanvas({
+      activeTool: "select", operations: [op], selectedIds: [op.id], stageRef, onOperationUpdate,
+    });
+    stageRef.current = stage;
+    const westHandle = container.querySelector('[data-handle="w"]') as HTMLElement;
+    fireEvent.pointerDown(westHandle, { clientX: 0, clientY: 177, pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: -100, clientY: 177 });
+    fireEvent.pointerUp(stage);
+    const [, patch] = onOperationUpdate.mock.calls.at(-1)!;
+    const rect = (patch as { rect: { x: number; width: number } }).rect;
+    expect(rect.x).toBeCloseTo(0, 5);
+    expect(rect.x + rect.width).toBeCloseTo(140, 5);
   });
 
   it("resize start without a stage ref does nothing", () => {
@@ -1911,7 +2507,7 @@ describe("PdfCanvas - effects", () => {
 describe("PdfCanvas - re-render resets", () => {
   it("resets page-rendered state when the document fingerprint changes", async () => {
     const { container, rerender, props } = renderCanvas({
-      activeTool: "text", textItems: [
+      activeTool: "select", textItems: [
         { str: "x", pageIndex: 0, rect: { x: 1, y: 1, width: 5, height: 5 } },
       ]
     });
@@ -2174,6 +2770,25 @@ describe("PdfCanvas - sampled font weight thresholds", () => {
 });
 
 describe("PdfCanvas - OperationOverlay text edit callbacks", () => {
+  it("selects a text overlay on the first click and edits it on the second", () => {
+    const op = textOp({ text: "abc" });
+    const onOperationSelect = vi.fn();
+    const { container, stage, rerender, props } = renderCanvas({
+      activeTool: "select", operations: [op], selectedIds: [], onOperationSelect,
+    });
+    let overlay = container.querySelector(".operation--text") as HTMLDivElement;
+    fireEvent.pointerDown(overlay, { clientX: 70, clientY: 180, pointerId: 1 });
+    fireEvent.pointerUp(stage, { clientX: 70, clientY: 180, pointerId: 1 });
+    expect(onOperationSelect).toHaveBeenCalledWith([op.id]);
+    expect(overlay.getAttribute("contenteditable")).toBe("false");
+
+    rerender(<PdfCanvas {...props} operations={[op]} selectedIds={[op.id]} />);
+    overlay = container.querySelector(".operation--text") as HTMLDivElement;
+    fireEvent.pointerDown(overlay, { clientX: 70, clientY: 180, pointerId: 2 });
+    fireEvent.pointerUp(stage, { clientX: 70, clientY: 180, pointerId: 2 });
+    expect(container.querySelector(".operation--text.is-editing")?.getAttribute("contenteditable")).toBe("true");
+  });
+
   it("forwards text edit start, change and commit from the overlay", () => {
     const op = textOp({ text: "abc" });
     const onOperationSelect = vi.fn();

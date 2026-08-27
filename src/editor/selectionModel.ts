@@ -24,6 +24,11 @@ export function translateOperation(operation: EditOperation, dx: number, dy: num
     moved.points = translatePoints(moved.points, dx, dy);
   }
 
+  if (moved.type === "annotation" && moved.kind === "callout") {
+    if (moved.anchor) moved.anchor = { x: moved.anchor.x + dx, y: moved.anchor.y + dy };
+    if (moved.elbow) moved.elbow = { x: moved.elbow.x + dx, y: moved.elbow.y + dy };
+  }
+
   return moved;
 }
 

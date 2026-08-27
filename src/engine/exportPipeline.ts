@@ -1,27 +1,8 @@
 import { strToU8, zipSync } from "fflate";
 import type { DocumentFonts, EditOperation, ExportFormat, PdfRect, TextItem } from "../types/editor";
 import { downloadBlob, safeBaseName } from "../utils/download";
-import { replacementCoverRect } from "../utils/textSearch";
+import { isTextRectSignificantlyCovered, replacementCoverRect } from "../utils/textSearch";
 import { PdfEngine, pdfEngine as defaultPdfEngine } from "./pdfEngine";
-
-function rectOverlapArea(a: PdfRect, b: PdfRect) {
-  const x1 = Math.max(a.x, b.x);
-  const y1 = Math.max(a.y, b.y);
-  const x2 = Math.min(a.x + a.width, b.x + b.width);
-  const y2 = Math.min(a.y + a.height, b.y + b.height);
-  return Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
-}
-
-/**
- * An original PDF text run counts as replaced once a cover rect (a `whiteout`
- * op, or a replacement `text` op's `sourceCoverRect`) overlaps at least half
- * its area -- matching how `savePdf` paints over it.
- */
-function isSignificantlyCovered(itemRect: PdfRect, coverRect: PdfRect) {
-  const itemArea = itemRect.width * itemRect.height;
-  if (itemArea <= 0) return false;
-  return rectOverlapArea(itemRect, coverRect) / itemArea >= 0.5;
-}
 
 export type ExportContext = {
   filename: string;
@@ -101,7 +82,7 @@ export class ExportPipeline {
   /**
    * Merges the original PDF text extraction with in-editor edits so data
    * exports (txt/csv/xlsx) reflect what the user sees, not stale source
-   * text: drops original runs a `whiteout` or replacement `text` op covers,
+   * text: drops original runs a `whiteout`, `redaction`, or replacement `text` op covers,
    * and appends every `text` op (replacement or newly added) as a
    * synthetic run positioned by its own rect.
    */
@@ -110,7 +91,7 @@ export class ExportPipeline {
     const additions: TextItem[] = [];
 
     for (const operation of operations) {
-      if (operation.type === "whiteout") {
+      if (operation.type === "whiteout" || operation.type === "redaction") {
         coverRects.push({ pageIndex: operation.pageIndex, rect: operation.rect });
       } else if (operation.type === "text") {
         // Shared with Find (see replacementCoverRect's own doc comment for
@@ -125,7 +106,10 @@ export class ExportPipeline {
 
     const remaining = textItems.filter(
       (item) =>
-        !coverRects.some((cover) => cover.pageIndex === item.pageIndex && isSignificantlyCovered(item.rect, cover.rect)),
+        !coverRects.some(
+          (cover) =>
+            cover.pageIndex === item.pageIndex && isTextRectSignificantlyCovered(item.rect, cover.rect),
+        ),
     );
 
     return [...remaining, ...additions];

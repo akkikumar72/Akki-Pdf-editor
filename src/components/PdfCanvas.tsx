@@ -1,24 +1,30 @@
 import { Document, Page } from "react-pdf";
-import { Copy, ImagePlus, Trash2 } from "lucide-react";
+import { Copy, Crop, ImagePlus, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DocumentFonts,
   EditOperation, EditOperationPatch,
   EditorTool,
+  InkOperation,
   LoadedPdf,
+  OperationReplacement,
   PdfPoint,
   PdfRect,
   TextOperation,
   TextItem,
   ViewportRect,
 } from "../types/editor";
+import { eraseStrokeByPath } from "../editor/strokeEraser";
 import {
+  createInkOperation,
   createOperationsForTool,
   createSnappedAnnotationOperations,
+  createSnappedRedactionOperations,
   describeInlineInput,
   NEW_TEXT_PLACEHOLDER,
 } from "../editor/operationFactory";
 import { registerEmbeddedFont } from "../engine/fontRegistry";
+import { TOOL_BY_ID } from "../editor/toolRegistry";
 import { duplicateOperation as cloneOperation, translateOperation } from "../editor/selectionModel";
 import {
   createSignatureOperation,
@@ -32,7 +38,7 @@ import { createLinkOperation } from "../editor/linkTarget";
 import { SignatureModal } from "./SignatureModal";
 import { SignaturePicker } from "./SignaturePicker";
 import { useTextPreview, useTextPreviewDispatch } from "../state/textPreviewContext";
-import { pdfRectToViewport, viewportPointToPdf, viewportRectToPdf } from "../utils/coordinates";
+import { pdfPointToViewport, pdfRectToViewport, viewportPointToPdf, viewportRectToPdf } from "../utils/coordinates";
 import { sampleTextBackgroundColor, sampleTextColor, sampleTextFontWeight } from "../utils/canvasTextStyleSampling";
 import { validateImageFile } from "../utils/fileValidation";
 import { createId } from "../utils/ids";
@@ -76,20 +82,30 @@ type PdfCanvasProps = {
   onOperationRemove: (id: string) => void;
   /** Removes a batch of operations as a single undo entry (multi-select delete). */
   onOperationsRemove: (ids: string[]) => void;
+  /** Replaces touched ink strokes with their retained fragments in one undo entry. */
+  onOperationsReplace: (replacements: OperationReplacement[]) => void;
   onOperationSelect: (ids: string[], additive?: boolean) => void;
   /** Commits a completed move of one or more operations as a single undo entry. */
   onOperationsTranslate: (ids: string[], dx: number, dy: number) => void;
   onOperationUpdate: (id: string, patch: EditOperationPatch) => void;
+  /** Applies the chosen crop in PDF coordinates to the current page or every page. */
+  onCropApply?: (rect: PdfRect, scope: "current" | "all") => void;
+  propertiesOpen?: boolean;
+  onPropertiesOpen: () => void;
 };
 
-function isTextAnnotationTool(tool: EditorTool): tool is "highlight" | "strikeout" | "underline" {
-  return tool === "highlight" || tool === "strikeout" || tool === "underline";
+function isTextAnnotationTool(tool: EditorTool): tool is "highlight" | "strikeout" | "underline" | "redact" {
+  return tool === "highlight" || tool === "strikeout" || tool === "underline" || tool === "redact";
 }
 
 function isResizableOperation(operation: EditOperation) {
-  if (operation.type === "text") return false;
+  // Rotated form fields keep their selection ring on the transformed overlay.
+  // The current resize math is page-axis aligned, so showing those handles would
+  // promise a local-axis resize it cannot perform safely.
+  if (operation.type === "form-field" && operation.rotation) return false;
+  if (operation.type === "text") return true;
   if (operation.type === "shape") return operation.kind === "rectangle" || operation.kind === "ellipse";
-  if (operation.type === "annotation") return operation.kind === "highlight" || operation.kind === "note";
+  if (operation.type === "annotation") return operation.kind === "highlight" || operation.kind === "note" || operation.kind === "callout";
   if (operation.type === "ink" || operation.type === "link") return false;
   return true;
 }
@@ -100,6 +116,37 @@ function rectsOverlapSignificantly(a: PdfRect, b: PdfRect) {
   const overlapArea = overlapX * overlapY;
   const smaller = Math.max(1, Math.min(a.width * a.height, b.width * b.height));
   return overlapArea / smaller >= 0.5;
+}
+
+function createInkFragment(
+  operation: InkOperation,
+  points: PdfPoint[],
+  pageWidth: number,
+  pageHeight: number,
+): InkOperation {
+  const padding = operation.strokeWidth / 2;
+  const minX = Math.min(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const normalizedPoints = points.length === 1
+    ? [
+        points[0],
+        {
+          x: Math.min(pageWidth - padding, Math.max(padding, points[0].x + 0.01)),
+          y: Math.min(pageHeight - padding, Math.max(padding, points[0].y + 0.01)),
+        },
+    ]
+    : points;
+  const x = Math.max(0, minX - padding);
+  const y = Math.max(0, minY - padding);
+  const rect = {
+    x,
+    y,
+    width: Math.min(pageWidth - x, Math.max(operation.strokeWidth, maxX - minX + operation.strokeWidth)),
+    height: Math.min(pageHeight - y, Math.max(operation.strokeWidth, maxY - minY + operation.strokeWidth)),
+  };
+  return { ...operation, id: createId("ink"), points: normalizedPoints, rect };
 }
 
 function readFileAsDataUrl(file: File) {
@@ -131,9 +178,13 @@ export function PdfCanvas({
   onOperationsAdd,
   onOperationRemove,
   onOperationsRemove,
+  onOperationsReplace,
   onOperationSelect,
   onOperationsTranslate,
   onOperationUpdate,
+  onCropApply,
+  propertiesOpen = false,
+  onPropertiesOpen,
 }: PdfCanvasProps) {
   const textPreview = useTextPreview();
   const previewTextOperation = useTextPreviewDispatch();
@@ -154,8 +205,23 @@ export function PdfCanvas({
   const [hintVisible, setHintVisible] = useState(false);
   const [moveModeOperationId, setMoveModeOperationId] = useState<string | undefined>();
   const [editingTextId, setEditingTextId] = useState<string | undefined>();
+  // Existing PDF text gets a transient selection first. The first click must
+  // not create a mask, history entry, or autosaved operation.
+  const [selectedSourceTextKey, setSelectedSourceTextKey] = useState<string | undefined>();
   const [pendingInput, setPendingInput] = useState<PendingInputRequest | null>(null);
   const [pendingLink, setPendingLink] = useState<LinkDialogRequest | null>(null);
+  const [cropSelection, setCropSelection] = useState<ViewportRect | null>(null);
+  const [eraserHover, setEraserHover] = useState<PdfPoint | null>(null);
+  const [cropResize, setCropResize] = useState<{
+    handle: "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+    start: { x: number; y: number };
+    rect: ViewportRect;
+  } | null>(null);
+  const [calloutPointDrag, setCalloutPointDrag] = useState<{
+    id: string;
+    key: "anchor" | "elbow";
+    point: PdfPoint;
+  } | null>(null);
   const [isPageRendered, setIsPageRendered] = useState(false);
   const pageWidth = pageSize?.width ?? 612;
   const pageHeight = pageSize?.height ?? 792;
@@ -165,25 +231,31 @@ export function PdfCanvas({
     ? operations.find((operation) => operation.id === selectedIds[0])
     : undefined;
   const selectedPageOperations = operations.filter((operation) => selectedIds.includes(operation.id));
-  const canPickExistingText = isPageRendered && (activeTool === "select" || activeTool === "text");
+  // Keep Add Text and Edit text distinct, matching FormaDoc. Only Edit text
+  // exposes source-PDF hit targets; Add Text always creates a new box.
+  const canPickExistingText = isPageRendered && activeTool === "select";
   const pdfFile = useMemo(() => ({ data: document.bytes.slice() }), [document.bytes]);
   const editableTextRuns = useMemo(() => groupEditableTextRuns(textItems), [textItems]);
   const searchHighlightRect =
     searchHighlight && searchHighlight.pageIndex === pageIndex
       ? pdfRectToViewport(searchHighlight.rect, pageHeight, scale)
       : undefined;
-  const replacedSourceRects = useMemo(
+  const suppressedSourceRects = useMemo(
     () =>
       operations
-        .filter((operation): operation is TextOperation =>
-          operation.type === "text" && operation.pageIndex === pageIndex && Boolean(operation.sourceCoverRect))
-        .map((operation) => operation.sourceCoverRect!),
+        .filter((operation) => operation.pageIndex === pageIndex)
+        .flatMap((operation) => {
+          if (operation.type === "redaction") return [operation.rect];
+          if (operation.type === "text" && operation.sourceCoverRect) return [operation.sourceCoverRect];
+          return [];
+        }),
     [operations, pageIndex],
   );
 
   useEffect(() => {
     setIsPageRendered(false);
     setEditingTextId(undefined);
+    setSelectedSourceTextKey(undefined);
     // The popover's anchor is a viewport rect for the page/scale it opened at, so
     // it goes stale the moment any of those change. Same for the signature
     // picker's anchor and the image ghost's viewport position.
@@ -192,15 +264,51 @@ export function PdfCanvas({
     setSignatureRequest(null);
     setPendingImage(null);
     setGhostPoint(null);
+    setCropSelection(null);
+    setCropResize(null);
+    setEraserHover(null);
+    setCalloutPointDrag(null);
   }, [document.fingerprint, pageIndex, rotation, scale]);
 
   useEffect(() => {
+    if (activeTool !== "select") setSelectedSourceTextKey(undefined);
     setPendingInput(null);
     setPendingLink(null);
     setSignatureRequest(null);
     setPendingImage(null);
     setGhostPoint(null);
+    setCropSelection(null);
+    setCropResize(null);
+    setEraserHover(null);
+    setCalloutPointDrag(null);
   }, [activeTool]);
+
+  useEffect(() => {
+    if (selectedIds.length > 0) setSelectedSourceTextKey(undefined);
+  }, [selectedIds]);
+
+  useEffect(() => {
+    if (!cropSelection) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setCropSelection(null);
+      setCropResize(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [cropSelection]);
+
+  useEffect(() => {
+    if (!calloutPointDrag) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setCalloutPointDrag(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [calloutPointDrag]);
 
   useEffect(() => {
     if (!pendingImage) return;
@@ -247,7 +355,7 @@ export function PdfCanvas({
     const stage = stageRef.current;
     if (!stage || !isPageRendered) return;
 
-    const coverViewportRects = replacedSourceRects.map((coverRect) =>
+    const coverViewportRects = suppressedSourceRects.map((coverRect) =>
       pdfRectToViewport(coverRect, pageHeight, scale),
     );
 
@@ -319,7 +427,7 @@ export function PdfCanvas({
         (span as HTMLElement).style.visibility = "";
       });
     };
-  }, [isPageRendered, replacedSourceRects, pageHeight, scale, stageRef]);
+  }, [isPageRendered, suppressedSourceRects, pageHeight, scale, stageRef]);
 
   useEffect(() => {
     if (selectedIds.length === 0) return;
@@ -341,7 +449,7 @@ export function PdfCanvas({
   }, [documentFonts]);
 
   const finalizeCreatedOperations = (nextOperations: EditOperation[]) => {
-    nextOperations.forEach(onOperationAdd);
+    for (const operation of nextOperations) onOperationAdd(operation);
     const createdText = nextOperations.find(
       (operation): operation is TextOperation => operation.type === "text",
     );
@@ -352,6 +460,9 @@ export function PdfCanvas({
       // Select the freshly drawn op (shape, whiteout, …) so its inline toolbar
       // and resize handles appear immediately — reference parity for shapes.
       onOperationSelect([nextOperations[0].id]);
+    }
+    if (nextOperations.some((operation) => operation.type === "redaction")) {
+      onNotice?.("Visual redaction added. The source content remains in the PDF and may still be extractable.");
     }
   };
 
@@ -396,9 +507,14 @@ export function PdfCanvas({
         ? annotationRectsForClick(viewportPointToPdf(clickPoint, pageHeight, scale), editableTextRuns)
         : annotationRectsForMarquee(viewportRectToPdf(viewportRect, pageHeight, scale), editableTextRuns);
       if (snappedRects.length > 0) {
-        const created = createSnappedAnnotationOperations(activeTool, pageIndex, snappedRects);
+        const created = activeTool === "redact"
+          ? createSnappedRedactionOperations(pageIndex, snappedRects)
+          : createSnappedAnnotationOperations(activeTool, pageIndex, snappedRects);
         onOperationsAdd(created);
         onOperationSelect([created[created.length - 1].id]);
+        if (activeTool === "redact") {
+          onNotice?.("Visual redaction added. The source content remains in the PDF and may still be extractable.");
+        }
         return;
       }
     }
@@ -427,6 +543,7 @@ export function PdfCanvas({
           activeTool,
           viewportRect,
           pageHeight,
+          pageWidth,
           pageIndex,
           scale,
           resolvedFields,
@@ -502,7 +619,57 @@ export function PdfCanvas({
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   };
 
-  const { draw, selectDraw, drag, resize, activeGuides, stagePointerHandlers, handleResizeStart, handleOverlayPointerDown } =
+  const commitInkStroke = (viewportPoints: PdfPoint[]) => {
+    if (activeTool !== "draw" && activeTool !== "ink" && activeTool !== "freehand-highlight") return;
+    const operation = createInkOperation(
+      activeTool,
+      pageIndex,
+      viewportPoints.map((point) => viewportPointToPdf(point, pageHeight, scale)),
+      { width: pageWidth, height: pageHeight },
+    );
+    if (!operation) return;
+    onOperationAdd(operation);
+    onOperationSelect([operation.id]);
+  };
+
+  const commitEraseStroke = (viewportPoints: PdfPoint[]) => {
+    const eraserPoints = viewportPoints.map((point) => viewportPointToPdf(point, pageHeight, scale));
+    const replacements: OperationReplacement[] = [];
+    for (const operation of operations) {
+      if (operation.type !== "ink" || operation.pageIndex !== pageIndex || operation.locked) continue;
+      const result = eraseStrokeByPath(operation.points, eraserPoints, {
+        strokeWidth: operation.strokeWidth,
+        eraserRadius: 12 / scale,
+      });
+      if (!result.didErase) continue;
+      replacements.push({
+        id: operation.id,
+        operations: result.fragments.map((fragment) =>
+          createInkFragment(operation, fragment.map((point) => ({ ...point })), pageWidth, pageHeight)),
+      });
+    }
+    if (replacements.length === 0) {
+      onNotice?.("No added ink strokes were touched.");
+      return;
+    }
+    onOperationsReplace(replacements);
+    onNotice?.(`Erased ${replacements.length} ${replacements.length === 1 ? "stroke" : "strokes"}. Undo restores the full stroke.`);
+  };
+
+  const selectCropArea = (rect: ViewportRect) => {
+    const maxWidth = pageWidth * scale;
+    const maxHeight = pageHeight * scale;
+    const left = Math.max(0, Math.min(rect.left, maxWidth - 1));
+    const top = Math.max(0, Math.min(rect.top, maxHeight - 1));
+    setCropSelection({
+      left,
+      top,
+      width: Math.max(1, Math.min(rect.width, maxWidth - left)),
+      height: Math.max(1, Math.min(rect.height, maxHeight - top)),
+    });
+  };
+
+  const { draw, inkDraw, eraseDraw, selectDraw, drag, resize, activeGuides, stagePointerHandlers, handleResizeStart, handleOverlayPointerDown } =
     useStagePointerGestures({
       activeTool,
       operations,
@@ -520,6 +687,9 @@ export function PdfCanvas({
       onOperationUpdate,
       onOperationsTranslate,
       onImageToolClick,
+      onInkCommit: commitInkStroke,
+      onEraseCommit: commitEraseStroke,
+      onCropSelect: selectCropArea,
       addAt,
     });
 
@@ -532,11 +702,123 @@ export function PdfCanvas({
   // next stage click commits the operation there; every other stage gesture is
   // suspended so the click can't fall through and create something else.
   const handleStagePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (activeTool === "erase") setEraserHover(stagePointFromEvent(event));
+    if (calloutPointDrag) {
+      const viewportPoint = stagePointFromEvent(event);
+      const point = viewportPointToPdf(viewportPoint, pageHeight, scale);
+      setCalloutPointDrag({
+        ...calloutPointDrag,
+        point: {
+          x: Math.max(0, Math.min(pageWidth, point.x)),
+          y: Math.max(0, Math.min(pageHeight, point.y)),
+        },
+      });
+      return;
+    }
     if (pendingImage) {
       setGhostPoint(stagePointFromEvent(event));
       return;
     }
+    if (cropResize) {
+      const point = stagePointFromEvent(event);
+      const dx = point.x - cropResize.start.x;
+      const dy = point.y - cropResize.start.y;
+      const pageViewportWidth = pageWidth * scale;
+      const pageViewportHeight = pageHeight * scale;
+      const minSize = 32;
+      let { left, top, width, height } = cropResize.rect;
+      if (cropResize.handle.includes("e")) width += dx;
+      if (cropResize.handle.includes("s")) height += dy;
+      if (cropResize.handle.includes("w")) {
+        left += dx;
+        width -= dx;
+      }
+      if (cropResize.handle.includes("n")) {
+        top += dy;
+        height -= dy;
+      }
+      if (width < minSize) {
+        if (cropResize.handle.includes("w")) left -= minSize - width;
+        width = minSize;
+      }
+      if (height < minSize) {
+        if (cropResize.handle.includes("n")) top -= minSize - height;
+        height = minSize;
+      }
+      left = Math.max(0, Math.min(left, pageViewportWidth - minSize));
+      top = Math.max(0, Math.min(top, pageViewportHeight - minSize));
+      width = Math.min(width, pageViewportWidth - left);
+      height = Math.min(height, pageViewportHeight - top);
+      setCropSelection({ left, top, width, height });
+      return;
+    }
     stagePointerHandlers.onPointerMove(event);
+  };
+
+  const handleStagePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (calloutPointDrag) {
+      const { id, key, point } = calloutPointDrag;
+      onOperationUpdate(id, key === "anchor" ? { anchor: point } : { elbow: point });
+      setCalloutPointDrag(null);
+      return;
+    }
+    if (cropResize) {
+      setCropResize(null);
+      return;
+    }
+    stagePointerHandlers.onPointerUp(event);
+  };
+
+  const handleStagePointerCancel = () => {
+    if (calloutPointDrag) {
+      setCalloutPointDrag(null);
+      return;
+    }
+    if (cropResize) {
+      setCropResize(null);
+      return;
+    }
+    stagePointerHandlers.onPointerCancel();
+  };
+
+  const startCropResize = (
+    handle: "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw",
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (!cropSelection || !stageRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    stageRef.current.setPointerCapture(event.pointerId);
+    const bounds = stageRef.current.getBoundingClientRect();
+    setCropResize({
+      handle,
+      start: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+      rect: cropSelection,
+    });
+  };
+
+  const startCalloutPointDrag = (
+    key: "anchor" | "elbow",
+    point: PdfPoint,
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (!selectedOperation || selectedOperation.type !== "annotation" || selectedOperation.kind !== "callout" || !stageRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      stageRef.current.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture improves out-of-bounds dragging but is not required.
+    }
+    setCalloutPointDrag({ id: selectedOperation.id, key, point });
+  };
+
+  const applyCrop = (scope: "current" | "all") => {
+    if (!cropSelection || !onCropApply) return;
+    const pdfRect = viewportRectToPdf(cropSelection, pageHeight, scale);
+    setCropSelection(null);
+    setCropResize(null);
+    onCropApply(pdfRect, scope);
   };
 
   const handleStageClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -568,6 +850,10 @@ export function PdfCanvas({
       setGhostPoint(null);
       return;
     }
+    const target = event.target as HTMLElement;
+    if (target === event.currentTarget || target.classList.contains("react-pdf__Page__canvas")) {
+      setSelectedSourceTextKey(undefined);
+    }
     stagePointerHandlers.onClick(event);
   };
 
@@ -576,6 +862,11 @@ export function PdfCanvas({
   // rendered positions with that live value instead of the stale committed one.
   // During a group drag every member of drag.ids renders at its live position.
   const gestureOverride = (operation: EditOperation): EditOperation => {
+    if (calloutPointDrag?.id === operation.id && operation.type === "annotation" && operation.kind === "callout") {
+      return calloutPointDrag.key === "anchor"
+        ? { ...operation, anchor: calloutPointDrag.point }
+        : { ...operation, elbow: calloutPointDrag.point };
+    }
     if (drag?.liveDelta && drag.ids.includes(operation.id)) {
       return translateOperation(operation, drag.liveDelta.dx, drag.liveDelta.dy);
     }
@@ -602,6 +893,7 @@ export function PdfCanvas({
   // for every *other* operation skip re-rendering during that gesture.
   const handleOverlayPointerDownById = useCallback(
     (id: string, event: React.PointerEvent<HTMLDivElement>) => {
+      setSelectedSourceTextKey(undefined);
       const target = operations.find((operation) => operation.id === id);
       /* v8 ignore next -- id always comes from an OperationOverlay rendered from this same operations list, so the lookup always resolves */
       if (target) handleOverlayPointerDown(target, event);
@@ -619,7 +911,42 @@ export function PdfCanvas({
     (id: string, text: string) => onOperationUpdate(id, { text }),
     [onOperationUpdate],
   );
-  const handleTextCommit = useCallback(() => setEditingTextId(undefined), []);
+  const handleTextCommit = useCallback(() => {
+    setEditingTextId(undefined);
+    stageRef.current?.focus();
+  }, [stageRef]);
+
+  const propertiesWasOpen = useRef(propertiesOpen);
+
+  // Moving from direct text entry into the Properties drawer is a mode change.
+  // Commit only on the closed-to-open transition. The drawer can remain open
+  // while the user deliberately starts another inline edit afterward.
+  useEffect(() => {
+    const opened = propertiesOpen && !propertiesWasOpen.current;
+    propertiesWasOpen.current = propertiesOpen;
+    if (opened && editingTextId) setEditingTextId(undefined);
+  }, [editingTextId, propertiesOpen]);
+
+  const isEditingSelectedText =
+    selectedOperation?.type === "text" && editingTextId === selectedOperation.id;
+  const selectedToolbarProps = selectedOperation && liveSelectedOperation
+    ? {
+        operation: selectedOperation,
+        pageWidth,
+        rect: pdfRectToViewport(liveSelectedOperation.rect, pageHeight, scale),
+        scale,
+        moveModeActive: moveModeOperationId === selectedOperation.id,
+        onDelete: onOperationRemove,
+        onDuplicate: (operation: EditOperation) => onOperationAdd(cloneOperation(operation)),
+        onLink: addLinkForOperation,
+        onMoveToggle: () =>
+          setMoveModeOperationId((current) =>
+            current === selectedOperation.id ? undefined : selectedOperation.id),
+        onProperties: onPropertiesOpen,
+        onTextPreview: previewTextOperation,
+        onUpdate: onOperationUpdate,
+      }
+    : undefined;
 
   // Surface the in-page hint when a tool is armed (or a draw starts/ends) and
   // auto-dismiss it after a few seconds so it doesn't linger over the page.
@@ -631,26 +958,77 @@ export function PdfCanvas({
     setHintVisible(true);
     const timer = window.setTimeout(() => setHintVisible(false), 4000);
     return () => window.clearTimeout(timer);
-  }, [activeTool, draw]);
+  }, [activeTool, draw, inkDraw, eraseDraw]);
 
   return (
     <div className="canvas-workbench">
-      <div className="canvas-workbench__topline">
-        <span>{document.name}</span>
-        <strong>Page {pageIndex + 1}</strong>
-        <span>Overlay-first edits · original bytes preserved until export</span>
+      <div className={`contextual-toolbar-shell${isEditingSelectedText ? " is-active" : ""}`}>
+        {cropSelection ? (
+          <div className="crop-context-toolbar" role="toolbar" aria-label="Crop page actions">
+            <span className="crop-context-toolbar__title"><Crop aria-hidden="true" /> Crop</span>
+            <span className="crop-context-toolbar__size">
+              {Math.round(cropSelection.width / scale)} × {Math.round(cropSelection.height / scale)} pt
+            </span>
+            <button type="button" className="crop-context-toolbar__primary" onClick={() => applyCrop("current")}>Crop current page</button>
+            <button type="button" onClick={() => applyCrop("all")}>Crop all pages</button>
+            <button type="button" aria-label="Cancel crop" title="Cancel crop" onClick={() => setCropSelection(null)}>
+              <X aria-hidden="true" />
+              <span>Cancel</span>
+            </button>
+          </div>
+        ) : selectedToolbarProps ? (
+          <FloatingOperationToolbar
+            {...selectedToolbarProps}
+            variant="contextual"
+            onDone={isEditingSelectedText ? handleTextCommit : undefined}
+          />
+        ) : selectedPageOperations.length > 1 ? (
+          <div className="contextual-selection-toolbar" role="toolbar" aria-label={`Selected ${selectedPageOperations.length} objects`}>
+            <strong>Selected {selectedPageOperations.length} objects</strong>
+            <button
+              type="button"
+              aria-label="Duplicate selected"
+              title="Duplicate selected"
+              onClick={() => {
+                const duplicates = selectedPageOperations.map(cloneOperation);
+                onOperationsAdd(duplicates);
+                onOperationSelect(duplicates.map((operation) => operation.id));
+              }}
+            >
+              <Copy aria-hidden="true" />
+              <span>Duplicate</span>
+            </button>
+            <button type="button" aria-label="Delete selected" title="Delete selected" onClick={() => onOperationsRemove(selectedIds)}>
+              <Trash2 aria-hidden="true" />
+              <span>Delete</span>
+            </button>
+            <button type="button" aria-label="Properties" title="Properties" onClick={onPropertiesOpen}>
+              <SlidersHorizontal aria-hidden="true" />
+              <span>Properties</span>
+            </button>
+          </div>
+        ) : (
+          <div className="contextual-toolbar-shell__idle" role="status" aria-live="polite">
+            <strong>{TOOL_BY_ID[activeTool].label}</strong>
+            <span>{TOOL_BY_ID[activeTool].description}</span>
+          </div>
+        )}
       </div>
 
       <div className="document-scroll">
         <div
           ref={stageRef}
-          className={`page-stage ${activeTool === "text" ? "is-text-tool" : ""}`}
+          className={`page-stage${activeTool === "text" ? " is-text-tool" : ""}${activeTool === "draw" || activeTool === "ink" || activeTool === "freehand-highlight" ? " is-ink-tool" : ""}${activeTool === "erase" ? " is-eraser-tool" : ""}${activeTool === "crop" ? " is-crop-tool" : ""}`}
+          tabIndex={-1}
           style={{
             width: pageWidth * scale,
             minHeight: pageHeight * scale,
           }}
           {...stagePointerHandlers}
           onPointerMove={handleStagePointerMove}
+          onPointerUp={handleStagePointerUp}
+          onPointerCancel={handleStagePointerCancel}
+          onPointerLeave={() => setEraserHover(null)}
           onClick={handleStageClick}
         >
           <Document
@@ -669,17 +1047,19 @@ export function PdfCanvas({
           </Document>
 
           <div className={`text-hit-layer ${canPickExistingText ? "is-active" : ""}`} aria-hidden={canPickExistingText ? undefined : true}>
-            {editableTextRuns.map((item, index) => {
+            {canPickExistingText ? editableTextRuns.map((item, index) => {
               // Hide the hit target once this PDF run has been replaced, so the user
               // can't stack a second replacement (which would create duplicate text).
-              if (replacedSourceRects.some((coverRect) => rectsOverlapSignificantly(coverRect, item.rect))) {
+              if (suppressedSourceRects.some((coverRect) => rectsOverlapSignificantly(coverRect, item.rect))) {
                 return null;
               }
               const rect = pdfRectToViewport(item.rect, pageHeight, scale);
+              const sourceKey = `${pageIndex}:${index}:${item.rect.x}:${item.rect.y}:${item.str}`;
+              const selected = selectedSourceTextKey === sourceKey;
               return (
                 <button
                   key={`${item.str}-${index}`}
-                  className="text-hit"
+                  className={`text-hit${selected ? " is-source-selected" : ""}`}
                   style={{
                     left: rect.left,
                     top: rect.top,
@@ -687,13 +1067,21 @@ export function PdfCanvas({
                     height: Math.max(rect.height, 12),
                   }}
                   title={`Replace: ${item.str}`}
+                  aria-pressed={selected}
                   onClick={(event) => {
                     event.stopPropagation();
+                    if (activeTool === "select" && !selected) {
+                      setEditingTextId(undefined);
+                      onOperationSelect([]);
+                      setSelectedSourceTextKey(sourceKey);
+                      return;
+                    }
+                    setSelectedSourceTextKey(undefined);
                     void addAt({ left: rect.left, top: rect.top, width: Math.max(rect.width, 16), height: Math.max(rect.height, 12) }, item);
                   }}
                 />
               );
-            })}
+            }) : null}
           </div>
 
           <div className="guides-layer" aria-hidden="true">
@@ -706,7 +1094,60 @@ export function PdfCanvas({
             ))}
           </div>
 
-          {draw ? <div className="draw-marquee" aria-hidden="true" style={marqueeRect(draw)} /> : null}
+          {draw ? <div className={`draw-marquee${activeTool === "crop" ? " draw-marquee--crop" : ""}`} aria-hidden="true" style={marqueeRect(draw)} /> : null}
+
+          {inkDraw ? (
+            <svg
+              className="ink-draw-preview"
+              viewBox={`0 0 ${pageWidth * scale} ${pageHeight * scale}`}
+              aria-hidden="true"
+            >
+              <polyline
+                points={inkDraw.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                fill="none"
+                stroke={activeTool === "freehand-highlight" ? "#ffe066" : activeTool === "draw" ? "#2563eb" : "#111827"}
+                strokeWidth={(activeTool === "freehand-highlight" ? 18 : activeTool === "draw" ? 2.4 : 2) * scale}
+                opacity={activeTool === "freehand-highlight" ? 0.42 : 1}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          ) : null}
+
+          {activeTool === "erase" && (eraseDraw?.current ?? eraserHover) ? (
+            <div
+              className="eraser-cursor"
+              aria-hidden="true"
+              style={{ left: (eraseDraw?.current ?? eraserHover)!.x, top: (eraseDraw?.current ?? eraserHover)!.y }}
+            >
+              {eraseDraw && eraseDraw.hitIds.length > 0 ? <span>{eraseDraw.hitIds.length}</span> : null}
+            </div>
+          ) : null}
+
+          {cropSelection ? (
+            <div className="crop-selection-layer" aria-label="Crop selection">
+              <div
+                className="crop-selection"
+                style={{
+                  left: cropSelection.left,
+                  top: cropSelection.top,
+                  width: cropSelection.width,
+                  height: cropSelection.height,
+                }}
+              >
+                <span className="crop-selection__label">Area to keep</span>
+                {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const).map((handle) => (
+                  <button
+                    key={handle}
+                    type="button"
+                    className={`crop-handle crop-handle--${handle}`}
+                    aria-label={`Resize crop ${handle}`}
+                    onPointerDown={(event) => startCropResize(handle, event)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {selectDraw ? <div className="select-marquee" aria-hidden="true" style={marqueeRect(selectDraw)} /> : null}
 
@@ -742,73 +1183,25 @@ export function PdfCanvas({
                 />
               );
             })}
-            {selectedOperation && liveSelectedOperation ? (
-              <FloatingOperationToolbar
-                operation={selectedOperation}
-                pageWidth={pageWidth}
-                rect={pdfRectToViewport(liveSelectedOperation.rect, pageHeight, scale)}
-                scale={scale}
-                hidden={Boolean(drag)}
-                moveModeActive={moveModeOperationId === selectedOperation.id}
-                onDelete={onOperationRemove}
-                onDuplicate={(operation) => onOperationAdd(cloneOperation(operation))}
-                onLink={addLinkForOperation}
-                onMoveToggle={() =>
-                  setMoveModeOperationId((current) => (current === selectedOperation.id ? undefined : selectedOperation.id))}
-                onTextPreview={previewTextOperation}
-                onUpdate={onOperationUpdate}
-              />
-            ) : null}
             {selectedOperation && liveSelectedOperation && editingTextId !== selectedOperation.id && isResizableOperation(selectedOperation) ? (
               <ResizeHandles
                 rect={pdfRectToViewport(liveSelectedOperation.rect, pageHeight, scale)}
+                variant={selectedOperation.type === "text" ? "text" : "default"}
                 interacting={Boolean(drag) || Boolean(resize)}
                 onResizeStart={(handle, event) => handleResizeStart(handle, event, selectedOperation)}
               />
             ) : null}
             {groupRect ? (
-              <>
-                <div
-                  className="group-selection-outline"
-                  aria-hidden="true"
-                  style={{
-                    left: groupRect.left,
-                    top: groupRect.top,
-                    width: groupRect.width,
-                    height: groupRect.height,
-                  }}
-                />
-                {!drag ? (
-                  <div
-                    className="group-toolbar"
-                    role="toolbar"
-                    aria-label={`Selected ${selectedPageOperations.length} objects`}
-                    style={{ left: groupRect.left, top: Math.max(8, groupRect.top - 44) }}
-                  >
-                    <span className="group-toolbar__count">Selected {selectedPageOperations.length} objects</span>
-                    <button
-                      aria-label="Duplicate selected"
-                      title="Duplicate selected"
-                      onClick={() => {
-                        const duplicates = selectedPageOperations.map(cloneOperation);
-                        onOperationsAdd(duplicates);
-                        // Keep the whole duplicated group selected (add-many
-                        // alone would collapse the selection to the last one).
-                        onOperationSelect(duplicates.map((operation) => operation.id));
-                      }}
-                    >
-                      <Copy aria-hidden="true" />
-                    </button>
-                    <button
-                      aria-label="Delete selected"
-                      title="Delete selected"
-                      onClick={() => onOperationsRemove(selectedIds)}
-                    >
-                      <Trash2 aria-hidden="true" />
-                    </button>
-                  </div>
-                ) : null}
-              </>
+              <div
+                className="group-selection-outline"
+                aria-hidden="true"
+                style={{
+                  left: groupRect.left,
+                  top: groupRect.top,
+                  width: groupRect.width,
+                  height: groupRect.height,
+                }}
+              />
             ) : null}
             {pendingInput ? (
               <InlineInputPopover request={pendingInput} pageWidth={pageWidth} scale={scale} />
@@ -825,6 +1218,7 @@ export function PdfCanvas({
                 pageHeight={pageHeight}
                 scale={scale}
                 selected={selectedIds.includes(operation.id)}
+                erasing={Boolean(eraseDraw?.hitIds.includes(operation.id))}
                 dragging={Boolean(drag?.ids.includes(operation.id))}
                 moveModeActive={moveModeOperationId === operation.id}
                 onPointerDown={handleOverlayPointerDownById}
@@ -833,6 +1227,27 @@ export function PdfCanvas({
                 onTextCommit={handleTextCommit}
               />
             ))}
+            {selectedOperation?.type === "annotation" && selectedOperation.kind === "callout" ? (
+              <div className="callout-point-handles" aria-label="Callout leader controls">
+                {(["anchor", "elbow"] as const).map((key) => {
+                  const point = calloutPointDrag?.id === selectedOperation.id && calloutPointDrag.key === key
+                    ? calloutPointDrag.point
+                    : selectedOperation[key];
+                  if (!point) return null;
+                  const viewportPoint = pdfPointToViewport(point, pageHeight, scale);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`callout-point-handle callout-point-handle--${key}`}
+                      aria-label={`Move callout ${key}`}
+                      style={{ left: viewportPoint.x, top: viewportPoint.y }}
+                      onPointerDown={(event) => startCalloutPointDrag(key, point, event)}
+                    />
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
 
           {pendingImage && ghostPoint ? (
@@ -934,8 +1349,8 @@ export function PdfCanvas({
         />
       ) : null}
 
-      {activeTool !== "select" && !editingTextId && !drag && !resize && (hintVisible || draw) ? (
-        <CanvasHintBanner tool={activeTool} drawing={Boolean(draw)} />
+      {activeTool !== "select" && !editingTextId && !drag && !resize && !cropSelection && (hintVisible || draw || inkDraw || eraseDraw) ? (
+        <CanvasHintBanner tool={activeTool} drawing={Boolean(draw || inkDraw || eraseDraw)} />
       ) : null}
 
       <button className="floating-image" disabled={activeTool !== "image"} onClick={() => imageInputRef.current?.click()}>

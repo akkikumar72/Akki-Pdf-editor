@@ -74,6 +74,47 @@ describe("storage", () => {
     expect(Array.from(got!.bytes)).toEqual([1, 2, 3]);
   });
 
+  it("round-trips Uint8Array document snapshots in past and future history", async () => {
+    const pastBytes = new Uint8Array([4, 5, 6]);
+    const futureBytes = new Uint8Array([7, 8, 9]);
+    await saveSession(makeInput({
+      id: "document-history",
+      updatedAt: 2_000,
+      editState: {
+        operations: [],
+        past: [{
+          id: "past-revision",
+          label: "Before crop",
+          timestamp: 1,
+          operations: [],
+          documentSnapshot: { bytes: pastBytes, pageIndex: 2 },
+        }],
+        future: [{
+          id: "future-revision",
+          label: "Redo crop",
+          timestamp: 2,
+          operations: [],
+          documentSnapshot: { bytes: futureBytes, pageIndex: 3 },
+        }],
+      },
+    }));
+
+    const stored = await getSession("document-history");
+    const latest = await getLatestSession();
+    for (const session of [stored, latest]) {
+      const pastSnapshot = session?.editState?.past[0].documentSnapshot;
+      const futureSnapshot = session?.editState?.future[0].documentSnapshot;
+      expect(ArrayBuffer.isView(pastSnapshot?.bytes)).toBe(true);
+      expect(ArrayBuffer.isView(futureSnapshot?.bytes)).toBe(true);
+      expect(pastSnapshot?.bytes.constructor.name).toBe("Uint8Array");
+      expect(futureSnapshot?.bytes.constructor.name).toBe("Uint8Array");
+      expect(Array.from(pastSnapshot!.bytes)).toEqual([4, 5, 6]);
+      expect(Array.from(futureSnapshot!.bytes)).toEqual([7, 8, 9]);
+      expect(pastSnapshot?.pageIndex).toBe(2);
+      expect(futureSnapshot?.pageIndex).toBe(3);
+    }
+  });
+
   it("getSession returns undefined for unknown id", async () => {
     await saveSession(makeInput({ id: "known" }));
     const got = await getSession("does-not-exist");

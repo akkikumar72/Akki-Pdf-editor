@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditorController } from "../src/state/useEditorController";
-import type { LoadedPdf, TextOperation } from "../src/types/editor";
+import type { InkOperation, LoadedPdf, TextOperation } from "../src/types/editor";
 import type { SavedSession } from "../src/utils/storage";
 
 import { pdfEngine } from "../src/engine/pdfEngine";
@@ -25,6 +25,7 @@ vi.mock("../src/engine/pdfEngine", () => ({
     insertBlankPage: vi.fn(),
     deletePage: vi.fn(),
     rotatePage: vi.fn(),
+    cropPages: vi.fn(),
     savePdf: vi.fn(),
   },
 }));
@@ -100,6 +101,10 @@ beforeEach(() => {
   mockedEngine.insertBlankPage.mockResolvedValue(new Uint8Array([9]));
   mockedEngine.deletePage.mockResolvedValue(new Uint8Array([9]));
   mockedEngine.rotatePage.mockResolvedValue(new Uint8Array([9]));
+  mockedEngine.cropPages.mockResolvedValue({
+    bytes: new Uint8Array([9]),
+    cropBounds: [{ pageIndex: 0, rect: { x: 61.2, y: 79.2, width: 306, height: 396 } }],
+  });
   mockedExport.export.mockResolvedValue({ skippedOperations: [] });
   mockedValidate.mockResolvedValue({ ok: true });
   mockedSave.mockResolvedValue(undefined);
@@ -678,6 +683,35 @@ describe("operation actions", () => {
     expect(result.current.status).toBe(statusBefore);
   });
 
+  it("replaceOperations commits erased ink fragments as one undoable action", async () => {
+    const ink: InkOperation = {
+      id: "ink-original", type: "ink", pageIndex: 0,
+      rect: { x: 0, y: 0, width: 100, height: 2 },
+      points: [{ x: 0, y: 1 }, { x: 100, y: 1 }],
+      stroke: "#111827", strokeWidth: 2, createdAt: 1,
+    };
+    const left = { ...ink, id: "ink-left", rect: { x: 0, y: 0, width: 40, height: 2 }, points: [{ x: 0, y: 1 }, { x: 40, y: 1 }] };
+    const right = { ...ink, id: "ink-right", rect: { x: 60, y: 0, width: 40, height: 2 }, points: [{ x: 60, y: 1 }, { x: 100, y: 1 }] };
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => result.current.addOperation(ink));
+    const pastBefore = result.current.editState.past.length;
+
+    await act(async () => result.current.replaceOperations([{ id: ink.id, operations: [left, right] }]));
+
+    expect(result.current.editState.operations.map((operation) => operation.id)).toEqual(["ink-left", "ink-right"]);
+    expect(result.current.editState.past).toHaveLength(pastBefore + 1);
+    expect(result.current.editState.past.at(-1)?.operations).toEqual([ink]);
+    expect(result.current.status).toBe("Stroke erased");
+  });
+
+  it("replaceOperations ignores an empty replacement batch", async () => {
+    const { result } = renderHook(() => useEditorController());
+    const statusBefore = result.current.status;
+    await act(async () => result.current.replaceOperations([]));
+    expect(result.current.editState).toEqual(expect.objectContaining({ operations: [], past: [] }));
+    expect(result.current.status).toBe(statusBefore);
+  });
+
   it("translateOperations moves the listed operations", async () => {
     const { result } = renderHook(() => useEditorController());
     await act(async () => {
@@ -761,6 +795,196 @@ describe("operation actions", () => {
 });
 
 describe("page operations", () => {
+  it("cropPages no-ops without a document", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await act(async () => {
+      await result.current.cropPages({ x: 10, y: 10, width: 100, height: 100 }, "current");
+    });
+    expect(mockedEngine.cropPages).not.toHaveBeenCalled();
+  });
+
+  it("normalizes a crop selection against an existing visible CropBox", async () => {
+    mockedEngine.getPageSizes.mockImplementation(async (bytes) =>
+      bytes[0] === 9 ? [{ width: 100, height: 80 }] : [{ width: 200, height: 100 }],
+    );
+    mockedEngine.cropPages.mockResolvedValueOnce({
+      bytes: new Uint8Array([9]),
+      cropBounds: [{ pageIndex: 0, rect: { x: 70, y: 20, width: 100, height: 80 } }],
+    });
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+
+    expect(result.current.pageSizes).toEqual([{ width: 200, height: 100 }]);
+    await act(async () => {
+      await result.current.cropPages({ x: 50, y: 10, width: 100, height: 80 }, "current");
+    });
+
+    expect(mockedEngine.cropPages).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      { x: 0.25, y: 0.1, width: 0.5, height: 0.8 },
+      { kind: "current", pageIndex: 0 },
+    );
+    expect(result.current.pageSizes).toEqual([{ width: 100, height: 80 }]);
+  });
+
+  it("normalizes and applies a current-page crop while remapping overlays", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      result.current.addOperation(textOp({ rect: { x: 100, y: 100, width: 40, height: 20 } }));
+      result.current.setActiveTool("crop");
+    });
+    mockedEngine.getPageSizes.mockResolvedValue([{ width: 306, height: 396 }]);
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+
+    expect(mockedEngine.cropPages).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      { x: 0.1, y: 0.1, width: 0.5, height: 0.5 },
+      { kind: "current", pageIndex: 0 },
+    );
+    expect(result.current.editState.operations[0].rect.x).toBeCloseTo(38.8);
+    expect(result.current.editState.operations[0].rect.y).toBeCloseTo(20.8);
+    expect(result.current.activeTool).toBe("select");
+    expect(result.current.status).toBe("Page 1 cropped");
+  });
+
+  it("undoes and redoes crop bytes, page geometry, and remapped overlays together", async () => {
+    mockedEngine.getPageSizes.mockImplementation(async (bytes) =>
+      bytes[0] === 9 ? [{ width: 306, height: 396 }] : sizes,
+    );
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      result.current.addOperation(textOp({ rect: { x: 100, y: 100, width: 40, height: 20 } }));
+    });
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+    expect(Array.from(result.current.document!.bytes)).toEqual([9]);
+    expect(result.current.pageSizes).toEqual([{ width: 306, height: 396 }]);
+    expect(result.current.editState.operations[0].rect.x).toBeCloseTo(38.8);
+    expect(result.current.editState.operations[0].rect.y).toBeCloseTo(20.8);
+
+    await act(async () => {
+      await result.current.undo();
+    });
+    expect(Array.from(result.current.document!.bytes)).toEqual([1, 2, 3]);
+    expect(result.current.pageSizes).toEqual(sizes);
+    expect(result.current.editState.operations[0].rect).toEqual({ x: 100, y: 100, width: 40, height: 20 });
+
+    await act(async () => {
+      await result.current.redo();
+    });
+    expect(Array.from(result.current.document!.bytes)).toEqual([9]);
+    expect(result.current.pageSizes).toEqual([{ width: 306, height: 396 }]);
+    expect(result.current.editState.operations[0].rect.x).toBeCloseTo(38.8);
+    expect(result.current.editState.operations[0].rect.y).toBeCloseTo(20.8);
+  });
+
+  it("undoes a post-crop overlay edit before undoing the crop revision", async () => {
+    mockedEngine.getPageSizes.mockImplementation(async (bytes) =>
+      bytes[0] === 9 ? [{ width: 306, height: 396 }] : sizes,
+    );
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      result.current.addOperation(textOp({ rect: { x: 100, y: 100, width: 40, height: 20 } }));
+    });
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+    await act(async () => {
+      result.current.addOperation(textOp({ id: "after_crop", rect: { x: 20, y: 20, width: 30, height: 12 } }));
+    });
+
+    await act(async () => {
+      await result.current.undo();
+    });
+    expect(Array.from(result.current.document!.bytes)).toEqual([9]);
+    expect(result.current.editState.operations.map((operation) => operation.id)).toEqual(["text_1"]);
+
+    await act(async () => {
+      await result.current.undo();
+    });
+    expect(Array.from(result.current.document!.bytes)).toEqual([1, 2, 3]);
+    expect(result.current.editState.operations[0].rect).toEqual({ x: 100, y: 100, width: 40, height: 20 });
+  });
+
+  it("keeps crop and later page insertion as separate undoable document revisions", async () => {
+    mockedEngine.insertBlankPage.mockResolvedValue(new Uint8Array([7]));
+    mockedEngine.getPageSizes.mockImplementation(async (bytes) => {
+      if (bytes[0] === 9) return [{ width: 306, height: 396 }];
+      if (bytes[0] === 7) return [{ width: 306, height: 396 }, { width: 306, height: 396 }];
+      return sizes;
+    });
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      result.current.addOperation(textOp({ rect: { x: 100, y: 100, width: 40, height: 20 } }));
+    });
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+    await act(async () => {
+      await result.current.insertPageAfter();
+    });
+    expect(Array.from(result.current.document!.bytes)).toEqual([7]);
+    expect(result.current.document?.pageCount).toBe(2);
+
+    await act(async () => {
+      await result.current.undo();
+    });
+    expect(Array.from(result.current.document!.bytes)).toEqual([9]);
+    expect(result.current.document?.pageCount).toBe(1);
+    expect(result.current.editState.operations[0].rect.x).toBeCloseTo(38.8);
+
+    await act(async () => {
+      await result.current.undo();
+    });
+    expect(Array.from(result.current.document!.bytes)).toEqual([1, 2, 3]);
+    expect(result.current.editState.operations[0].rect).toEqual({ x: 100, y: 100, width: 40, height: 20 });
+
+    await act(async () => {
+      await result.current.redo();
+    });
+    await act(async () => {
+      await result.current.redo();
+    });
+    expect(Array.from(result.current.document!.bytes)).toEqual([7]);
+    expect(result.current.document?.pageCount).toBe(2);
+  });
+
+  it("keeps crop atomic when the cropped document cannot be hydrated", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    await act(async () => {
+      result.current.addOperation(textOp({ rect: { x: 100, y: 100, width: 40, height: 20 } }));
+    });
+    const historyBefore = result.current.editState.past.length;
+    mockedEngine.extractTextAndFonts.mockRejectedValueOnce(new Error("Cropped PDF could not be parsed"));
+    await act(async () => {
+      await result.current.cropPages({ x: 61.2, y: 79.2, width: 306, height: 396 }, "current");
+    });
+
+    expect(Array.from(result.current.document!.bytes)).toEqual([1, 2, 3]);
+    expect(result.current.editState.operations[0].rect).toEqual({ x: 100, y: 100, width: 40, height: 20 });
+    expect(result.current.editState.past).toHaveLength(historyBefore);
+    expect(result.current.status).toBe("Cropped PDF could not be parsed");
+  });
+
+  it("passes all-page scope and reports crop failures", async () => {
+    const { result } = renderHook(() => useEditorController());
+    await openDocument(result);
+    mockedEngine.cropPages.mockRejectedValueOnce(new Error("Crop too small"));
+    await act(async () => {
+      await result.current.cropPages({ x: 10, y: 10, width: 100, height: 100 }, "all");
+    });
+    expect(mockedEngine.cropPages).toHaveBeenCalledWith(expect.any(Uint8Array), expect.any(Object), { kind: "all" });
+    expect(result.current.status).toBe("Crop too small");
+  });
+
   it("insertPageAfter no-ops without a document", async () => {
     const { result } = renderHook(() => useEditorController());
     await act(async () => {
@@ -906,18 +1130,13 @@ describe("page operations", () => {
     expect(result.current.document?.fingerprint).toBe("fp-1");
   });
 
-  it("deleteCurrentPage remaps preserved undo history to the new page numbering, not just the live operations", async () => {
-    // Regression for a real bug: only the *live* operations array was passed
-    // through shiftOperationsForDeletedPage — every past/future snapshot kept
-    // its pre-shift pageIndex values. Undoing back to a snapshot captured
-    // before the delete would then restore an operation at a stale page
-    // index (or one that no longer exists once pageCount shrank).
+  it("records page deletion as a revision boundary with pre-delete geometry", async () => {
     mockedEngine.loadDocument.mockResolvedValue(makeLoaded({ pageCount: 3 }));
-    mockedEngine.getPageSizes.mockResolvedValue([
-      { width: 612, height: 792 },
-      { width: 612, height: 792 },
-      { width: 612, height: 792 },
-    ]);
+    mockedEngine.getPageSizes.mockImplementation(async (bytes) =>
+      bytes[0] === 9
+        ? [{ width: 612, height: 792 }, { width: 612, height: 792 }]
+        : [{ width: 612, height: 792 }, { width: 612, height: 792 }, { width: 612, height: 792 }],
+    );
     const { result } = renderHook(() => useEditorController());
     await openDocument(result);
 
@@ -934,33 +1153,28 @@ describe("page operations", () => {
 
     // pageIndex defaults to 0 after openDocument; deleting it shifts every
     // op on a later page down by one (2 -> 1) and shrinks pageCount to 2.
-    mockedEngine.getPageSizes.mockResolvedValue([
-      { width: 612, height: 792 },
-      { width: 612, height: 792 },
-    ]);
     await act(async () => {
       await result.current.deleteCurrentPage();
     });
     expect(result.current.editState.operations.map((op) => op.pageIndex)).toEqual([1, 1]);
 
-    // The preserved snapshot must reflect the SAME remap, not the stale page-2 value.
-    const remappedSnapshot = result.current.editState.past.at(-1)!;
-    expect(remappedSnapshot.operations.map((op) => op.pageIndex)).toEqual([1]);
-
-    // Undoing onto that snapshot must land the survivor on the shifted page,
-    // and no operation may ever reference a page index the document lacks.
+    const boundary = result.current.editState.past.at(-1)!;
+    expect(boundary.operations.map((op) => op.pageIndex)).toEqual([2, 2]);
+    expect(boundary.documentSnapshot?.bytes).toEqual(new Uint8Array([1, 2, 3]));
     await act(async () => {
-      result.current.dispatch({ type: "undo" });
+      await result.current.undo();
     });
-    expect(result.current.editState.operations).toEqual([expect.objectContaining({ id: "survivor", pageIndex: 1 })]);
+    expect(result.current.document?.pageCount).toBe(3);
+    expect(result.current.editState.operations.map((op) => op.pageIndex)).toEqual([2, 2]);
   });
 
-  it("insertPageAfter remaps preserved undo history the same way as the live operations", async () => {
+  it("records page insertion as a revision boundary with pre-insert geometry", async () => {
     mockedEngine.loadDocument.mockResolvedValue(makeLoaded({ pageCount: 2 }));
-    mockedEngine.getPageSizes.mockResolvedValue([
-      { width: 612, height: 792 },
-      { width: 612, height: 792 },
-    ]);
+    mockedEngine.getPageSizes.mockImplementation(async (bytes) =>
+      bytes[0] === 9
+        ? [{ width: 612, height: 792 }, { width: 612, height: 792 }, { width: 612, height: 792 }]
+        : [{ width: 612, height: 792 }, { width: 612, height: 792 }],
+    );
     const { result } = renderHook(() => useEditorController());
     await openDocument(result);
 
@@ -973,21 +1187,21 @@ describe("page operations", () => {
       result.current.addOperation(textOp({ id: "other", pageIndex: 1 }));
     });
 
-    mockedEngine.getPageSizes.mockResolvedValue([
-      { width: 612, height: 792 },
-      { width: 612, height: 792 },
-      { width: 612, height: 792 },
-    ]);
     await act(async () => {
       await result.current.insertPageAfter();
     });
     expect(result.current.editState.operations.map((op) => op.pageIndex)).toEqual([2, 2]);
 
-    const remappedSnapshot = result.current.editState.past.at(-1)!;
-    expect(remappedSnapshot.operations.map((op) => op.pageIndex)).toEqual([2]);
+    const boundary = result.current.editState.past.at(-1)!;
+    expect(boundary.operations.map((op) => op.pageIndex)).toEqual([1, 1]);
+    await act(async () => {
+      await result.current.undo();
+    });
+    expect(result.current.document?.pageCount).toBe(2);
+    expect(result.current.editState.operations.map((op) => op.pageIndex)).toEqual([1, 1]);
   });
 
-  it("page operations preserve the undo/redo history", async () => {
+  it("makes page rotation independently undoable before earlier overlay edits", async () => {
     const { result } = renderHook(() => useEditorController());
     await openDocument(result);
     await act(async () => {
@@ -998,15 +1212,18 @@ describe("page operations", () => {
     await act(async () => {
       await result.current.rotateCurrentPage();
     });
-    // Rotating a page is an edit, not a fresh open — undo must still work.
-    expect(result.current.editState.past).toHaveLength(pastBefore);
+    expect(result.current.editState.past).toHaveLength(pastBefore + 1);
     await act(async () => {
-      result.current.dispatch({ type: "undo" });
+      await result.current.undo();
+    });
+    expect(result.current.editState.operations).toHaveLength(1);
+    await act(async () => {
+      await result.current.undo();
     });
     expect(result.current.editState.operations).toHaveLength(0);
   });
 
-  it("page operations also remap preserved redo (future) history", async () => {
+  it("clears a stale redo branch when a new page mutation is committed", async () => {
     const { result } = renderHook(() => useEditorController());
     await openDocument(result);
     await act(async () => {
@@ -1020,12 +1237,8 @@ describe("page operations", () => {
     await act(async () => {
       await result.current.rotateCurrentPage();
     });
-    // The redo stack must survive the page mutation just like undo does.
-    expect(result.current.editState.future.length).toBeGreaterThan(0);
-    await act(async () => {
-      result.current.dispatch({ type: "redo" });
-    });
-    expect(result.current.editState.operations).toHaveLength(1);
+    expect(result.current.editState.future).toHaveLength(0);
+    expect(result.current.editState.past.at(-1)?.documentSnapshot).toBeDefined();
   });
 
   it("updateDocumentBytes filters operations beyond the new page count", async () => {

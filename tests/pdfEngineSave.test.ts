@@ -239,7 +239,7 @@ describe("PdfEngine.savePdf – per-operation error isolation", () => {
     await expect(pdfEngine.savePdf(original, [unencodableTextOp()], undefined, {})).resolves.toBeInstanceOf(Uint8Array);
   });
 
-  it("skips stamps, notes, and form fields with unencodable text atomically (no stray empty boxes)", async () => {
+  it("skips unencodable painted text atomically while keeping Unicode AcroForm names", async () => {
     const original = await blankPdfBytes();
     const skipped: string[] = [];
     const operations: EditOperation[] = [
@@ -289,11 +289,13 @@ describe("PdfEngine.savePdf – per-operation error isolation", () => {
     });
     const reloaded = await PDFDocument.load(out);
     const content = decodePageContentText(reloaded, reloaded.getPage(0));
-    expect(skipped).toEqual(["bad_stamp", "bad_stamp_subline", "bad_note", "bad_field"]);
-    // None of the background boxes may be painted: their cm translates must be absent.
+    expect(skipped).toEqual(["bad_stamp", "bad_stamp_subline", "bad_note"]);
+    expect(reloaded.getForm().getFieldMaybe("имя")).toBeDefined();
+    // Failed painted operations leave no background boxes in the page content stream.
     expect(content).not.toContain("1 0 0 1 30 700 cm");
     expect(content).not.toContain("1 0 0 1 30 640 cm");
     expect(content).not.toContain("1 0 0 1 220 700 cm");
+    // The AcroForm widget is an annotation, not a painted content-stream box.
     expect(content).not.toContain("1 0 0 1 220 620 cm");
   });
 
@@ -583,6 +585,36 @@ describe("PdfEngine.savePdf – text operations", () => {
 });
 
 describe("PdfEngine.savePdf – annotations", () => {
+  it("writes a full-opacity dedicated redaction with optional overlay text", async () => {
+    const original = await blankPdfBytes();
+    const out = await pdfEngine.savePdf(original, [
+      {
+        id: "redaction_1",
+        type: "redaction",
+        mode: "area",
+        pageIndex: 0,
+        rect: { x: 40, y: 700, width: 200, height: 30 },
+        fillColor: "#111827",
+        borderColor: "#dc2626",
+        borderWidth: 2,
+        overlayText: "REDACTED",
+        opacity: 0.2,
+        createdAt: 1,
+      },
+    ]);
+    const reloaded = await PDFDocument.load(out);
+    const page = reloaded.getPage(0);
+    const content = decodePageContentText(reloaded, page);
+    expect(content).toContain("1 0 0 1 40 700 cm");
+    expect(content).toContain(Buffer.from("REDACTED", "latin1").toString("hex").toUpperCase());
+    const extGState = page.node.Resources()?.lookupMaybe(PDFName.of("ExtGState"), PDFDict);
+    const alphas = extGState?.entries()
+      .map(([, value]) => reloaded.context.lookup(value, PDFDict).get(PDFName.of("ca")))
+      .map((ca) => (ca ? Number(ca.toString()) : undefined)) ?? [];
+    expect(alphas).toContain(1);
+    expect(alphas).not.toContain(0.2);
+  });
+
   it("draws highlight, strikeout, underline, note-with-text and note-without-text", async () => {
     const original = await blankPdfBytes();
     const operations: EditOperation[] = [
@@ -635,6 +667,33 @@ describe("PdfEngine.savePdf – annotations", () => {
       },
     ];
     await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
+  });
+
+  it("exports a callout box, leader, anchor, and text", async () => {
+    const original = await blankPdfBytes();
+    const out = await pdfEngine.savePdf(original, [
+      {
+        id: "callout_1",
+        type: "annotation",
+        kind: "callout",
+        pageIndex: 0,
+        rect: { x: 140, y: 620, width: 180, height: 70 },
+        color: "#2563eb",
+        fillColor: "#ffffff",
+        textColor: "#111827",
+        text: "Review this total",
+        fontSize: 12,
+        strokeWidth: 1.5,
+        anchor: { x: 60, y: 650 },
+        elbow: { x: 110, y: 650 },
+        createdAt: 1,
+      },
+    ]);
+    const reloaded = await PDFDocument.load(out);
+    const content = decodePageContentText(reloaded, reloaded.getPage(0));
+    expect(content).toContain(Buffer.from("Review this total", "latin1").toString("hex").toUpperCase());
+    expect(content).toContain("60 650 m");
+    expect(content).toContain("110 650 l");
   });
 });
 
@@ -868,7 +927,7 @@ describe("PdfEngine.savePdf – form marks and fields", () => {
     await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
   });
 
-  it("draws radio (checked/unchecked), signature and text fields", async () => {
+  it("exports radio, signature fallback, and text controls as live AcroForm fields", async () => {
     const original = await blankPdfBytes();
     const operations: EditOperation[] = [
       {
@@ -920,7 +979,14 @@ describe("PdfEngine.savePdf – form marks and fields", () => {
         createdAt: 7,
       },
     ];
-    await expect(pdfEngine.savePdf(original, operations)).resolves.toBeInstanceOf(Uint8Array);
+    const out = await pdfEngine.savePdf(original, operations);
+    const reloaded = await PDFDocument.load(out);
+    const form = reloaded.getForm();
+    expect(form.getFields().map((field) => field.getName())).toEqual([
+      "pick", "pick2", "sign", "fullName", "placeholderName",
+    ]);
+    expect(form.getTextField("fullName").getText()).toBe("Akki");
+    expect(form.getTextField("sign")).toBeDefined();
   });
 });
 
@@ -1219,12 +1285,20 @@ describe("PdfEngine.savePdf – export validity (writer registry regression)", (
     const out = await pdfEngine.savePdf(original, operations);
     const reloaded = await PDFDocument.load(out);
     expect(reloaded.getPageCount()).toBe(2);
-    expect(reloaded.getPage(1).node.Annots()?.size()).toBe(1);
+    // One live form widget plus one link annotation.
+    expect(reloaded.getPage(1).node.Annots()?.size()).toBe(2);
+    expect(reloaded.getForm().getTextField("fullName").getText()).toBe("Akki");
   });
 });
 
 describe("PdfEngine page operations (pdf-lib only)", () => {
   const engine = new PdfEngine();
+
+  async function pdfWithPageSizes(sizes: Array<[number, number]>) {
+    const pdf = await PDFDocument.create();
+    for (const size of sizes) pdf.addPage(size);
+    return new Uint8Array(await pdf.save({ useObjectStreams: false }));
+  }
 
   it("creates a blank document with defaults and custom args", async () => {
     const def = await engine.createBlankDocument();
@@ -1270,5 +1344,130 @@ describe("PdfEngine page operations (pdf-lib only)", () => {
     const sizes = await engine.getPageSizes(original);
     expect(sizes).toHaveLength(2);
     expect(sizes[0]).toEqual({ width: 612, height: 792 });
+  });
+
+  it("returns visible CropBox dimensions instead of the larger MediaBox", async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([300, 200]);
+    page.setCropBox(20, 10, 200, 100);
+
+    const sizes = await engine.getPageSizes(
+      new Uint8Array(await source.save({ useObjectStreams: false })),
+    );
+
+    expect(sizes).toEqual([{ width: 200, height: 100 }]);
+  });
+
+  it("crops only the current page, preserves vector content, and normalizes every page box", async () => {
+    const source = await PDFDocument.create();
+    const croppedPage = source.addPage([200, 100]);
+    croppedPage.drawRectangle({ x: 50, y: 20, width: 40, height: 30 });
+    const link = source.context.obj({
+      Type: "Annot",
+      Subtype: "Link",
+      Rect: [60, 30, 90, 50],
+      Border: [0, 0, 0],
+      A: { S: "URI", URI: PDFString.of("https://example.com") },
+    });
+    croppedPage.node.set(PDFName.of("Annots"), source.context.obj([source.context.register(link)]));
+    source.addPage([400, 300]);
+
+    const result = await engine.cropPages(
+      new Uint8Array(await source.save({ useObjectStreams: false })),
+      { x: 0.25, y: 0.2, width: 0.5, height: 0.6 },
+      { kind: "current", pageIndex: 0 },
+    );
+    const reloaded = await PDFDocument.load(result.bytes);
+    const page = reloaded.getPage(0);
+
+    expect(result.cropBounds).toEqual([{
+      pageIndex: 0,
+      rect: { x: 50, y: 20, width: 100, height: 60 },
+    }]);
+    expect(page.getSize()).toEqual({ width: 100, height: 60 });
+    expect(page.getMediaBox()).toEqual({ x: 0, y: 0, width: 100, height: 60 });
+    expect(page.getCropBox()).toEqual({ x: 0, y: 0, width: 100, height: 60 });
+    expect(page.getBleedBox()).toEqual({ x: 0, y: 0, width: 100, height: 60 });
+    expect(page.getTrimBox()).toEqual({ x: 0, y: 0, width: 100, height: 60 });
+    expect(page.getArtBox()).toEqual({ x: 0, y: 0, width: 100, height: 60 });
+    expect(reloaded.getPage(1).getSize()).toEqual({ width: 400, height: 300 });
+    const content = decodePageContentText(reloaded, page);
+    expect(content).toContain("1 0 0 1 -50 -20 cm");
+    expect(content).toContain("1 0 0 1 50 20 cm");
+    expect(content).toContain("40 30 l");
+    const annotationRef = page.node.Annots()!.get(0);
+    const annotation = reloaded.context.lookup(annotationRef, PDFDict);
+    expect(annotation.lookup(PDFName.of("Rect"), PDFArray).asRectangle()).toEqual({
+      x: 10,
+      y: 10,
+      width: 30,
+      height: 20,
+    });
+  });
+
+  it("applies the same normalized crop to every page size and returns absolute remap bounds", async () => {
+    const original = await pdfWithPageSizes([[200, 100], [400, 300]]);
+    const result = await engine.cropPages(
+      original,
+      { x: 0.1, y: 0.2, width: 0.5, height: 0.6 },
+      { kind: "all" },
+    );
+    const reloaded = await PDFDocument.load(result.bytes);
+
+    expect(result.cropBounds).toEqual([
+      { pageIndex: 0, rect: { x: 20, y: 20, width: 100, height: 60 } },
+      { pageIndex: 1, rect: { x: 40, y: 60, width: 200, height: 180 } },
+    ]);
+    expect(reloaded.getPages().map((page) => page.getSize())).toEqual([
+      { width: 100, height: 60 },
+      { width: 200, height: 180 },
+    ]);
+  });
+
+  it("uses an existing visible crop box as the normalized input coordinate space", async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([300, 200]);
+    page.setCropBox(20, 10, 200, 100);
+    const result = await engine.cropPages(
+      new Uint8Array(await source.save({ useObjectStreams: false })),
+      { x: 0.25, y: 0.1, width: 0.5, height: 0.8 },
+      { kind: "current", pageIndex: 0 },
+    );
+
+    expect(result.cropBounds).toEqual([{
+      pageIndex: 0,
+      rect: { x: 70, y: 20, width: 100, height: 80 },
+    }]);
+    expect((await PDFDocument.load(result.bytes)).getPage(0).getSize()).toEqual({ width: 100, height: 80 });
+  });
+
+  it("rejects invalid, out-of-page, too-small, and missing-page crops", async () => {
+    const original = await pdfWithPageSizes([[200, 100]]);
+
+    await expect(engine.cropPages(
+      original,
+      { x: Number.NaN, y: 0, width: 0.5, height: 0.5 },
+      { kind: "all" },
+    )).rejects.toThrow(/finite/);
+    await expect(engine.cropPages(
+      original,
+      { x: 0.75, y: 0, width: 0.5, height: 0.5 },
+      { kind: "all" },
+    )).rejects.toThrow(/within/);
+    await expect(engine.cropPages(
+      original,
+      { x: 0, y: 0, width: 0, height: 0.5 },
+      { kind: "all" },
+    )).rejects.toThrow(/positive size/);
+    await expect(engine.cropPages(
+      original,
+      { x: 0, y: 0, width: 0.001, height: 0.5 },
+      { kind: "all" },
+    )).rejects.toThrow(/at least 1 PDF point/);
+    await expect(engine.cropPages(
+      original,
+      { x: 0, y: 0, width: 0.5, height: 0.5 },
+      { kind: "current", pageIndex: 2 },
+    )).rejects.toThrow(/out of range/);
   });
 });

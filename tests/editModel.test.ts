@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { editReducer, getSelectedOperation, getSelectedOperations, initialEditState } from "../src/state/editModel";
+import {
+  DOCUMENT_SNAPSHOT_BYTE_LIMIT,
+  DOCUMENT_SNAPSHOT_COUNT_LIMIT,
+  editReducer,
+  getSelectedOperation,
+  getSelectedOperations,
+  initialEditState,
+} from "../src/state/editModel";
 import type { EditState } from "../src/state/editModel";
 import type {
   EditOperation,
@@ -170,6 +177,39 @@ describe("edit reducer", () => {
     expect(editReducer(added, { type: "remove-many", ids: [] })).toBe(added);
   });
 
+  it("replaces erased strokes with fragments as one undoable history entry", () => {
+    const ink: InkOperation = {
+      id: "ink_original", type: "ink", pageIndex: 0,
+      rect: { x: 0, y: 0, width: 100, height: 10 },
+      points: [{ x: 0, y: 5 }, { x: 100, y: 5 }], stroke: "#111827", strokeWidth: 2, createdAt: 1,
+    };
+    const first = { ...ink, id: "ink_left", rect: { x: 0, y: 0, width: 40, height: 10 }, points: [{ x: 0, y: 5 }, { x: 40, y: 5 }] };
+    const second = { ...ink, id: "ink_right", rect: { x: 60, y: 0, width: 40, height: 10 }, points: [{ x: 60, y: 5 }, { x: 100, y: 5 }] };
+    const state = editReducer(initialEditState, { type: "add", operation: ink });
+    const replaced = editReducer(state, {
+      type: "replace-many",
+      replacements: [{ id: ink.id, operations: [first, second] }],
+    });
+    expect(replaced.operations.map((item) => item.id)).toEqual(["ink_left", "ink_right"]);
+    expect(replaced.selectedIds).toEqual(["ink_left", "ink_right"]);
+    expect(replaced.past.at(-1)?.label).toBe("Erase stroke");
+    expect(editReducer(replaced, { type: "undo" }).operations).toEqual([ink]);
+  });
+
+  it("replace-many can fully erase strokes and ignores missing ids", () => {
+    const ink: InkOperation = {
+      id: "ink_original", type: "ink", pageIndex: 0,
+      rect: { x: 0, y: 0, width: 10, height: 10 },
+      points: [{ x: 1, y: 1 }], stroke: "#111827", strokeWidth: 2, createdAt: 1,
+    };
+    const state = editReducer(initialEditState, { type: "add", operation: ink });
+    expect(editReducer(state, { type: "replace-many", replacements: [] })).toBe(state);
+    expect(editReducer(state, { type: "replace-many", replacements: [{ id: "missing", operations: [] }] })).toBe(state);
+    const erased = editReducer(state, { type: "replace-many", replacements: [{ id: ink.id, operations: [] }] });
+    expect(erased.operations).toEqual([]);
+    expect(erased.selectedIds).toEqual([]);
+  });
+
   it("translate moves every listed operation by the same delta", () => {
     const second: TextOperation = { ...operation, id: "text_2", rect: { x: 100, y: 200, width: 50, height: 20 } };
     let state = editReducer(initialEditState, { type: "add", operation });
@@ -237,6 +277,141 @@ describe("edit reducer", () => {
 
   it("redo with no future returns the same state", () => {
     expect(editReducer(initialEditState, { type: "redo" })).toBe(initialEditState);
+  });
+
+  it("records document edits as one revision boundary and swaps byte snapshots on undo and redo", () => {
+    const originalBytes = new Uint8Array([1, 2, 3]);
+    const croppedBytes = new Uint8Array([9, 8, 7]);
+    const beforeCrop = editReducer(initialEditState, { type: "add", operation });
+    const croppedOperation = { ...operation, rect: { ...operation.rect, x: 2, y: 3 } };
+    const cropped = editReducer(beforeCrop, {
+      type: "document-edit",
+      operations: [croppedOperation],
+      label: "Page 1 cropped",
+      beforeDocument: { bytes: originalBytes, pageIndex: 0 },
+    });
+
+    expect(cropped.operations).toEqual([croppedOperation]);
+    expect(cropped.selectedIds).toEqual([]);
+    expect(cropped.past.at(-1)).toMatchObject({
+      label: "Page 1 cropped",
+      operations: beforeCrop.operations,
+      documentSnapshot: { bytes: originalBytes, pageIndex: 0 },
+    });
+
+    const undone = editReducer(cropped, {
+      type: "undo",
+      currentDocument: { bytes: croppedBytes, pageIndex: 0 },
+    });
+    expect(undone.operations).toEqual(beforeCrop.operations);
+    expect(undone.future[0].documentSnapshot).toEqual({ bytes: croppedBytes, pageIndex: 0 });
+
+    const redone = editReducer(undone, {
+      type: "redo",
+      currentDocument: { bytes: originalBytes, pageIndex: 0 },
+    });
+    expect(redone.operations).toEqual([croppedOperation]);
+    expect(redone.past.at(-1)?.documentSnapshot).toEqual({ bytes: originalBytes, pageIndex: 0 });
+  });
+
+  it("does not duplicate document bytes for ordinary operation history", () => {
+    const added = editReducer(initialEditState, { type: "add", operation });
+    const undone = editReducer(added, {
+      type: "undo",
+      currentDocument: { bytes: new Uint8Array([1]), pageIndex: 0 },
+    });
+    expect(undone.future[0].documentSnapshot).toBeUndefined();
+  });
+
+  it("evicts a complete oldest PDF revision when the document snapshot count is exceeded", () => {
+    let state = editReducer(initialEditState, { type: "add", operation: { ...operation, id: "revision_0" } });
+    const oldestOrdinaryEntryId = state.past[0].id;
+    let firstRetainedOrdinaryEntryId = "";
+
+    for (let revision = 1; revision <= DOCUMENT_SNAPSHOT_COUNT_LIMIT + 1; revision += 1) {
+      state = editReducer(state, {
+        type: "document-edit",
+        operations: state.operations,
+        label: `Document revision ${revision}`,
+        beforeDocument: { bytes: new Uint8Array([revision]), pageIndex: 0 },
+      });
+      if (revision <= DOCUMENT_SNAPSHOT_COUNT_LIMIT) {
+        state = editReducer(state, {
+          type: "add",
+          operation: { ...operation, id: `revision_${revision}` },
+        });
+        if (revision === 1) firstRetainedOrdinaryEntryId = state.past.at(-1)!.id;
+      }
+    }
+
+    const snapshots = state.past.flatMap((entry) =>
+      entry.documentSnapshot ? [entry.documentSnapshot.bytes[0]] : [],
+    );
+    expect(snapshots).toEqual(
+      Array.from({ length: DOCUMENT_SNAPSHOT_COUNT_LIMIT }, (_, index) => index + 2),
+    );
+    expect(state.past.some((entry) => entry.id === oldestOrdinaryEntryId)).toBe(false);
+    expect(state.past[0].id).toBe(firstRetainedOrdinaryEntryId);
+  });
+
+  it("evicts a complete oldest PDF revision when snapshot bytes exceed the budget", () => {
+    const sizedBytes = (marker: number, byteLength: number) => {
+      const bytes = new Uint8Array([marker]);
+      Object.defineProperty(bytes, "byteLength", { value: byteLength });
+      return bytes;
+    };
+    const overHalfBudget = Math.floor(DOCUMENT_SNAPSHOT_BYTE_LIMIT / 2) + 1;
+    let state = editReducer(initialEditState, { type: "add", operation: { ...operation, id: "old_revision" } });
+    const oldestOrdinaryEntryId = state.past[0].id;
+    state = editReducer(state, {
+      type: "document-edit",
+      operations: state.operations,
+      label: "First document revision",
+      beforeDocument: { bytes: sizedBytes(1, overHalfBudget), pageIndex: 0 },
+    });
+    state = editReducer(state, { type: "add", operation: { ...operation, id: "retained_revision" } });
+    const retainedOrdinaryEntryId = state.past.at(-1)!.id;
+    state = editReducer(state, {
+      type: "document-edit",
+      operations: state.operations,
+      label: "Second document revision",
+      beforeDocument: { bytes: sizedBytes(2, overHalfBudget), pageIndex: 0 },
+    });
+
+    expect(state.past.filter((entry) => entry.documentSnapshot)).toHaveLength(1);
+    expect(state.past.at(-1)?.documentSnapshot?.bytes[0]).toBe(2);
+    expect(state.past.some((entry) => entry.id === oldestOrdinaryEntryId)).toBe(false);
+    expect(state.past[0].id).toBe(retainedOrdinaryEntryId);
+  });
+
+  it("evicts the farthest complete redo revision when future snapshots exceed the count budget", () => {
+    const future: EditState["future"] = [];
+    for (let revision = 1; revision <= DOCUMENT_SNAPSHOT_COUNT_LIMIT + 1; revision += 1) {
+      future.push(
+        {
+          id: `future_boundary_${revision}`,
+          label: `Redo document revision ${revision}`,
+          timestamp: revision,
+          operations: [],
+          documentSnapshot: { bytes: new Uint8Array([revision]), pageIndex: 0 },
+        },
+        {
+          id: `future_ordinary_${revision}`,
+          label: `Redo ordinary edit ${revision}`,
+          timestamp: revision,
+          operations: [],
+        },
+      );
+    }
+
+    const state = editReducer(initialEditState, { type: "reset", future });
+
+    expect(state.future.filter((entry) => entry.documentSnapshot)).toHaveLength(
+      DOCUMENT_SNAPSHOT_COUNT_LIMIT,
+    );
+    expect(state.future.at(-1)?.id).toBe(`future_ordinary_${DOCUMENT_SNAPSHOT_COUNT_LIMIT}`);
+    expect(state.future.some((entry) => entry.id === `future_boundary_${DOCUMENT_SNAPSHOT_COUNT_LIMIT + 1}`)).toBe(false);
+    expect(state.future.some((entry) => entry.id === `future_ordinary_${DOCUMENT_SNAPSHOT_COUNT_LIMIT + 1}`)).toBe(false);
   });
 
   it("undo/redo/restore fall back to an empty selection for legacy history entries", () => {

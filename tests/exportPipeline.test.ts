@@ -222,6 +222,45 @@ describe("export pipeline – edit-aware data export", () => {
     expect(csv).toContain("Amount");
   });
 
+  it("drops source text covered by a dedicated redaction from TXT, CSV, and XLSX", () => {
+    const operations = [
+      {
+        id: "redact_amount",
+        type: "redaction" as const,
+        mode: "text" as const,
+        pageIndex: 0,
+        rect: { x: 160, y: 680, width: 28, height: 12 },
+        fillColor: "#111827",
+        createdAt: 1,
+      },
+    ];
+    const pipeline = new ExportPipeline();
+    expect(pipeline.toText(items, operations)).not.toContain("$42");
+    expect(pipeline.toCsv(items, operations)).not.toContain("$42");
+    const sheet = strFromU8(unzipSync(pipeline.toXlsxBytes(items, operations))["xl/worksheets/sheet1.xml"]);
+    expect(sheet).not.toContain("$42");
+    expect(sheet).toContain("Akki");
+  });
+
+  it("keeps source text when a narrow redaction covers less than half in TXT, CSV, and XLSX", () => {
+    const operations = [
+      {
+        id: "partially_redact_amount",
+        type: "redaction" as const,
+        mode: "text" as const,
+        pageIndex: 0,
+        rect: { x: 160, y: 680, width: 10, height: 12 },
+        fillColor: "#111827",
+        createdAt: 1,
+      },
+    ];
+    const pipeline = new ExportPipeline();
+    expect(pipeline.toText(items, operations)).toContain("$42");
+    expect(pipeline.toCsv(items, operations)).toContain("$42");
+    const sheet = strFromU8(unzipSync(pipeline.toXlsxBytes(items, operations))["xl/worksheets/sheet1.xml"]);
+    expect(sheet).toContain("$42");
+  });
+
   it("includes a newly added text op with no overlap as its own cell", () => {
     const csv = new ExportPipeline().toCsv(items, [
       {

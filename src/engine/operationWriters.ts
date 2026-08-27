@@ -7,6 +7,7 @@ import type {
   InkOperation,
   LinkOperation,
   PdfRect,
+  RedactionOperation,
   ShapeOperation,
   SignatureOperation,
   StampOperation,
@@ -104,6 +105,44 @@ export function writeWhiteoutMask(page: PDFPage, rect: PdfRect, color: string, o
 }
 
 /**
+ * Paints a dedicated redaction overlay at full strength. The separate
+ * operation type preserves intent and safety messaging, even though PDF page
+ * content underneath remains part of the source content stream.
+ */
+export async function writeRedaction(
+  page: PDFPage,
+  operation: RedactionOperation,
+  ctx: WriterContext,
+) {
+  const { rect } = operation;
+  page.drawRectangle({
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    color: hexToRgb(operation.fillColor),
+    borderColor: hexToRgb(operation.borderColor ?? operation.fillColor),
+    borderWidth: operation.borderWidth ?? 0,
+    opacity: 1,
+  });
+  const overlayText = operation.overlayText?.trim();
+  if (!overlayText) return;
+  const font = await ctx.getFont("Inter", { bold: true });
+  const fontSize = Math.max(6, Math.min(12, rect.height * 0.42));
+  const cleanText = cleanForPdfEncoding(overlayText);
+  const textWidth = font.widthOfTextAtSize(cleanText, fontSize);
+  page.drawText(overlayText, {
+    x: rect.x + Math.max(3, (rect.width - textWidth) / 2),
+    y: rect.y + Math.max(2, (rect.height - fontSize) / 2),
+    size: fontSize,
+    font,
+    color: hexToRgb("#ffffff"),
+    maxWidth: Math.max(1, rect.width - 6),
+    opacity: 1,
+  });
+}
+
+/**
  * Draws a replacement text run. A `whiteout` text op additionally draws its
  * mask first, anchored to `sourceCoverRect` (the original PDF text's bounds)
  * rather than the (possibly moved) editable rect, so the underlying glyph
@@ -152,7 +191,9 @@ export async function writeText(page: PDFPage, operation: TextOperation, opacity
     font,
     color: hexToRgb(operation.color),
     opacity,
-    maxWidth: rect.width,
+    // The canvas uses `white-space: pre`: only explicit newlines wrap and a
+    // narrowed box lets the line overflow visibly. Omitting maxWidth keeps the
+    // exported layout identical instead of adding pdf-lib-only soft wrapping.
     lineHeight: operation.fontSize,
   });
 }
@@ -182,6 +223,58 @@ export async function writeAnnotation(page: PDFPage, operation: AnnotationOperat
       thickness: strokeWidth,
       opacity,
     });
+    return;
+  }
+
+  if (operation.kind === "callout") {
+    const font = await ctx.getFont("Inter");
+    const fontSize = Math.max(7, Math.min(operation.fontSize ?? 12, rect.height * 0.32));
+    if (operation.text) font.widthOfTextAtSize(cleanForPdfEncoding(operation.text), fontSize);
+    const anchor = operation.anchor ?? { x: rect.x - 48, y: rect.y + rect.height / 2 };
+    const elbow = operation.elbow;
+    const edge = anchor.x <= rect.x
+      ? { x: rect.x, y: rect.y + rect.height / 2 }
+      : { x: rect.x + rect.width, y: rect.y + rect.height / 2 };
+    const points = [anchor, elbow, edge].filter((point): point is { x: number; y: number } => Boolean(point));
+    for (let index = 1; index < points.length; index += 1) {
+      page.drawLine({
+        start: points[index - 1],
+        end: points[index],
+        color: hexToRgb(operation.color),
+        thickness: operation.strokeWidth ?? 1.5,
+        opacity,
+      });
+    }
+    page.drawEllipse({
+      x: anchor.x,
+      y: anchor.y,
+      xScale: 2.5,
+      yScale: 2.5,
+      color: hexToRgb(operation.color),
+      opacity,
+    });
+    page.drawRectangle({
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      borderColor: hexToRgb(operation.color),
+      borderWidth: operation.strokeWidth ?? 1.5,
+      color: fillColorOrUndefined(operation.fillColor) ?? hexToRgb("#ffffff"),
+      opacity: Math.min(opacity, 0.96),
+    });
+    if (operation.text) {
+      page.drawText(operation.text, {
+        x: rect.x + 7,
+        y: rect.y + Math.max(6, rect.height - fontSize - 8),
+        size: fontSize,
+        font,
+        color: hexToRgb(operation.textColor ?? "#111827"),
+        maxWidth: Math.max(12, rect.width - 14),
+        lineHeight: fontSize * 1.25,
+        opacity,
+      });
+    }
     return;
   }
 

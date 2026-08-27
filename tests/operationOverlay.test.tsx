@@ -10,6 +10,7 @@ import type {
   ImageOperation,
   InkOperation,
   LinkOperation,
+  RedactionOperation,
   ShapeOperation,
   SignatureOperation,
   StampOperation,
@@ -92,6 +93,7 @@ function renderOverlay(operation: EditOperation, props: Partial<React.ComponentP
       selected={props.selected ?? false}
       editing={props.editing}
       dragging={props.dragging}
+      erasing={props.erasing}
       moveModeActive={props.moveModeActive}
       documentFonts={props.documentFonts}
       onPointerDown={onPointerDown}
@@ -623,7 +625,7 @@ describe("OperationOverlay - non-text branches", () => {
     expect(el.querySelector("span")).toBeNull();
   });
 
-  it("renders a checked form-field showing the check and value", () => {
+  it("renders a checked radio form-field as a selected radio", () => {
     const op: FormFieldOperation = {
       id: "ff", type: "form-field", kind: "radio", pageIndex: 0, rect: RECT, createdAt: 1,
       name: "agree", value: "Yes", checked: true,
@@ -631,8 +633,71 @@ describe("OperationOverlay - non-text branches", () => {
     const { container } = renderOverlay(op);
     const el = container.querySelector(".operation--form-field") as HTMLDivElement;
     expect(el.className).toContain("operation--form-radio");
-    expect(el.textContent).toContain("✓");
-    expect(el.textContent).toContain("Yes");
+    expect(el.textContent).toBe("●");
+  });
+
+  it("renders dedicated redaction appearance and overlay text", () => {
+    const op: RedactionOperation = {
+      id: "redaction-1", type: "redaction", mode: "area", pageIndex: 0, rect: RECT, createdAt: 1,
+      fillColor: "#111827", borderColor: "#dc2626", borderWidth: 2, overlayText: "REDACTED",
+    };
+    const { container } = renderOverlay(op);
+    const el = container.querySelector(".operation--redaction-area") as HTMLDivElement;
+    expect(el).toBeTruthy();
+    expect(el.style.background).toBe("rgb(17, 24, 39)");
+    expect(el.style.borderColor).toBe("rgb(220, 38, 38)");
+    expect(el.style.borderWidth).toBe("4px");
+    expect(el.textContent).toBe("REDACTED");
+  });
+
+  it("renders callout text with a leader and anchor", () => {
+    const op: AnnotationOperation = {
+      id: "callout-1", type: "annotation", kind: "callout", pageIndex: 0, rect: RECT, createdAt: 1,
+      color: "#2563eb", text: "Review this", textColor: "#111827", fillColor: "#ffffff",
+      strokeWidth: 1.5, fontSize: 12, anchor: { x: -20, y: 40 }, elbow: { x: 0, y: 40 },
+    };
+    const { container } = renderOverlay(op);
+    expect(container.querySelector(".operation__callout-box")?.textContent).toBe("Review this");
+    expect(container.querySelector(".operation__callout-leader polyline")?.getAttribute("points")).toBeTruthy();
+    expect(container.querySelector(".operation__callout-leader circle")).toBeTruthy();
+  });
+
+  it("renders checkbox, listbox, button, signature, and date form variants", () => {
+    const cases: Array<[Partial<FormFieldOperation>, string, string]> = [
+      [{ kind: "checkbox", checked: true }, ".operation__form-choice", "✓"],
+      [{ kind: "listbox", options: ["Admin", "Viewer"], selectedValues: ["Viewer"] }, ".operation__form-list .is-selected", "Viewer"],
+      [{ kind: "button", buttonLabel: "Reset form" }, ".operation--form-button strong", "Reset form"],
+      [{ kind: "signature" }, ".operation__form-placeholder", "Sign here"],
+      [{ kind: "date", dateFormat: "dd/MM/yyyy" }, ".operation--form-date", "dd/MM/yyyy"],
+    ];
+    cases.forEach(([overrides, selector, expected], index) => {
+      const op: FormFieldOperation = {
+        id: `field-${index}`, type: "form-field", kind: "text", pageIndex: 0, rect: RECT, createdAt: 1,
+        name: `field_${index}`, ...overrides,
+      };
+      const { container, unmount } = renderOverlay(op);
+      expect(container.querySelector(selector)?.textContent).toContain(expected);
+      unmount();
+    });
+  });
+
+  it("renders an underline form border only along the bottom edge", () => {
+    const op: FormFieldOperation = {
+      id: "field-underline", type: "form-field", kind: "text", pageIndex: 0, rect: RECT, createdAt: 1,
+      name: "underlined", borderColor: "#334455", borderWidth: 2, borderStyle: "underline",
+    };
+    const { container } = renderOverlay(op, { scale: 2 });
+    const field = container.querySelector(".operation--form-field") as HTMLDivElement;
+    expect(field.style.borderTopWidth).toBe("0px");
+    expect(field.style.borderRightWidth).toBe("0px");
+    expect(field.style.borderLeftWidth).toBe("0px");
+    expect(field.style.borderBottomWidth).toBe("4px");
+    expect(field.style.borderStyle).toBe("solid");
+  });
+
+  it("marks an operation while the eraser is targeting it", () => {
+    const { container } = renderOverlay(baseText(), { erasing: true });
+    expect(container.querySelector(".operation")).toHaveClass("is-erasing");
   });
 
   it("renders an unchecked form-field falling back to its name", () => {

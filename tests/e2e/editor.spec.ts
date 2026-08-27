@@ -108,11 +108,106 @@ test("imports a PDF and adds a text overlay", async ({ page }, testInfo) => {
   await expect(page.locator(".operation--text")).toHaveCSS("font-family", /Times New Roman|Liberation Serif/);
   await expect(inlineToolbar.getByRole("button", { name: /font size 24\b/i })).toBeVisible();
 
+  await page.setViewportSize({ width: 760, height: 720 });
+  const done = inlineToolbar.getByRole("button", { name: "Done" });
+  await expect(done).toBeVisible();
+  await expect(done).toBeInViewport();
+
+  await inlineToolbar.getByRole("button", { name: "Properties" }).click();
+  await expect(page.getByRole("complementary", { name: "Properties" })).toBeVisible();
+  await expect(page.locator(".operation--text").last()).toHaveAttribute("contenteditable", "false");
+  await expect(inlineToolbar.getByRole("button", { name: "Done" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("complementary", { name: "Properties" })).toHaveCount(0);
+  await expect(page.locator(".page-stage")).toBeFocused();
+
+  await page.locator(".operation--text").last().dblclick();
+  await expect(inlineToolbar.getByRole("button", { name: "Done" })).toBeVisible();
+  await inlineToolbar.getByRole("button", { name: "Bold" }).focus();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".floating-toolbar--contextual")).toBeVisible();
+  await expect(inlineToolbar.getByRole("button", { name: "Done" })).toHaveCount(0);
+  await expect(page.locator(".page-stage .floating-toolbar")).toHaveCount(0);
+  await expect(page.locator(".operation--text").last()).toHaveAttribute("contenteditable", "false");
+  await expect(page.locator(".page-stage")).toBeFocused();
+
+  await inlineToolbar.getByRole("button", { name: "Properties" }).click();
+  await expect(page.getByRole("complementary", { name: "Properties" })).toBeVisible();
+  await page.getByRole("button", { name: "Close properties" }).click();
+  await expect(page.getByRole("complementary", { name: "Properties" })).toHaveCount(0);
+
   await page.getByRole("button", { name: /Apply/i }).click();
   await expect(page.getByText(/PDF exported|Exporting PDF/i)).toBeVisible();
 });
 
-test("select mode can click existing PDF text to create a replacement overlay", async ({ page }, testInfo) => {
+test("keeps every page and view control clickable at tablet width", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("tablet-toolbar.pdf");
+  await makeSamplePdf(pdfPath);
+  await page.setViewportSize({ width: 1100, height: 760 });
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/tablet-toolbar\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  const editingTools = page.getByRole("toolbar", { name: "Editing tools" });
+  await editingTools.getByRole("button", { name: "Text", exact: true }).click();
+  await page
+    .getByRole("region", { name: "PDF editor canvas" })
+    .locator(".react-pdf__Page__canvas")
+    .click({ position: { x: 260, y: 320 } });
+  await page.locator(".operation--text[contenteditable='true']").pressSequentially("Tablet control");
+  await page.getByRole("toolbar", { name: "Inline edit tools" }).getByRole("button", { name: "Done" }).click();
+
+  const controls = page.getByRole("group", { name: "Page and view controls" });
+  await controls.getByRole("button", { name: "Remove selected" }).click();
+  await expect(page.getByText("Tablet control")).toHaveCount(0);
+
+  await controls.getByRole("button", { name: "Insert blank page" }).click();
+  await controls.getByRole("button", { name: "Delete current page" }).click();
+  await controls.getByRole("button", { name: "Zoom out" }).click();
+  await controls.getByRole("button", { name: "Zoom in" }).click();
+  await controls.getByRole("button", { name: "Rotate view" }).click();
+  await controls.getByRole("button", { name: "Rotate page permanently" }).click();
+
+  await expect(page.getByRole("region", { name: "PDF editor canvas" })).toBeVisible();
+});
+
+test("draws a sampled freehand stroke and restores it through keyboard history", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("draw-stroke.pdf");
+  await makeSamplePdf(pdfPath);
+
+  await page.goto("/");
+  await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
+  await expect(page.getByText(/draw-stroke\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+
+  const editingTools = page.getByRole("toolbar", { name: "Editing tools" });
+  await editingTools.getByRole("button", { name: "Draw", exact: true }).click();
+
+  const canvas = page.getByRole("region", { name: "PDF editor canvas" });
+  const pageCanvas = canvas.locator(".react-pdf__Page__canvas");
+  const box = await pageCanvas.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + 90, box!.y + 90);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + 150, box!.y + 130, { steps: 4 });
+  await page.mouse.move(box!.x + 220, box!.y + 100, { steps: 4 });
+  await page.mouse.up();
+
+  const stroke = canvas.locator(".operation--ink");
+  await expect(stroke).toHaveCount(1);
+  const pointList = await stroke.locator("polyline").getAttribute("points");
+  expect(pointList?.trim().split(/\s+/).length).toBeGreaterThanOrEqual(3);
+
+  await page.keyboard.press("Control+z");
+  await expect(stroke).toHaveCount(0);
+  await page.keyboard.press("Control+Shift+z");
+  await expect(stroke).toHaveCount(1);
+
+  await page.getByRole("button", { name: /Apply/i }).click();
+  await expect(page.getByText(/PDF exported|Exporting PDF/i)).toBeVisible();
+});
+
+test("Edit text selects source text first, then edits it on the second click", async ({ page }, testInfo) => {
   const pdfPath = testInfo.outputPath("sample.pdf");
   await makeSamplePdf(pdfPath);
 
@@ -120,18 +215,39 @@ test("select mode can click existing PDF text to create a replacement overlay", 
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
   await expect(page.getByText(/sample\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
-  await expect(page.getByRole("button", { name: /^select$/i })).toHaveAttribute("aria-pressed", "true");
-  await page
+  await expect(page.getByRole("button", { name: /^edit text$/i })).toHaveAttribute("aria-pressed", "true");
+  const sourceText = page
     .getByRole("region", { name: "PDF editor canvas" })
-    .locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']")
-    .click();
+    .locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']");
+  await sourceText.click();
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   const replacement = canvas.locator(".operation--text").filter({ hasText: "Invoice total" });
+  await expect(replacement).toHaveCount(0);
+  await expect(sourceText).toHaveAttribute("aria-pressed", "true");
+  await expect(sourceText).toHaveCSS("outline-style", "solid");
+  await expect(page.getByRole("toolbar", { name: "Inline edit tools" })).toHaveCount(0);
+
+  await sourceText.click();
   await expect(replacement).toBeVisible();
   await expect(replacement).toHaveAttribute("contenteditable", "true");
   await expect(page.getByRole("toolbar", { name: "Inline edit tools" })).toBeVisible();
   const inlineEditor = canvas.locator(".operation--text[contenteditable='true']");
+  const stageBox = await canvas.locator(".page-stage").boundingBox();
+  expect(stageBox).not.toBeNull();
+  const typography = await inlineEditor.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      family: style.fontFamily,
+      size: Number.parseFloat(style.fontSize),
+      weight: style.fontWeight,
+      fontStyle: style.fontStyle,
+    };
+  });
+  expect(typography.family).toMatch(/Helvetica|Arial/);
+  expect(typography.size).toBeCloseTo(20 * (stageBox!.width / 612), 1);
+  expect(typography.weight).toBe("400");
+  expect(typography.fontStyle).toBe("normal");
   await inlineEditor.fill("Invoice subtotal");
   await inlineEditor.press("Enter");
   await expect(canvas.locator(".operation--text").filter({ hasText: "Invoice subtotal" })).toBeVisible();
@@ -146,7 +262,7 @@ test("replacement hides overlapping PDF.js text-layer spans", async ({ page }, t
   await expect(page.getByText(/text-layer-hide\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
-  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']").click();
+  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']").dblclick();
   await expect(canvas.locator(".operation--text").filter({ hasText: "Invoice total" })).toBeVisible();
 
   await expect
@@ -212,7 +328,7 @@ test("timestamped undo history can restore a selected edit checkpoint", async ({
   await page
     .getByRole("region", { name: "PDF editor canvas" })
     .locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']")
-    .click();
+    .dblclick();
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   const inlineEditor = canvas.locator(".operation--text[contenteditable='true']");
   await inlineEditor.fill("Invoice subtotal");
@@ -240,7 +356,7 @@ test("replacement text overlays sample the existing PDF background", async ({ pa
   await page
     .getByRole("region", { name: "PDF editor canvas" })
     .locator(".text-hit-layer.is-active .text-hit[title='Replace: Colored background text']")
-    .click();
+    .dblclick();
 
   // The sampled page background lives on the dedicated mask, not the editable run
   // (the run itself is transparent so it never clips neighboring lines).
@@ -260,7 +376,7 @@ test("replacement text overlays sample the existing PDF text color", async ({ pa
   await page
     .getByRole("region", { name: "PDF editor canvas" })
     .locator(".text-hit-layer.is-active .text-hit[title='Replace: White foreground text']")
-    .click();
+    .dblclick();
 
   await expect(page.locator(".operation--source-cover")).toHaveCSS("background-color", "rgb(13, 20, 33)");
   await expect(page.locator(".operation--text")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
@@ -311,7 +427,7 @@ test("replacement text groups adjacent same-line PDF fragments into one color-co
   await page
     .getByRole("region", { name: "PDF editor canvas" })
     .locator(".text-hit-layer.is-active .text-hit[title='Replace: Technical Expertise']")
-    .click();
+    .dblclick();
 
   const replacement = page.locator(".operation--text");
   await expect(replacement).toHaveText("Technical Expertise");
@@ -335,7 +451,7 @@ test("replacement text groups adjacent same-line PDF fragments into one color-co
   expect(textColor.blue).toBeGreaterThan(235);
 });
 
-test("aligns the inline toolbar with text and supports drag move with guides", async ({ page }, testInfo) => {
+test("keeps selection tools in the contextual row while drag move shows guides", async ({ page }, testInfo) => {
   const pdfPath = testInfo.outputPath("move-sample.pdf");
   await makeSamplePdf(pdfPath);
 
@@ -345,8 +461,6 @@ test("aligns the inline toolbar with text and supports drag move with guides", a
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
-  // Place the text where the (wider) toolbar still fits, so left-alignment holds.
-  // Right-edge clamping has its own dedicated test below.
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 140, y: 420 } });
   const textOverlay = canvas.locator(".operation--text").last();
   await expect(textOverlay).toBeVisible();
@@ -358,26 +472,16 @@ test("aligns the inline toolbar with text and supports drag move with guides", a
 
   const inlineToolbar = page.getByRole("toolbar", { name: "Inline edit tools" });
   await expect(inlineToolbar).toBeVisible();
-  await expect(canvas.locator(".resize-frame")).toHaveCount(0);
+  const textResizeFrame = canvas.locator(".resize-frame--text");
+  await expect(textResizeFrame).toHaveCount(1);
+  await expect(textResizeFrame.locator(".resize-handle")).toHaveCount(2);
+  await expect(canvas.locator(".contextual-toolbar-shell").getByRole("toolbar", { name: "Inline edit tools" })).toBeVisible();
+  await expect(canvas.locator(".page-stage .floating-toolbar")).toHaveCount(0);
 
-  const placement = await textOverlay.evaluate((node) => {
-    const textRect = node.getBoundingClientRect();
-    const toolbar = document.querySelector(".floating-toolbar");
-    const toolbarRect = toolbar?.getBoundingClientRect();
-    return {
-      horizontalOffset: toolbarRect ? Math.round(toolbarRect.left - textRect.left) : null,
-      verticalGap: toolbarRect ? Math.round(textRect.top - toolbarRect.bottom) : null,
-    };
-  });
-  expect(placement.horizontalOffset).not.toBeNull();
-  expect(Math.abs(placement.horizontalOffset ?? 999)).toBeLessThanOrEqual(8);
-  expect(placement.verticalGap).toBeGreaterThanOrEqual(8);
-  expect(placement.verticalGap).toBeLessThanOrEqual(20);
-
-  // Move-drag lives in the Select tool; with the Text tool active a click would edit instead.
+  // Move-drag lives in the Edit text tool; with the Text tool active a click would edit instead.
   await page
     .getByRole("toolbar", { name: "Editing tools" })
-    .getByRole("button", { name: "Select", exact: true })
+    .getByRole("button", { name: "Edit text", exact: true })
     .click();
 
   const startBox = await textOverlay.boundingBox();
@@ -386,7 +490,7 @@ test("aligns the inline toolbar with text and supports drag move with guides", a
   await page.mouse.down();
   await page.mouse.move(startBox!.x + startBox!.width / 2, startBox!.y - 60, { steps: 8 });
   await expect(canvas.locator(".guides-layer .guide")).not.toHaveCount(0);
-  await expect(inlineToolbar).toHaveCount(0);
+  await expect(inlineToolbar).toBeVisible();
   await page.mouse.up();
   await expect(canvas.locator(".guides-layer .guide")).toHaveCount(0);
   await expect(inlineToolbar).toBeVisible();
@@ -396,7 +500,7 @@ test("aligns the inline toolbar with text and supports drag move with guides", a
   expect(startBox!.y - endBox!.y).toBeGreaterThan(20);
 });
 
-test("keeps the inline toolbar inside the page when the overlay is near the right edge", async ({ page }, testInfo) => {
+test("keeps the contextual toolbar inside the editor when selection is near the right edge", async ({ page }, testInfo) => {
   const pdfPath = testInfo.outputPath("right-edge.pdf");
   await makeSamplePdf(pdfPath);
 
@@ -407,8 +511,8 @@ test("keeps the inline toolbar inside the page when the overlay is near the righ
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
 
-  // Drop a text overlay hard against the right edge so the (wider) toolbar would
-  // overflow the page unless it is clamped back inside.
+  // Drop a text overlay hard against the right edge. The stable contextual row
+  // must remain bounded by the editor instead of following the object off-page.
   const stageBox = await page.locator(".page-stage").boundingBox();
   expect(stageBox).not.toBeNull();
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: stageBox!.width - 12, y: 360 } });
@@ -420,9 +524,9 @@ test("keeps the inline toolbar inside the page when the overlay is near the righ
   await expect(inlineToolbar).toBeVisible();
 
   const bounds = await page.evaluate(() => {
-    const stage = document.querySelector(".page-stage");
-    const toolbar = document.querySelector(".floating-toolbar");
-    const s = stage?.getBoundingClientRect();
+    const shell = document.querySelector(".contextual-toolbar-shell");
+    const toolbar = document.querySelector(".floating-toolbar--contextual");
+    const s = shell?.getBoundingClientRect();
     const t = toolbar?.getBoundingClientRect();
     if (!s || !t) return null;
     return {
@@ -446,7 +550,7 @@ test("moving a replacement keeps the original PDF text masked at its source", as
   await expect(page.getByText(/mask-sample\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
-  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']").click();
+  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']").dblclick();
   const replacement = canvas.locator(".operation--text").filter({ hasText: "Invoice total" });
   await expect(replacement).toBeVisible();
   await page.keyboard.press("Escape");
@@ -476,7 +580,7 @@ test("moving a replacement keeps the original PDF text masked at its source", as
   expect(Math.abs(coverAfter!.y - coverBefore!.y)).toBeLessThanOrEqual(1);
 });
 
-test("text tool click on existing PDF text replaces and edits immediately", async ({ page }, testInfo) => {
+test("Add Text stays separate from existing source text", async ({ page }, testInfo) => {
   const pdfPath = testInfo.outputPath("text-tool-replace.pdf");
   await makeSamplePdf(pdfPath);
 
@@ -484,13 +588,20 @@ test("text tool click on existing PDF text replaces and edits immediately", asyn
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
   await expect(page.getByText(/text-tool-replace\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
-  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
-  await canvas.locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']").click();
+  const sourceBox = await canvas
+    .locator(".text-hit-layer.is-active .text-hit[title='Replace: Invoice total']")
+    .boundingBox();
+  expect(sourceBox).not.toBeNull();
 
-  const replacement = canvas.locator(".operation--text").filter({ hasText: "Invoice total" });
-  await expect(replacement).toBeVisible();
-  await expect(replacement).toHaveAttribute("contenteditable", "true");
+  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Text", exact: true }).click();
+  await expect(canvas.locator(".text-hit-layer.is-active")).toHaveCount(0);
+  await page.mouse.click(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+
+  const addedText = canvas.locator(".operation--text").filter({ hasText: "Type your text" });
+  await expect(addedText).toBeVisible();
+  await expect(addedText).toHaveAttribute("contenteditable", "true");
+  await expect(canvas.locator(".operation--source-cover")).toHaveCount(0);
   await expect(page.getByRole("toolbar", { name: "Inline edit tools" })).toBeVisible();
 });
 
@@ -527,7 +638,7 @@ test("creates a blank document from the tool hub", async ({ page }) => {
 
   await expect(page.getByText(/Blank PDF created/i)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Apply/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Forms/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Forms", exact: true })).toBeVisible();
 });
 
 test("opens the Forms dropdown and places a dropdown field through the inline popover", async ({ page }, testInfo) => {
@@ -538,8 +649,11 @@ test("opens the Forms dropdown and places a dropdown field through the inline po
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
   await expect(page.getByText(/forms-dropdown\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
-  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Forms" }).click();
-  await page.getByRole("menu").getByRole("menuitem", { name: "Dropdown" }).click();
+  await page
+    .getByRole("toolbar", { name: "Editing tools" })
+    .getByRole("button", { name: /Choose Forms tool/ })
+    .click();
+  await page.getByRole("menu").getByRole("menuitemradio", { name: "Dropdown" }).click();
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 360 } });
@@ -547,7 +661,7 @@ test("opens the Forms dropdown and places a dropdown field through the inline po
   const popover = page.getByRole("dialog", { name: "Add form field" });
   await expect(popover).toBeVisible();
   await popover.getByLabel("Field name").fill("status");
-  await popover.getByLabel("Dropdown options").fill("Paid, Pending");
+  await popover.getByLabel("Choices").fill("Paid, Pending");
   await popover.getByRole("button", { name: "Add field" }).click();
 
   await expect(popover).not.toBeVisible();
@@ -592,8 +706,10 @@ test("canceling a stamp input leaves the page unchanged", async ({ page }, testI
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
   await expect(page.getByText(/cancel-stamp\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
 
-  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Images" }).click();
-  await page.getByRole("menu").getByRole("menuitem", { name: "Stamp" }).click();
+  await page
+    .getByRole("toolbar", { name: "Editing tools" })
+    .getByRole("button", { name: "Stamp", exact: true })
+    .click();
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 360 } });

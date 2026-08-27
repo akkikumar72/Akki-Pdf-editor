@@ -91,11 +91,24 @@ export function replaceAllOccurrences(text: string, query: string, replacement: 
   return result + text.slice(cursor);
 }
 
-function overlapRatio(a: PdfRect, b: PdfRect) {
-  const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
-  const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
-  const smaller = Math.max(1, Math.min(a.width * a.height, b.width * b.height));
-  return (overlapX * overlapY) / smaller;
+/**
+ * Shared visibility policy for Find and text-based exports. A source text run
+ * is suppressed only when a cover hides at least half of that run's area.
+ * Measuring against the text run, rather than the smaller rectangle, keeps a
+ * narrow redaction from hiding an entire long extracted run.
+ */
+export function isTextRectSignificantlyCovered(itemRect: PdfRect, coverRect: PdfRect) {
+  const itemArea = itemRect.width * itemRect.height;
+  if (itemArea <= 0) return false;
+  const overlapX = Math.max(
+    0,
+    Math.min(itemRect.x + itemRect.width, coverRect.x + coverRect.width) - Math.max(itemRect.x, coverRect.x),
+  );
+  const overlapY = Math.max(
+    0,
+    Math.min(itemRect.y + itemRect.height, coverRect.y + coverRect.height) - Math.max(itemRect.y, coverRect.y),
+  );
+  return (overlapX * overlapY) / itemArea >= 0.5;
 }
 
 /**
@@ -116,14 +129,15 @@ export function replacementCoverRect(operation: TextOperation): PdfRect | undefi
 }
 
 /**
- * True when a replacement text operation already masks this extracted item,
- * so Find must skip it — the visible content is the operation's text, not
- * the original glyphs still present in the extraction snapshot.
+ * True when an editor operation visually replaces or redacts this extracted
+ * item, so Find must skip glyphs that are no longer visible in the editor.
  */
 export function isTextItemReplaced(item: TextItem, operations: EditOperation[]): boolean {
   return operations.some((operation) => {
-    if (operation.type !== "text" || operation.pageIndex !== item.pageIndex) return false;
+    if (operation.pageIndex !== item.pageIndex) return false;
+    if (operation.type === "redaction") return isTextRectSignificantlyCovered(item.rect, operation.rect);
+    if (operation.type !== "text") return false;
     const coverRect = replacementCoverRect(operation);
-    return Boolean(coverRect) && overlapRatio(coverRect!, item.rect) >= 0.5;
+    return coverRect ? isTextRectSignificantlyCovered(item.rect, coverRect) : false;
   });
 }

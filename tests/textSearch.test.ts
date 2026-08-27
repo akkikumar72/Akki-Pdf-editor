@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { findMatches, isTextItemReplaced, replaceAllOccurrences } from "../src/utils/textSearch";
+import {
+  findMatches,
+  isTextItemReplaced,
+  isTextRectSignificantlyCovered,
+  replaceAllOccurrences,
+} from "../src/utils/textSearch";
 import type { EditOperation, TextItem, TextOperation } from "../src/types/editor";
 
 function item(overrides: Partial<TextItem> = {}): TextItem {
@@ -119,6 +124,12 @@ describe("findMatches with length-changing case folds", () => {
 });
 
 describe("isTextItemReplaced", () => {
+  it("measures cover significance against the source text area", () => {
+    const source = { x: 0, y: 0, width: 100, height: 10 };
+    expect(isTextRectSignificantlyCovered(source, { x: 0, y: 0, width: 49, height: 10 })).toBe(false);
+    expect(isTextRectSignificantlyCovered(source, { x: 0, y: 0, width: 50, height: 10 })).toBe(true);
+  });
+
   it("is true when a replacement op's cover rect overlaps the item", () => {
     expect(isTextItemReplaced(item(), [replacementOp()])).toBe(true);
   });
@@ -133,6 +144,29 @@ describe("isTextItemReplaced", () => {
       createdAt: 1,
     };
     expect(isTextItemReplaced(item(), [whiteout])).toBe(false);
+  });
+
+  it("is true for an overlapping dedicated redaction", () => {
+    const redaction: EditOperation = {
+      id: "r1", type: "redaction", mode: "text", pageIndex: 0,
+      rect: { x: 100, y: 700, width: 110, height: 14 },
+      fillColor: "#111827", createdAt: 1,
+    };
+    expect(isTextItemReplaced(item(), [redaction])).toBe(true);
+    expect(isTextItemReplaced(item({ pageIndex: 1 }), [redaction])).toBe(false);
+  });
+
+  it("keeps a long source run searchable when a narrow redaction covers less than half", () => {
+    const redaction: EditOperation = {
+      id: "r-partial",
+      type: "redaction",
+      mode: "text",
+      pageIndex: 0,
+      rect: { x: 100, y: 700, width: 20, height: 14 },
+      fillColor: "#111827",
+      createdAt: 1,
+    };
+    expect(isTextItemReplaced(item(), [redaction])).toBe(false);
   });
 
   it("is false when the text op has no sourceCoverRect and no whiteout", () => {

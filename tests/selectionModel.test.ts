@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { duplicateOperation, moveOperationZ } from "../src/editor/selectionModel";
-import type { InkOperation, TextOperation } from "../src/types/editor";
+import type { AnnotationOperation, InkOperation, TextOperation } from "../src/types/editor";
 
 const baseOperation: TextOperation = {
   id: "text_1",
@@ -59,6 +59,26 @@ describe("selection model", () => {
       { x: 22, y: 48 },
       { x: 62, y: 8 },
     ]);
+  });
+
+  it("translates callout anchor and elbow alongside its box", () => {
+    const callout: AnnotationOperation = {
+      id: "callout_1",
+      type: "annotation",
+      kind: "callout",
+      pageIndex: 0,
+      rect: { x: 80, y: 120, width: 160, height: 60 },
+      color: "#4f46e5",
+      text: "Review this",
+      anchor: { x: 35, y: 150 },
+      elbow: { x: 62, y: 150 },
+      createdAt: 1,
+    };
+
+    const copy = duplicateOperation(callout) as AnnotationOperation;
+    expect(copy.rect).toEqual({ x: 92, y: 108, width: 160, height: 60 });
+    expect(copy.anchor).toEqual({ x: 47, y: 138 });
+    expect(copy.elbow).toEqual({ x: 74, y: 138 });
   });
 
   it("preserves ink stroke shape when duplicated near the top edge", () => {

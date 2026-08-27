@@ -1,4 +1,4 @@
-import { PDFDocument, PDFFont, PDFName, PDFRef, degrees } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFFont, PDFName, PDFNumber, PDFRef, degrees } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type {
@@ -8,6 +8,7 @@ import type {
   ImportedLinkAnnotation,
   LinkTarget,
   LoadedPdf,
+  PdfRect,
   TextItem,
 } from "../types/editor";
 import { collapseSupersededPaintRuns } from "../utils/textRunGrouping";
@@ -16,17 +17,18 @@ import { cleanPdfFontName, inferFontWeight, inferItalic, resolvePdfFont } from "
 import {
   type WriterContext,
   writeAnnotation,
-  writeFormField,
   writeFormMark,
   writeImage,
   writeInk,
   writeLink,
+  writeRedaction,
   writeShape,
   writeSignature,
   writeStamp,
   writeText,
   writeWhiteoutMask,
 } from "./operationWriters";
+import { writeInteractiveFormField } from "./formFieldWriter";
 
 type PdfFontMeta = { name?: string; bold?: boolean; italic?: boolean; data?: Uint8Array; mimetype?: string };
 
@@ -135,6 +137,77 @@ export type SavePdfOptions = {
    */
   onOperationError?: (operation: EditOperation, error: unknown) => void;
 };
+
+export type NormalizedCropRect = {
+  /** Fraction of the visible page width measured from the left edge. */
+  x: number;
+  /** Fraction of the visible page height measured from the bottom edge. */
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type CropPageScope =
+  | { kind: "current"; pageIndex: number }
+  | { kind: "all" };
+
+export type AppliedPageCrop = {
+  pageIndex: number;
+  /** Absolute crop bounds in the page's pre-crop PDF coordinate system. */
+  rect: PdfRect;
+};
+
+export type CropPagesResult = {
+  bytes: Uint8Array;
+  cropBounds: AppliedPageCrop[];
+};
+
+const MIN_CROP_SIZE_POINTS = 1;
+
+function assertValidNormalizedCrop(rect: NormalizedCropRect) {
+  const values = [rect.x, rect.y, rect.width, rect.height];
+  if (!values.every(Number.isFinite)) {
+    throw new Error("Crop rectangle coordinates must be finite numbers.");
+  }
+  if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0) {
+    throw new Error("Crop rectangle must have a positive size and start inside the page.");
+  }
+  if (rect.x + rect.width > 1 || rect.y + rect.height > 1) {
+    throw new Error("Crop rectangle must stay within the page.");
+  }
+}
+
+function translateCoordinateArray(array: PDFArray, dx: number, dy: number) {
+  for (let index = 0; index + 1 < array.size(); index += 2) {
+    const x = array.lookupMaybe(index, PDFNumber);
+    const y = array.lookupMaybe(index + 1, PDFNumber);
+    if (!x || !y) continue;
+    array.set(index, PDFNumber.of(x.asNumber() + dx));
+    array.set(index + 1, PDFNumber.of(y.asNumber() + dy));
+  }
+}
+
+/** Keep imported links, widgets, ink, and other annotation geometry aligned with translated page content. */
+function translatePageAnnotations(page: ReturnType<PDFDocument["getPage"]>, dx: number, dy: number) {
+  const annotations = page.node.Annots();
+  if (!annotations) return;
+
+  for (const annotationEntry of annotations.asArray()) {
+    const annotation = page.doc.context.lookupMaybe(annotationEntry, PDFDict);
+    if (!annotation) continue;
+    for (const key of ["Rect", "QuadPoints", "Vertices", "L", "CL"]) {
+      const coordinates = annotation.lookupMaybe(PDFName.of(key), PDFArray);
+      if (coordinates) translateCoordinateArray(coordinates, dx, dy);
+    }
+    const inkList = annotation.lookupMaybe(PDFName.of("InkList"), PDFArray);
+    if (inkList) {
+      for (let index = 0; index < inkList.size(); index += 1) {
+        const stroke = inkList.lookupMaybe(index, PDFArray);
+        if (stroke) translateCoordinateArray(stroke, dx, dy);
+      }
+    }
+  }
+}
 
 /**
  * PDF.js formats annotation ids as `${num}R` (generation 0) or `${num}R${gen}`.
@@ -248,6 +321,61 @@ export class PdfEngine {
     return new Uint8Array(await pdf.save({ useObjectStreams: false }));
   }
 
+  /**
+   * Permanently crops one page or every page using fractions of each page's
+   * current visible box. Content remains vector data and is translated so the
+   * resulting page starts at PDF coordinate (0, 0).
+   */
+  async cropPages(
+    originalBytes: Uint8Array,
+    normalizedRect: NormalizedCropRect,
+    scope: CropPageScope,
+  ): Promise<CropPagesResult> {
+    assertValidNormalizedCrop(normalizedRect);
+    const pdf = await PDFDocument.load(originalBytes);
+    const pages = pdf.getPages();
+    const pageIndexes = scope.kind === "all"
+      ? pages.map((_, pageIndex) => pageIndex)
+      : [scope.pageIndex];
+
+    if (scope.kind === "current" && (!Number.isInteger(scope.pageIndex) || !pages[scope.pageIndex])) {
+      throw new Error("Crop page index is out of range.");
+    }
+
+    // Resolve and validate every page before changing the document so an
+    // all-pages request cannot partially apply when one result is too small.
+    const cropBounds = pageIndexes.map((pageIndex): AppliedPageCrop => {
+      const pageBox = pages[pageIndex].getCropBox();
+      const rect = {
+        x: pageBox.x + normalizedRect.x * pageBox.width,
+        y: pageBox.y + normalizedRect.y * pageBox.height,
+        width: normalizedRect.width * pageBox.width,
+        height: normalizedRect.height * pageBox.height,
+      };
+      if (rect.width < MIN_CROP_SIZE_POINTS || rect.height < MIN_CROP_SIZE_POINTS) {
+        throw new Error(`Crop rectangle must be at least ${MIN_CROP_SIZE_POINTS} PDF point in each dimension.`);
+      }
+      return { pageIndex, rect };
+    });
+
+    for (const { pageIndex, rect } of cropBounds) {
+      const page = pages[pageIndex];
+      page.translateContent(-rect.x, -rect.y);
+      translatePageAnnotations(page, -rect.x, -rect.y);
+      page.setMediaBox(0, 0, rect.width, rect.height);
+      page.setCropBox(0, 0, rect.width, rect.height);
+      page.setBleedBox(0, 0, rect.width, rect.height);
+      page.setTrimBox(0, 0, rect.width, rect.height);
+      page.setArtBox(0, 0, rect.width, rect.height);
+      page.resetPosition();
+    }
+
+    return {
+      bytes: new Uint8Array(await pdf.save({ useObjectStreams: false })),
+      cropBounds,
+    };
+  }
+
   async extractTextAndFonts(
     bytes: Uint8Array,
     pageIndex?: number,
@@ -353,7 +481,13 @@ export class PdfEngine {
 
   async getPageSizes(bytes: Uint8Array) {
     const pdf = await PDFDocument.load(bytes);
-    return pdf.getPages().map((page) => page.getSize());
+    // PDF.js renders the CropBox when one exists. Keep every stage-space
+    // coordinate, including crop-selection fractions, in that same visible
+    // coordinate system instead of exposing the potentially larger MediaBox.
+    return pdf.getPages().map((page) => {
+      const { width, height } = page.getCropBox();
+      return { width, height };
+    });
   }
 
   async savePdf(
@@ -453,6 +587,9 @@ export class PdfEngine {
           case "whiteout":
             writeWhiteoutMask(page, operation.rect, operation.color, opacity);
             break;
+          case "redaction":
+            await writeRedaction(page, operation, ctx);
+            break;
           case "text":
             await writeText(page, operation, opacity, ctx);
             break;
@@ -478,7 +615,7 @@ export class PdfEngine {
             writeFormMark(page, operation, opacity);
             break;
           case "form-field":
-            await writeFormField(page, operation, opacity, ctx);
+            await writeInteractiveFormField(pdf, page, operation, { getFont: ctx.getFont });
             break;
           case "link":
             writeLink(pdf, page, operation);

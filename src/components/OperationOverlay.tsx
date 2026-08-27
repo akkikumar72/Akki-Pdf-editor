@@ -7,7 +7,7 @@ import { NEW_TEXT_PLACEHOLDER } from "../editor/operationFactory";
 import { pdfRectToViewport } from "../utils/coordinates";
 import { textBaselineTopPaddingPx } from "../utils/textMetrics";
 import { caretRangeFromClientPoint, getLastPointerDownPoint } from "../utils/caret";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { safeImageSrc } from "../utils/safeImage";
 
 type OperationOverlayProps = {
@@ -17,6 +17,7 @@ type OperationOverlayProps = {
   selected: boolean;
   editing?: boolean;
   dragging?: boolean;
+  erasing?: boolean;
   moveModeActive?: boolean;
   documentFonts?: DocumentFonts;
   onPointerDown: (id: string, event: React.PointerEvent<HTMLDivElement>) => void;
@@ -32,6 +33,7 @@ function OperationOverlayComponent({
   selected,
   editing,
   dragging = false,
+  erasing = false,
   moveModeActive = false,
   documentFonts,
   onPointerDown,
@@ -85,6 +87,7 @@ function OperationOverlayComponent({
     selected ? "is-selected" : "",
     editing ? "is-editing" : "",
     dragging ? "is-dragging" : "",
+    erasing ? "is-erasing" : "",
     moveModeActive ? "is-move-mode" : "",
   ].filter(Boolean).join(" ");
 
@@ -206,6 +209,22 @@ function OperationOverlayComponent({
         />
       );
 
+    case "redaction":
+      return (
+        <div
+          className={`${className} operation--redaction-${operation.mode}`}
+          style={{
+            ...style,
+            background: operation.fillColor,
+            borderColor: operation.borderColor ?? operation.fillColor,
+            borderWidth: (operation.borderWidth ?? 0) * scale,
+          }}
+          onPointerDown={handlePointerDown}
+        >
+          {operation.overlayText ? <span>{operation.overlayText}</span> : null}
+        </div>
+      );
+
     case "image": {
       const src = safeImageSrc(operation.dataUrl);
       return <div className={className} style={style} onPointerDown={handlePointerDown}>{src ? <img src={src} alt="" draggable={false} /> : null}</div>;
@@ -312,7 +331,11 @@ function OperationOverlayComponent({
       const height = Math.max(1, operation.rect.height);
       const points = operation.points.map((point) => `${(point.x - operation.rect.x) * scale},${(operation.rect.height - (point.y - operation.rect.y)) * scale}`).join(" ");
       return (
-        <div className={className} style={style} onPointerDown={handlePointerDown}>
+        <div
+          className={`${className} operation--ink-${operation.variant ?? "ink"}`}
+          style={{ ...style, mixBlendMode: operation.variant === "freehand-highlight" ? "multiply" : undefined }}
+          onPointerDown={handlePointerDown}
+        >
           <svg viewBox={`0 0 ${width * scale} ${height * scale}`} preserveAspectRatio="none">
             <polyline points={points} fill="none" stroke={operation.stroke} strokeWidth={operation.strokeWidth * scale} strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -339,6 +362,52 @@ function OperationOverlayComponent({
           />
         );
       }
+      if (operation.kind === "callout") {
+        const anchor = operation.anchor ?? { x: operation.rect.x - 48, y: operation.rect.y + operation.rect.height / 2 };
+        const elbow = operation.elbow;
+        const localPoint = (point: { x: number; y: number }) => ({
+          x: (point.x - operation.rect.x) * scale,
+          y: (operation.rect.y + operation.rect.height - point.y) * scale,
+        });
+        const anchorPoint = localPoint(anchor);
+        const elbowPoint = elbow ? localPoint(elbow) : undefined;
+        const boxEdge = anchor.x <= operation.rect.x
+          ? { x: 0, y: rect.height / 2 }
+          : { x: rect.width, y: rect.height / 2 };
+        const leaderPoints = [anchorPoint, elbowPoint, boxEdge]
+          .filter((point): point is { x: number; y: number } => Boolean(point))
+          .map((point) => `${point.x},${point.y}`)
+          .join(" ");
+        return (
+          <div
+            className={`${className} operation--annotation-callout`}
+            style={{ ...style, color: operation.textColor ?? "#111827" }}
+            onPointerDown={handlePointerDown}
+          >
+            <svg className="operation__callout-leader" width={rect.width} height={rect.height} aria-hidden="true">
+              <polyline
+                points={leaderPoints}
+                fill="none"
+                stroke={operation.color}
+                strokeWidth={Math.max(1, (operation.strokeWidth ?? 1.5) * scale)}
+                strokeLinejoin="round"
+              />
+              <circle cx={anchorPoint.x} cy={anchorPoint.y} r={Math.max(2, 2.5 * scale)} fill={operation.color} />
+            </svg>
+            <div
+              className="operation__callout-box"
+              style={{
+                background: operation.fillColor ?? "#ffffff",
+                borderColor: operation.color,
+                borderWidth: Math.max(1, (operation.strokeWidth ?? 1.5) * scale),
+                fontSize: (operation.fontSize ?? 12) * scale,
+              }}
+            >
+              {operation.text ?? "Callout"}
+            </div>
+          </div>
+        );
+      }
       return (
         <div className={className} style={{ ...style, color: operation.color, borderColor: operation.color }} onPointerDown={handlePointerDown}>
           {operation.text ?? operation.kind}
@@ -360,12 +429,52 @@ function OperationOverlayComponent({
         </div>
       );
 
-    case "form-field":
+    case "form-field": {
+      const fieldStyle = {
+        ...style,
+        color: operation.textColor ?? "#111827",
+        background: operation.fillColor ?? "#ffffff",
+        borderColor: operation.borderColor ?? "#94a3b8",
+        borderWidth: operation.borderStyle === "underline" ? 0 : Math.max(0, (operation.borderWidth ?? 1) * scale),
+        borderBottomWidth: operation.borderStyle === "underline" ? Math.max(0, (operation.borderWidth ?? 1) * scale) : undefined,
+        borderStyle: operation.borderStyle === "dashed" ? "dashed" : "solid",
+        fontFamily: resolveFont(operation.fontFamily).cssFamily,
+        fontSize: Math.max(9, (operation.fontSize ?? 11) * scale),
+        textAlign: operation.align ?? "left",
+        transform: operation.rotation ? `rotate(${operation.rotation}deg)` : undefined,
+      } as const;
+      let content: ReactNode;
+      if (operation.kind === "checkbox") {
+        content = <span className="operation__form-choice" aria-hidden="true">{operation.checked ? "✓" : ""}</span>;
+      } else if (operation.kind === "radio") {
+        content = <span className="operation__form-radio" aria-hidden="true">{operation.checked ? "●" : ""}</span>;
+      } else if (operation.kind === "dropdown") {
+        content = <><span>{operation.value || operation.options?.[0] || operation.name}</span><span aria-hidden="true">⌄</span></>;
+      } else if (operation.kind === "listbox") {
+        const visible = operation.options?.slice(0, 4) ?? [];
+        content = visible.length
+          ? <span className="operation__form-list">{visible.map((option) => <span key={option} className={operation.selectedValues?.includes(option) ? "is-selected" : ""}>{option}</span>)}</span>
+          : <span>{operation.name}</span>;
+      } else if (operation.kind === "button") {
+        content = <strong>{operation.buttonLabel || "Button"}</strong>;
+      } else if (operation.kind === "signature") {
+        content = <span className="operation__form-placeholder">Sign here</span>;
+      } else if (operation.kind === "date") {
+        content = <><span>{operation.value || operation.dateFormat || "yyyy-MM-dd"}</span><span aria-hidden="true">▣</span></>;
+      } else {
+        content = <span className={operation.value ? "" : "operation__form-placeholder"}>{operation.value || operation.name}</span>;
+      }
       return (
-        <div className={`${className} operation--form-field operation--form-${operation.kind}`} style={style} onPointerDown={handlePointerDown}>
-          <span>{operation.checked ? "✓ " : null}{operation.value || operation.name}</span>
+        <div
+          className={`${className} operation--form-field operation--form-${operation.kind}${operation.readOnly ? " is-read-only" : ""}${operation.required ? " is-required" : ""}`}
+          style={fieldStyle}
+          title={operation.tooltip || operation.name}
+          onPointerDown={handlePointerDown}
+        >
+          {content}
         </div>
       );
+    }
 
     case "form-mark": {
       const glyph = operation.mark === "check" ? "\u2713" : operation.mark === "cross" ? "\u2717" : "\u25CF";

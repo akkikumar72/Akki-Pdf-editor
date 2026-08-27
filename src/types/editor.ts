@@ -1,7 +1,11 @@
 export type EditorTool =
   | "select"
+  | "crop"
   | "text"
   | "whiteout"
+  | "redact"
+  | "redact-area"
+  | "erase"
   | "image"
   | "stamp"
   | "signature"
@@ -14,19 +18,44 @@ export type EditorTool =
   | "form-text"
   | "form-multiline"
   | "form-dropdown"
+  | "form-listbox"
   | "form-radio"
+  | "form-checkbox"
+  | "form-button"
+  | "form-date"
   | "form-signature"
   | "mark-check"
+  | "mark-cross"
   | "annotate-text"
+  | "callout"
   | "strikeout"
   | "underline"
   | "highlight"
+  | "freehand-highlight"
   | "draw";
 
 export type TextAlign = "left" | "center" | "right";
 export type ShapeKind = "rectangle" | "ellipse" | "line" | "arrow";
-export type FormFieldKind = "text" | "multiline" | "dropdown" | "radio" | "signature";
-export type AnnotationKind = "note" | "strikeout" | "underline" | "highlight" | "freehand-highlight" | "draw";
+export type FormFieldKind =
+  | "text"
+  | "multiline"
+  | "dropdown"
+  | "listbox"
+  | "radio"
+  | "checkbox"
+  | "button"
+  | "date"
+  | "signature";
+export type AnnotationKind =
+  | "note"
+  | "callout"
+  | "strikeout"
+  | "underline"
+  | "highlight"
+  | "freehand-highlight"
+  | "draw";
+export type FormBorderStyle = "solid" | "dashed" | "underline";
+export type FormRotation = 0 | 90 | 180 | 270;
 
 export type PdfPoint = {
   x: number;
@@ -72,6 +101,19 @@ export type TextOperation = BaseOperation & {
 export type WhiteoutOperation = BaseOperation & {
   type: "whiteout";
   color: string;
+};
+
+/**
+ * A deliberate redaction overlay. This is kept distinct from whiteout so the
+ * UI, eraser, history, and PDF writer can preserve redaction-specific intent.
+ */
+export type RedactionOperation = BaseOperation & {
+  type: "redaction";
+  mode: "text" | "area";
+  fillColor: string;
+  borderColor?: string;
+  borderWidth?: number;
+  overlayText?: string;
 };
 
 export type ImageOperation = BaseOperation & {
@@ -148,6 +190,13 @@ export type AnnotationOperation = BaseOperation & {
   color: string;
   text?: string;
   strokeWidth?: number;
+  fontSize?: number;
+  fillColor?: string;
+  textColor?: string;
+  /** Callout leader endpoint in page PDF coordinates. */
+  anchor?: PdfPoint;
+  /** Optional bend point for a two-segment callout leader. */
+  elbow?: PdfPoint;
 };
 
 export type FormMarkOperation = BaseOperation & {
@@ -161,14 +210,35 @@ export type FormFieldOperation = BaseOperation & {
   kind: FormFieldKind;
   name: string;
   value?: string;
+  defaultValue?: string;
   options?: string[];
+  selectedValues?: string[];
   checked?: boolean;
   required?: boolean;
+  readOnly?: boolean;
+  tooltip?: string;
+  exportValue?: string;
+  groupName?: string;
+  allowCustomText?: boolean;
+  multiSelect?: boolean;
+  buttonLabel?: string;
+  buttonAction?: "none" | "reset" | "print";
+  dateFormat?: "yyyy-MM-dd" | "MM/dd/yyyy" | "dd/MM/yyyy";
+  fillColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  borderStyle?: FormBorderStyle;
+  fontFamily?: string;
+  fontSize?: number;
+  textColor?: string;
+  align?: TextAlign;
+  rotation?: FormRotation;
 };
 
 export type EditOperation =
   | TextOperation
   | WhiteoutOperation
+  | RedactionOperation
   | ImageOperation
   | SignatureOperation
   | StampOperation
@@ -178,6 +248,12 @@ export type EditOperation =
   | AnnotationOperation
   | FormMarkOperation
   | FormFieldOperation;
+
+/** Replaces one operation with zero or more derived operations in one history entry. */
+export type OperationReplacement = {
+  id: string;
+  operations: EditOperation[];
+};
 
 /**
  * A patch valid for at least one operation variant — no casts at call sites.

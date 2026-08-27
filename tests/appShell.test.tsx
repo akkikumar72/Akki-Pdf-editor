@@ -23,6 +23,21 @@ describe("AppShell", () => {
     expect(screen.getByText("Skip to editor")).toHaveAttribute("href", "#editor-canvas");
   });
 
+  it("renders without the optional inspector", () => {
+    render(
+      <AppShell
+        header={<div>HEADER</div>}
+        rail={<div>RAIL</div>}
+        status={<div>STATUS</div>}
+      >
+        <div>CANVAS</div>
+      </AppShell>,
+    );
+
+    expect(screen.getByText("CANVAS")).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Properties" })).not.toBeInTheDocument();
+  });
+
   it("wrapStage wraps canvas + inspector but not header, rail, or status", () => {
     render(
       <AppShell
