@@ -1,4 +1,4 @@
-import { Bold, ChevronDown, Copy, Italic, Link2, Move, PaintBucket, Palette, Square, Trash2, Type } from "lucide-react";
+import { Bold, ChevronDown, Copy, Italic, Link2, Move, PaintBucket, Palette, SlidersHorizontal, Square, Trash2, Type } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { EditOperation, EditOperationPatch, TextOperation, ViewportRect } from "../types/editor";
 import { clampToolbarLeft, getToolbarPlacement, TOOLBAR_FALLBACK_HEIGHT_PX } from "../utils/toolbarPlacement";
@@ -9,12 +9,15 @@ type FloatingOperationToolbarProps = {
   pageWidth: number;
   rect: ViewportRect;
   scale: number;
+  variant?: "floating" | "contextual";
   hidden?: boolean;
   moveModeActive?: boolean;
   onDelete: (id: string) => void;
   onDuplicate: (operation: EditOperation) => void;
+  onDone?: () => void;
   onLink: (operation: EditOperation) => void;
   onMoveToggle?: () => void;
+  onProperties?: () => void;
   onTextPreview: (id: string, patch?: Partial<TextOperation>) => void;
   onUpdate: (id: string, patch: EditOperationPatch) => void;
 };
@@ -31,12 +34,15 @@ export function FloatingOperationToolbar({
   pageWidth,
   rect,
   scale,
+  variant = "floating",
   hidden = false,
   moveModeActive = false,
   onDelete,
   onDuplicate,
+  onDone,
   onLink,
   onMoveToggle,
+  onProperties,
   onTextPreview,
   onUpdate,
 }: FloatingOperationToolbarProps) {
@@ -45,9 +51,11 @@ export function FloatingOperationToolbar({
   const [openMenu, setOpenMenu] = useState<OpenMenu>();
   const isText = operation.type === "text";
   const isShape = operation.type === "shape";
+  const isContextual = variant === "contextual";
   const stageWidth = pageWidth * scale;
 
   useLayoutEffect(() => {
+    if (isContextual) return;
     const node = toolbarRef.current;
     if (!node) return;
     const measure = () => {
@@ -60,12 +68,15 @@ export function FloatingOperationToolbar({
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [isText, operation.id]);
+  }, [isContextual, isText, operation.id]);
 
   const toolbarPlacement = getToolbarPlacement(rect, toolbarSize.width, toolbarSize.height);
   const toolbarTop = toolbarPlacement.top;
   const toolbarLeft = clampToolbarLeft(toolbarPlacement.left, toolbarSize.width, stageWidth, rect);
   const currentFontSize = isText ? Math.round(operation.fontSize) : 14;
+  const contextLabel = isText
+    ? onDone ? "Editing text" : "Text"
+    : operation.type.replaceAll("-", " ");
   const fontSizeOptions = useMemo(() => {
     if (!isText || FONT_SIZE_OPTIONS.includes(currentFontSize)) return FONT_SIZE_OPTIONS;
     return [...FONT_SIZE_OPTIONS, currentFontSize].sort((a, b) => a - b);
@@ -76,14 +87,26 @@ export function FloatingOperationToolbar({
   return (
     <div
       ref={toolbarRef}
-      className={`floating-toolbar ${isText ? "floating-toolbar--text" : ""}`}
-      data-placement={toolbarPlacement.placement}
+      className={`floating-toolbar ${isText ? "floating-toolbar--text" : ""}${isContextual ? " floating-toolbar--contextual" : ""}`}
+      data-placement={isContextual ? undefined : toolbarPlacement.placement}
       aria-label="Inline edit tools"
       role="toolbar"
-      style={{ left: toolbarLeft, top: toolbarTop }}
+      style={isContextual ? undefined : { left: toolbarLeft, top: toolbarTop }}
       onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (!isContextual || event.key !== "Escape" || !onDone) return;
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (openMenu) {
+          setOpenMenu(undefined);
+          return;
+        }
+        onDone();
+      }}
       onPointerDown={(event) => event.stopPropagation()}
     >
+      {isContextual ? <strong className="floating-toolbar__context">{contextLabel}</strong> : null}
       {isText ? (
         <>
           <button
@@ -241,7 +264,7 @@ export function FloatingOperationToolbar({
         className="floating-toolbar__button"
         aria-label="Move"
         aria-pressed={moveModeActive}
-        title={moveModeActive ? "Move mode on — drag to reposition" : "Move — drag overlay to reposition"}
+        title={moveModeActive ? "Move mode on. Drag to reposition" : "Move. Drag overlay to reposition"}
         onClick={() => onMoveToggle?.()}
       >
         <Move aria-hidden="true" />
@@ -249,9 +272,24 @@ export function FloatingOperationToolbar({
       <button type="button" className="floating-toolbar__button" aria-label="Duplicate" title="Duplicate" onClick={() => onDuplicate(operation)}>
         <Copy aria-hidden="true" />
       </button>
+      {onProperties ? (
+        <button type="button" className="floating-toolbar__button floating-toolbar__button--properties" aria-label="Properties" title="Properties" onClick={onProperties}>
+          <SlidersHorizontal aria-hidden="true" />
+          {isContextual ? <span>Properties</span> : null}
+        </button>
+      ) : null}
       <button type="button" className="floating-toolbar__button" aria-label="Delete" title="Delete" onClick={() => onDelete(operation.id)}>
         <Trash2 aria-hidden="true" />
       </button>
+      {isContextual && onDone ? (
+        <button
+          type="button"
+          className="floating-toolbar__button floating-toolbar__button--done"
+          onClick={onDone}
+        >
+          Done
+        </button>
+      ) : null}
     </div>
   );
 }

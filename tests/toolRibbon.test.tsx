@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToolRibbon } from "../src/components/ToolRibbon";
 import type { EditHistoryEntry } from "../src/state/editModel";
 import type { EditorTool } from "../src/types/editor";
@@ -10,6 +10,7 @@ function makeProps(overrides: Partial<React.ComponentProps<typeof ToolRibbon>> =
     canRedo: true,
     canUndo: true,
     disabled: false,
+    documentName: "sample-invoice.pdf",
     historyEntries: [] as EditHistoryEntry[],
     scale: 1,
     selectedIds: ["sel-1"],
@@ -37,6 +38,20 @@ function entry(id: string, ts: number, ops = 1): EditHistoryEntry {
 
 describe("ToolRibbon", () => {
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows the current document filename", () => {
+    render(<ToolRibbon {...makeProps({ documentName: "client-contract.pdf" })} />);
+    expect(screen.getByText("client-contract.pdf").closest(".tool-ribbon__filename")).toHaveAttribute(
+      "title",
+      "client-contract.pdf",
+    );
+  });
+
+  it("keeps Properties out of the document bar", () => {
+    render(<ToolRibbon {...makeProps()} />);
+    expect(screen.queryByRole("button", { name: "Properties" })).not.toBeInTheDocument();
+  });
 
   it("renders zoom readout and fires home/zoom/rotate/insert/delete handlers", () => {
     const props = makeProps({ scale: 1.25 });
@@ -91,7 +106,8 @@ describe("ToolRibbon", () => {
     expect(screen.getByTitle("Zoom in")).toBeDisabled();
     expect(screen.getByTitle("Undo")).toBeDisabled();
     // Tool buttons disabled too.
-    expect(screen.getByRole("button", { name: /Select/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Edit text/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Choose Forms tool/ })).toBeDisabled();
   });
 
   describe("tool groups", () => {
@@ -99,31 +115,52 @@ describe("ToolRibbon", () => {
       const props = makeProps();
       render(<ToolRibbon {...props} />);
       // "Text" group has a single tool.
-      fireEvent.click(screen.getByRole("button", { name: /Text/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Text" }));
       expect(props.onToolChange).toHaveBeenCalledWith("text");
     });
 
-    it("opens a multi-tool group popover and selects a menu item", () => {
+    it("activates a multi-tool group's primary tool without opening its variants", () => {
       const props = makeProps();
       render(<ToolRibbon {...props} />);
-      // "Forms" is a multi-tool group.
-      fireEvent.click(screen.getByRole("button", { name: /Forms/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Forms" }));
       expect(props.onToolChange).toHaveBeenCalledWith("form-text");
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
+
+    it("provides separate variants triggers for every grouped tool", () => {
+      render(<ToolRibbon {...makeProps()} />);
+      for (const group of ["Redact", "Draw", "Highlight text", "Line", "Forms"]) {
+        expect(screen.getByRole("button", { name: new RegExp(`Choose ${group} tool`) })).toBeInTheDocument();
+      }
+    });
+
+    it("opens a multi-tool group from its variants trigger and selects a menu item", () => {
+      const props = makeProps();
+      render(<ToolRibbon {...props} />);
+      const trigger = screen.getByRole("button", { name: /Choose Forms tool/ });
+      expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(trigger);
+      expect(props.onToolChange).not.toHaveBeenCalled();
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
 
       const menu = screen.getByRole("menu");
-      const items = within(menu).getAllByRole("menuitem");
+      expect(trigger).toHaveAttribute("aria-controls", menu.id);
+      const items = within(menu).getAllByRole("menuitemradio");
+      expect(document.activeElement).toBe(items[0]);
       fireEvent.click(items[1]);
       expect(props.onToolChange).toHaveBeenCalledWith("form-multiline");
       // Selecting a menu item closes the popover.
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(trigger);
     });
 
     it("toggles a multi-tool group popover closed on second click", () => {
       render(<ToolRibbon {...makeProps()} />);
-      const forms = screen.getByRole("button", { name: /Forms/ });
-      fireEvent.click(forms);
+      const trigger = screen.getByRole("button", { name: /Choose Forms tool/ });
+      fireEvent.click(trigger);
       expect(screen.getByRole("menu")).toBeInTheDocument();
-      fireEvent.click(forms);
+      fireEvent.click(trigger);
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     });
 
@@ -131,7 +168,7 @@ describe("ToolRibbon", () => {
       const props = makeProps({ activeTool: "form-text" });
       render(<ToolRibbon {...props} />);
       // Forms group is active; clicking its primary button resets to select.
-      fireEvent.click(screen.getByRole("button", { name: /Forms/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Text field" }));
       expect(props.onToolChange).toHaveBeenCalledWith("select");
     });
 
@@ -140,23 +177,30 @@ describe("ToolRibbon", () => {
       render(<ToolRibbon {...props} />);
       // Select group is active and primary === select, so it falls through to the
       // single-tool path and re-selects select.
-      fireEvent.click(screen.getByRole("button", { name: /Select/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Edit text/ }));
       expect(props.onToolChange).toHaveBeenCalledWith("select");
+    });
+
+    it("exposes crop, eraser, Cross, callout, and freehand highlight as direct actions", () => {
+      render(<ToolRibbon {...makeProps()} />);
+      for (const label of ["Crop", "Erase", "Cross", "Callout", "Highlight"]) {
+        expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+      }
     });
 
     it("renders popover menu items with the correct aria-pressed state", () => {
       // Active tool sits in a *different* group (shapes), so the Forms popover opens
       // and all its items report aria-pressed=false.
       render(<ToolRibbon {...makeProps({ activeTool: "shape" })} />);
-      fireEvent.click(screen.getByRole("button", { name: /Forms/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Choose Forms tool/ }));
       const menu = screen.getByRole("menu");
       const dropdown = within(menu).getByText("Dropdown").closest("button") as HTMLElement;
-      expect(dropdown).toHaveAttribute("aria-pressed", "false");
+      expect(dropdown).toHaveAttribute("aria-checked", "false");
     });
 
     it("closes an open tool popover with Escape", () => {
       const { container } = render(<ToolRibbon {...makeProps()} />);
-      fireEvent.click(screen.getByRole("button", { name: /Forms/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Choose Forms tool/ }));
       expect(screen.getByRole("menu")).toBeInTheDocument();
       fireEvent.keyDown(container.firstChild as HTMLElement, { key: "Escape" });
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
@@ -164,7 +208,7 @@ describe("ToolRibbon", () => {
 
     it("returns focus to the trigger button after Escape closes the popover", () => {
       const { container } = render(<ToolRibbon {...makeProps()} />);
-      const formsButton = screen.getByRole("button", { name: /Forms/ });
+      const formsButton = screen.getByRole("button", { name: /Choose Forms tool/ });
       fireEvent.click(formsButton);
       expect(screen.getByRole("menu")).toBeInTheDocument();
       fireEvent.keyDown(container.firstChild as HTMLElement, { key: "Escape" });
@@ -172,14 +216,119 @@ describe("ToolRibbon", () => {
       expect(document.activeElement).toBe(formsButton);
     });
 
+    it("navigates menu items with Arrow keys, Home, and End", () => {
+      render(<ToolRibbon {...makeProps()} />);
+      fireEvent.click(screen.getByRole("button", { name: /Choose Forms tool/ }));
+      const menu = screen.getByRole("menu");
+      const items = within(menu).getAllByRole("menuitemradio");
+
+      expect(document.activeElement).toBe(items[0]);
+      expect(items[0]).toHaveAttribute("tabindex", "0");
+      expect(items[1]).toHaveAttribute("tabindex", "-1");
+      fireEvent.keyDown(items[0], { key: "ArrowDown" });
+      expect(document.activeElement).toBe(items[1]);
+      fireEvent.keyDown(items[1], { key: "ArrowUp" });
+      expect(document.activeElement).toBe(items[0]);
+      fireEvent.keyDown(items[0], { key: "ArrowDown" });
+      fireEvent.keyDown(items[1], { key: "End" });
+      expect(document.activeElement).toBe(items.at(-1));
+      fireEvent.keyDown(items.at(-1) as HTMLElement, { key: "ArrowDown" });
+      expect(document.activeElement).toBe(items[0]);
+      fireEvent.keyDown(items[0], { key: "ArrowUp" });
+      expect(document.activeElement).toBe(items.at(-1));
+      fireEvent.keyDown(items.at(-1) as HTMLElement, { key: "Home" });
+      expect(document.activeElement).toBe(items[0]);
+      fireEvent.keyDown(items[0], { key: "Tab" });
+      expect(document.activeElement).toBe(items[0]);
+    });
+
+    it("anchors a compact picker to its trigger and updates it on resize", () => {
+      vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+      const { container } = render(<ToolRibbon {...makeProps()} />);
+      const trigger = screen.getByRole("button", { name: /Choose Draw tool/ });
+      const menuHost = trigger.closest(".tool-menu") as HTMLElement;
+      vi.spyOn(menuHost, "getBoundingClientRect").mockReturnValue({
+        bottom: 146,
+        height: 42,
+        left: 120,
+        right: 240,
+        top: 104,
+        width: 120,
+        x: 120,
+        y: 104,
+        toJSON: () => ({}),
+      });
+
+      fireEvent.click(trigger);
+      const menu = screen.getByRole("menu", { name: "Draw tools" });
+      expect(menu).toHaveStyle({ left: "120px", top: "152px" });
+
+      vi.spyOn(menuHost, "getBoundingClientRect").mockReturnValue({
+        bottom: 186,
+        height: 42,
+        left: 160,
+        right: 280,
+        top: 144,
+        width: 120,
+        x: 160,
+        y: 144,
+        toJSON: () => ({}),
+      });
+      fireEvent.resize(window);
+      expect(menu).toHaveStyle({ left: "160px", top: "192px" });
+
+      fireEvent.pointerDown(menu);
+      expect(container.querySelector('[role="menu"]')).toBe(menu);
+    });
+
+    it("leaves desktop picker positioning to CSS", () => {
+      vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+      render(<ToolRibbon {...makeProps()} />);
+      fireEvent.click(screen.getByRole("button", { name: /Choose Draw tool/ }));
+      expect(screen.getByRole("menu", { name: "Draw tools" })).not.toHaveAttribute("style");
+    });
+
     it("ignores non-Escape keys and Escape with nothing open", () => {
       const { container } = render(<ToolRibbon {...makeProps()} />);
       const root = container.firstChild as HTMLElement;
       // Nothing open: Escape is a no-op (must not throw or change state).
       fireEvent.keyDown(root, { key: "Escape" });
-      fireEvent.click(screen.getByRole("button", { name: /Forms/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Choose Forms tool/ }));
       fireEvent.keyDown(root, { key: "Enter" });
       expect(screen.getByRole("menu")).toBeInTheDocument();
+    });
+
+    it("dismisses an open variants menu on outside pointer down", () => {
+      render(
+        <div>
+          <ToolRibbon {...makeProps()} />
+          <button>Outside</button>
+        </div>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /Choose Forms tool/ }));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
+
+    it("dismisses an open variants menu when another ribbon control is clicked", () => {
+      const props = makeProps();
+      render(<ToolRibbon {...props} />);
+      fireEvent.click(screen.getByRole("button", { name: /Choose Forms tool/ }));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      fireEvent.pointerDown(screen.getByTitle("Undo"));
+      fireEvent.click(screen.getByTitle("Undo"));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(props.onUndo).toHaveBeenCalled();
+    });
+
+    it("displays the active subtool and exposes it from the variants trigger", () => {
+      render(<ToolRibbon {...makeProps({ activeTool: "form-dropdown" })} />);
+      expect(screen.getByRole("button", { name: "Dropdown" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: /Choose Forms tool\. Current: Dropdown/ })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
     });
   });
 

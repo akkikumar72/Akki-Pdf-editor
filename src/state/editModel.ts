@@ -1,6 +1,11 @@
-import type { EditOperation, EditOperationPatch } from "../types/editor";
+import type { EditOperation, EditOperationPatch, OperationReplacement } from "../types/editor";
 import { moveOperationZ, translateOperation } from "../editor/selectionModel";
 import { createId } from "../utils/ids";
+
+export type DocumentSnapshot = {
+  bytes: Uint8Array;
+  pageIndex: number;
+};
 
 export type EditHistoryEntry = {
   id: string;
@@ -10,6 +15,8 @@ export type EditHistoryEntry = {
   selectedIds?: string[];
   pageIndex?: number;
   coalesceKey?: string;
+  /** Present only at a document-byte revision boundary such as Crop. */
+  documentSnapshot?: DocumentSnapshot;
 };
 
 export type EditState = {
@@ -19,6 +26,10 @@ export type EditState = {
   future: EditHistoryEntry[];
 };
 
+export const EDIT_HISTORY_ENTRY_LIMIT = 80;
+export const DOCUMENT_SNAPSHOT_COUNT_LIMIT = 6;
+export const DOCUMENT_SNAPSHOT_BYTE_LIMIT = 256 * 1024 * 1024;
+
 export type EditAction =
   | { type: "add"; operation: EditOperation }
   | { type: "add-many"; operations: EditOperation[] }
@@ -26,11 +37,13 @@ export type EditAction =
   | { type: "translate"; ids: string[]; dx: number; dy: number }
   | { type: "remove"; id: string }
   | { type: "remove-many"; ids: string[] }
+  | { type: "replace-many"; replacements: OperationReplacement[]; label?: string }
   | { type: "select"; ids: string[]; additive?: boolean }
   | { type: "z"; id: string; direction: "forward" | "backward" }
-  | { type: "undo" }
-  | { type: "redo" }
-  | { type: "restore-history"; id: string }
+  | { type: "document-edit"; operations: EditOperation[]; label: string; beforeDocument: DocumentSnapshot }
+  | { type: "undo"; currentDocument?: DocumentSnapshot }
+  | { type: "redo"; currentDocument?: DocumentSnapshot }
+  | { type: "restore-history"; id: string; currentDocument?: DocumentSnapshot }
   | { type: "reset"; operations?: EditOperation[]; past?: EditHistoryEntry[]; future?: EditHistoryEntry[] };
 
 export const initialEditState: EditState = {
@@ -39,6 +52,62 @@ export const initialEditState: EditState = {
   past: [],
   future: [],
 };
+
+function documentSnapshotUsage(past: EditHistoryEntry[], future: EditHistoryEntry[]) {
+  let count = 0;
+  let bytes = 0;
+  for (const entry of [...past, ...future]) {
+    if (!entry.documentSnapshot) continue;
+    count += 1;
+    bytes += entry.documentSnapshot.bytes.byteLength;
+  }
+  return { count, bytes };
+}
+
+/**
+ * Keeps history bounded without leaving overlay checkpoints detached from the
+ * PDF revision whose coordinate system they use. A past document boundary is
+ * evicted together with every older entry. A future boundary is evicted with
+ * every later redo entry. Ordinary overlay-only history still keeps 80 entries.
+ */
+function trimHistory(
+  past: EditHistoryEntry[],
+  future: EditHistoryEntry[],
+): Pick<EditState, "past" | "future"> {
+  let nextPast = past.length > EDIT_HISTORY_ENTRY_LIMIT
+    ? past.slice(-EDIT_HISTORY_ENTRY_LIMIT)
+    : past;
+  let nextFuture = future;
+
+  while (true) {
+    const usage = documentSnapshotUsage(nextPast, nextFuture);
+    if (
+      usage.count <= DOCUMENT_SNAPSHOT_COUNT_LIMIT
+      && usage.bytes <= DOCUMENT_SNAPSHOT_BYTE_LIMIT
+    ) {
+      return { past: nextPast, future: nextFuture };
+    }
+
+    const oldestPastBoundary = nextPast.findIndex((entry) => entry.documentSnapshot);
+    if (oldestPastBoundary >= 0) {
+      nextPast = nextPast.slice(oldestPastBoundary + 1);
+      continue;
+    }
+
+    let farthestFutureBoundary = -1;
+    for (let index = nextFuture.length - 1; index >= 0; index -= 1) {
+      if (nextFuture[index].documentSnapshot) {
+        farthestFutureBoundary = index;
+        break;
+      }
+    }
+    /* v8 ignore next 3 -- over-budget usage guarantees a snapshot exists after the no-past-snapshot branch above */
+    if (farthestFutureBoundary < 0) {
+      throw new Error("History snapshot usage exceeded its budget without a document boundary.");
+    }
+    nextFuture = nextFuture.slice(0, farthestFutureBoundary);
+  }
+}
 
 function commit(
   state: EditState,
@@ -63,11 +132,14 @@ function commit(
         coalesceKey,
       };
 
+  const history = trimHistory(
+    shouldCoalesce ? [...state.past.slice(0, -1), entry] : [...state.past, entry],
+    [],
+  );
   return {
     operations,
     selectedIds,
-    past: shouldCoalesce ? [...state.past.slice(0, -1), entry] : [...state.past, entry].slice(-80),
-    future: [],
+    ...history,
   };
 }
 
@@ -75,17 +147,23 @@ function historyLabelForOperation(operation?: EditOperation, fallback = "Edit") 
   if (!operation) return fallback;
   if (operation.type === "text") return "Text edit";
   if (operation.type === "whiteout") return "Whiteout";
+  if (operation.type === "redaction") return "Redaction";
   if (operation.type === "form-field" || operation.type === "form-mark") return "Form edit";
   return `${operation.type.replace("-", " ")} edit`;
 }
 
-function futureEntryFromCurrent(state: EditState, label = "Redo edit"): EditHistoryEntry {
+function futureEntryFromCurrent(
+  state: EditState,
+  label = "Redo edit",
+  documentSnapshot?: DocumentSnapshot,
+): EditHistoryEntry {
   return {
     id: createId("history"),
     label,
     timestamp: Date.now(),
     operations: state.operations,
     selectedIds: state.selectedIds,
+    documentSnapshot,
   };
 }
 
@@ -161,6 +239,23 @@ export function editReducer(state: EditState, action: EditAction): EditState {
         action.ids.length === 1 ? "Delete edit" : `Deleted ${action.ids.length} objects`,
       );
     }
+    case "replace-many": {
+      if (action.replacements.length === 0) return state;
+      const replacements = new Map(action.replacements.map((replacement) => [replacement.id, replacement.operations]));
+      const existingIds = new Set(state.operations.map((operation) => operation.id));
+      const replacedIds = action.replacements.map((replacement) => replacement.id).filter((id) => existingIds.has(id));
+      if (replacedIds.length === 0) return state;
+      const operations = state.operations.flatMap((operation) => replacements.get(operation.id) ?? [operation]);
+      const selectedIds = state.selectedIds.flatMap((id) =>
+        replacements.has(id) ? replacements.get(id)!.map((operation) => operation.id) : [id],
+      );
+      return commit(
+        state,
+        operations,
+        selectedIds,
+        action.label ?? (replacedIds.length === 1 ? "Erase stroke" : `Erased ${replacedIds.length} strokes`),
+      );
+    }
     case "select":
       return {
         ...state,
@@ -168,44 +263,88 @@ export function editReducer(state: EditState, action: EditAction): EditState {
       };
     case "z":
       return commit(state, moveOperationZ(state.operations, action.id, action.direction), state.selectedIds, "Layer order");
+    case "document-edit": {
+      const entry: EditHistoryEntry = {
+        id: createId("history"),
+        label: action.label,
+        timestamp: Date.now(),
+        operations: state.operations,
+        selectedIds: state.selectedIds,
+        pageIndex: action.beforeDocument.pageIndex,
+        documentSnapshot: action.beforeDocument,
+      };
+      const history = trimHistory([...state.past, entry], []);
+      return {
+        operations: action.operations,
+        selectedIds: [],
+        ...history,
+      };
+    }
     case "undo": {
       const previous = state.past[state.past.length - 1];
       if (!previous) return state;
+      const history = trimHistory(
+        state.past.slice(0, -1),
+        [
+          futureEntryFromCurrent(
+            state,
+            previous.label,
+            previous.documentSnapshot ? action.currentDocument : undefined,
+          ),
+          ...state.future,
+        ],
+      );
       return {
         operations: previous.operations,
         selectedIds: previous.selectedIds ?? [],
-        past: state.past.slice(0, -1),
-        future: [futureEntryFromCurrent(state, previous.label), ...state.future],
+        ...history,
       };
     }
     case "redo": {
       const next = state.future[0];
       if (!next) return state;
+      const history = trimHistory(
+        [
+          ...state.past,
+          futureEntryFromCurrent(state, next.label, next.documentSnapshot ? action.currentDocument : undefined),
+        ],
+        state.future.slice(1),
+      );
       return {
         operations: next.operations,
         selectedIds: next.selectedIds ?? [],
-        past: [...state.past, futureEntryFromCurrent(state, next.label)],
-        future: state.future.slice(1),
+        ...history,
       };
     }
     case "restore-history": {
       const index = state.past.findIndex((entry) => entry.id === action.id);
       const entry = state.past[index];
       if (!entry) return state;
+      const history = trimHistory(
+        state.past.slice(0, index),
+        [
+          futureEntryFromCurrent(
+            state,
+            `Restore before ${entry.label}`,
+            action.currentDocument,
+          ),
+          ...state.future,
+        ],
+      );
       return {
         operations: entry.operations,
         selectedIds: entry.selectedIds ?? [],
-        past: state.past.slice(0, index),
-        future: [futureEntryFromCurrent(state, `Restore before ${entry.label}`), ...state.future],
+        ...history,
       };
     }
-    case "reset":
+    case "reset": {
+      const history = trimHistory(action.past ?? [], action.future ?? []);
       return {
         operations: action.operations ?? [],
         selectedIds: [],
-        past: action.past ?? [],
-        future: action.future ?? [],
+        ...history,
       };
+    }
     default: {
       const exhaustive: never = action;
       void exhaustive;

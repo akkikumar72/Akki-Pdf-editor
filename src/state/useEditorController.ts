@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { importedLinkOperation } from "../editor/linkTarget";
-import { shiftOperationsForDeletedPage, shiftOperationsForInsertedPage } from "../editor/pageOperations";
+import {
+  remapOperationsForCroppedPages,
+  shiftOperationsForDeletedPage,
+  shiftOperationsForInsertedPage,
+} from "../editor/pageOperations";
 import { duplicateOperation } from "../editor/selectionModel";
 import { exportPipeline } from "../engine/exportPipeline";
 import { pdfEngine } from "../engine/pdfEngine";
 import { editReducer, getSelectedOperation, getSelectedOperations, initialEditState } from "./editModel";
-import type { EditState } from "./editModel";
+import type { DocumentSnapshot, EditState } from "./editModel";
 import type {
   DocumentFonts,
   EditOperation, EditOperationPatch,
   EditorTool,
   ExportFormat,
   LoadedPdf,
+  OperationReplacement,
+  PdfRect,
   TextItem,
 } from "../types/editor";
 import { validatePdfFile } from "../utils/fileValidation";
@@ -40,6 +46,20 @@ export function useEditorController() {
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
   const [editState, dispatch] = useReducer(editReducer, initialEditState);
   const pageStageRef = useRef<HTMLDivElement>(null);
+  const documentMutationPendingRef = useRef(false);
+
+  const runDocumentMutation = useCallback(async (mutation: () => Promise<void>) => {
+    if (documentMutationPendingRef.current) return false;
+    documentMutationPendingRef.current = true;
+    setIsBusy(true);
+    try {
+      await mutation();
+      return true;
+    } finally {
+      documentMutationPendingRef.current = false;
+      setIsBusy(false);
+    }
+  }, []);
 
   const selectedOperation = useMemo(() => getSelectedOperation(editState), [editState]);
   const selectedOperations = useMemo(() => getSelectedOperations(editState), [editState]);
@@ -53,15 +73,8 @@ export function useEditorController() {
   // on every unrelated re-render (e.g. a drag/resize commit on another page).
   const pageTextItems = useMemo(() => textItems.filter((item) => item.pageIndex === pageIndex), [textItems, pageIndex]);
 
-  const loadPdfState = useCallback(
-    async (
-      loaded: LoadedPdf,
-      savedEditState?: Partial<Pick<EditState, "operations" | "past" | "future">>,
-      // Callers that already parsed the document for its page sizes (session
-      // restore, page insert/delete/rotate) pass them through so the same bytes
-      // aren't parsed twice per load.
-      precomputedSizes?: Array<{ width: number; height: number }>,
-    ) => {
+  const hydratePdfState = useCallback(
+    async (loaded: LoadedPdf, precomputedSizes?: Array<{ width: number; height: number }>) => {
       const [content, sizes] = await Promise.all([
         pdfEngine.extractTextAndFonts(loaded.bytes),
         precomputedSizes ?? pdfEngine.getPageSizes(loaded.bytes),
@@ -75,6 +88,22 @@ export function useEditorController() {
       setImportedLinkAnnotationIds(
         content.links.map((link) => link.annotationRef).filter((ref): ref is string => typeof ref === "string"),
       );
+      setPageIndex((value) => Math.min(value, Math.max(0, loaded.pageCount - 1)));
+      return { content, sizes };
+    },
+    [],
+  );
+
+  const loadPdfState = useCallback(
+    async (
+      loaded: LoadedPdf,
+      savedEditState?: Partial<Pick<EditState, "operations" | "past" | "future">>,
+      // Callers that already parsed the document for its page sizes (session
+      // restore, page insert/delete/rotate) pass them through so the same bytes
+      // aren't parsed twice per load.
+      precomputedSizes?: Array<{ width: number; height: number }>,
+    ) => {
+      const { content } = await hydratePdfState(loaded, precomputedSizes);
       // Fresh opens seed the baseline with the document's own links (editable,
       // not undoable below the baseline). Restored sessions / page mutations
       // already carry them inside their saved operations.
@@ -84,9 +113,8 @@ export function useEditorController() {
         past: savedEditState?.past,
         future: savedEditState?.future,
       });
-      setPageIndex((value) => Math.min(value, Math.max(0, loaded.pageCount - 1)));
     },
-    [],
+    [hydratePdfState],
   );
 
   const refreshRecentSessions = useCallback(async () => {
@@ -342,6 +370,12 @@ export function useEditorController() {
     setStatus(ids.length === 1 ? "Selection removed" : `${ids.length} objects removed`);
   }, []);
 
+  const replaceOperations = useCallback((replacements: OperationReplacement[]) => {
+    if (replacements.length === 0) return;
+    dispatch({ type: "replace-many", replacements });
+    setStatus(replacements.length === 1 ? "Stroke erased" : `${replacements.length} strokes erased`);
+  }, []);
+
   const translateOperations = useCallback((ids: string[], dx: number, dy: number) => {
     dispatch({ type: "translate", ids, dx, dy });
   }, []);
@@ -364,11 +398,10 @@ export function useEditorController() {
       bytes: Uint8Array,
       nextPageIndex = pageIndex,
       statusMessage = "Document updated",
-      // Applied to the live operations AND every preserved past/future history
-      // snapshot — insert/delete change which page each operation belongs to,
-      // so a stale snapshot restored via undo would reattach ops to the wrong
-      // page (or reference a page index that no longer exists). Defaults to
-      // identity because rotate doesn't renumber pages.
+      // Applied to the live operations for the next PDF revision. Each byte
+      // mutation is recorded as its own document boundary,
+      // so earlier snapshots deliberately stay in the coordinate system of the
+      // exact PDF revision they belong to. Defaults to identity for rotation.
       shiftOperations: (operations: EditOperation[]) => EditOperation[] = (operations) => operations,
     ) => {
       /* v8 ignore next -- all callers (insert/delete/rotate page) already early-return when document is null, so this guard never observes a null document */
@@ -384,75 +417,200 @@ export function useEditorController() {
         // document never had a fingerprint.
         fingerprint: document.fingerprint ?? `${document.name}-${Date.now()}`,
       };
-      // Same shift + page-count filter for the live operations and every
-      // preserved history entry, so undo/redo/restore-history land on the
-      // same page renumbering the live document just went through.
-      const remapForNewPageCount = (operations: EditOperation[]) =>
-        shiftOperations(operations).filter((operation) => operation.pageIndex < next.pageCount);
-      // Undo/redo history survives the reload; a page mutation is an edit, not
-      // a fresh document open.
-      await loadPdfState(
-        next,
-        {
-          operations: remapForNewPageCount(editState.operations),
-          past: editState.past.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
-          future: editState.future.map((entry) => ({ ...entry, operations: remapForNewPageCount(entry.operations) })),
-        },
-        sizes,
-      );
+      const operations = shiftOperations(editState.operations)
+        .filter((operation) => operation.pageIndex < next.pageCount);
+      const nextEditState = editReducer(editState, {
+        type: "document-edit",
+        operations,
+        label: statusMessage,
+        beforeDocument: { bytes: document.bytes, pageIndex },
+      });
+      await hydratePdfState(next, sizes);
+      dispatch({
+        type: "reset",
+        operations: nextEditState.operations,
+        past: nextEditState.past,
+        future: nextEditState.future,
+      });
       setPageIndex(Math.min(nextPageIndex, Math.max(0, next.pageCount - 1)));
       setStatus(statusMessage);
     },
-    [document, editState.operations, editState.past, editState.future, loadPdfState, pageIndex],
+    [document, editState, hydratePdfState, pageIndex],
   );
 
   const insertPageAfter = useCallback(async () => {
     if (!document) return;
-    setIsBusy(true);
-    try {
-      const bytes = await pdfEngine.insertBlankPage(document.bytes, pageIndex);
-      await updateDocumentBytes(bytes, pageIndex + 1, "Blank page inserted", (operations) =>
-        shiftOperationsForInsertedPage(operations, pageIndex + 1),
-      );
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not insert page.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, pageIndex, updateDocumentBytes]);
+    await runDocumentMutation(async () => {
+      try {
+        const bytes = await pdfEngine.insertBlankPage(document.bytes, pageIndex);
+        await updateDocumentBytes(bytes, pageIndex + 1, "Blank page inserted", (operations) =>
+          shiftOperationsForInsertedPage(operations, pageIndex + 1),
+        );
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not insert page.");
+      }
+    });
+  }, [document, pageIndex, runDocumentMutation, updateDocumentBytes]);
 
   const deleteCurrentPage = useCallback(async () => {
     if (!document) return;
-    setIsBusy(true);
-    try {
-      const bytes = await pdfEngine.deletePage(document.bytes, pageIndex);
-      await updateDocumentBytes(bytes, Math.max(0, pageIndex - 1), "Page deleted", (operations) =>
-        shiftOperationsForDeletedPage(operations, pageIndex),
-      );
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not delete page.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, pageIndex, updateDocumentBytes]);
+    await runDocumentMutation(async () => {
+      try {
+        const bytes = await pdfEngine.deletePage(document.bytes, pageIndex);
+        await updateDocumentBytes(bytes, Math.max(0, pageIndex - 1), "Page deleted", (operations) =>
+          shiftOperationsForDeletedPage(operations, pageIndex),
+        );
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not delete page.");
+      }
+    });
+  }, [document, pageIndex, runDocumentMutation, updateDocumentBytes]);
 
   const rotateCurrentPage = useCallback(async () => {
     if (!document) return;
-    setIsBusy(true);
-    try {
-      const bytes = await pdfEngine.rotatePage(document.bytes, pageIndex);
-      await updateDocumentBytes(bytes, pageIndex, "Page rotated");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not rotate page.");
-    } finally {
-      setIsBusy(false);
-    }
-  }, [document, pageIndex, updateDocumentBytes]);
+    await runDocumentMutation(async () => {
+      try {
+        const bytes = await pdfEngine.rotatePage(document.bytes, pageIndex);
+        await updateDocumentBytes(bytes, pageIndex, "Page rotated");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not rotate page.");
+      }
+    });
+  }, [document, pageIndex, runDocumentMutation, updateDocumentBytes]);
 
-  const restoreHistoryEntry = useCallback((id: string) => {
-    dispatch({ type: "restore-history", id });
-    setStatus("Restored selected edit checkpoint");
-  }, []);
+  const restoreDocumentSnapshot = useCallback(
+    async (snapshot: DocumentSnapshot, nextEditState: EditState, statusMessage: string) => {
+      /* v8 ignore next -- snapshot restoration is only reached from history entries created while a document is loaded, and returnHome clears that history */
+      if (!document) return;
+      const sizes = await pdfEngine.getPageSizes(snapshot.bytes);
+      const next: LoadedPdf = {
+        ...document,
+        bytes: snapshot.bytes,
+        pageCount: sizes.length,
+        /* v8 ignore next -- every document mutation mints a missing fingerprint before it can create a restorable snapshot */
+        fingerprint: document.fingerprint ?? `${document.name}-${Date.now()}`,
+      };
+      // `hydratePdfState` parses first and only mutates React state after both
+      // parsing jobs succeed, so a corrupt history snapshot cannot leave the
+      // document and reducer on different revisions.
+      await hydratePdfState(next, sizes);
+      dispatch({
+        type: "reset",
+        operations: nextEditState.operations,
+        past: nextEditState.past,
+        future: nextEditState.future,
+      });
+      setPageIndex(Math.min(snapshot.pageIndex, Math.max(0, next.pageCount - 1)));
+      setStatus(statusMessage);
+    },
+    [document, hydratePdfState],
+  );
+
+  const undo = useCallback(async () => {
+    if (documentMutationPendingRef.current) return;
+    const previous = editState.past.at(-1);
+    if (!previous || !document) return;
+    const snapshot = previous.documentSnapshot;
+    if (!snapshot) {
+      dispatch({ type: "undo" });
+      return;
+    }
+    const currentDocument = { bytes: document.bytes, pageIndex };
+    const nextEditState = editReducer(editState, { type: "undo", currentDocument });
+    await runDocumentMutation(async () => {
+      try {
+        await restoreDocumentSnapshot(snapshot, nextEditState, `${previous.label} undone`);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not undo the document change.");
+      }
+    });
+  }, [document, editState, pageIndex, restoreDocumentSnapshot, runDocumentMutation]);
+
+  const redo = useCallback(async () => {
+    if (documentMutationPendingRef.current) return;
+    const next = editState.future[0];
+    if (!next || !document) return;
+    const snapshot = next.documentSnapshot;
+    if (!snapshot) {
+      dispatch({ type: "redo" });
+      return;
+    }
+    const currentDocument = { bytes: document.bytes, pageIndex };
+    const nextEditState = editReducer(editState, { type: "redo", currentDocument });
+    await runDocumentMutation(async () => {
+      try {
+        await restoreDocumentSnapshot(snapshot, nextEditState, `${next.label} redone`);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not redo the document change.");
+      }
+    });
+  }, [document, editState, pageIndex, restoreDocumentSnapshot, runDocumentMutation]);
+
+  const cropPages = useCallback(async (rect: PdfRect, scope: "current" | "all") => {
+    if (!document) return;
+    // pageSizes comes from PdfEngine.getPageSizes, which reports the visible
+    // CropBox. The selection rect is also stage-relative to that visible box,
+    // so these fractions can be applied directly to the engine's CropBox.
+    const visibleSize = pageSizes[pageIndex];
+    if (!visibleSize) {
+      setStatus("Could not determine the page size for cropping.");
+      return;
+    }
+    await runDocumentMutation(async () => {
+      setStatus(scope === "all" ? "Cropping all pages..." : "Cropping current page...");
+      try {
+        const result = await pdfEngine.cropPages(
+          document.bytes,
+          {
+            x: rect.x / visibleSize.width,
+            y: rect.y / visibleSize.height,
+            width: rect.width / visibleSize.width,
+            height: rect.height / visibleSize.height,
+          },
+          scope === "all" ? { kind: "all" } : { kind: "current", pageIndex },
+        );
+        await updateDocumentBytes(
+          result.bytes,
+          pageIndex,
+          scope === "all" ? "All pages cropped" : `Page ${pageIndex + 1} cropped`,
+          (operations) => remapOperationsForCroppedPages(operations, result.cropBounds),
+        );
+        setActiveTool("select");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not crop the document.");
+      }
+    });
+  }, [document, pageIndex, pageSizes, runDocumentMutation, updateDocumentBytes]);
+
+  const restoreHistoryEntry = useCallback(async (id: string) => {
+    if (documentMutationPendingRef.current) return;
+    const index = editState.past.findIndex((entry) => entry.id === id);
+    const entry = editState.past[index];
+    if (!entry) return;
+    // A normal overlay checkpoint before a crop has no bytes of its own. The
+    // first document boundary at or after it stores the exact revision those
+    // operations belong to. If none exists, the current bytes are already right.
+    const targetDocument = editState.past
+      .slice(index)
+      .find((candidate) => candidate.documentSnapshot)
+      ?.documentSnapshot;
+    const currentDocument = targetDocument && document ? { bytes: document.bytes, pageIndex } : undefined;
+    const nextEditState = editReducer(editState, { type: "restore-history", id, currentDocument });
+    if (!targetDocument) {
+      dispatch({ type: "restore-history", id });
+      setStatus("Restored selected edit checkpoint");
+      return;
+    }
+    /* v8 ignore next -- a document snapshot can only exist in history while its loaded document is still active */
+    if (!document) return;
+    await runDocumentMutation(async () => {
+      try {
+        await restoreDocumentSnapshot(targetDocument, nextEditState, "Restored selected edit checkpoint");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not restore that document checkpoint.");
+      }
+    });
+  }, [document, editState, pageIndex, restoreDocumentSnapshot, runDocumentMutation]);
 
   const runExport = useCallback(
     async (format: ExportFormat) => {
@@ -525,11 +683,15 @@ export function useEditorController() {
     removeSelected,
     removeOperation,
     removeOperations,
+    replaceOperations,
     translateOperations,
     duplicateSelected,
+    undo,
+    redo,
     insertPageAfter,
     deleteCurrentPage,
     rotateCurrentPage,
+    cropPages,
     restoreHistoryEntry,
     runExport,
   };

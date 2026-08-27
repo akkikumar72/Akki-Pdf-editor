@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  createInkOperation,
   createOperationsForTool,
   createReplacementOperation,
   createSnappedAnnotationOperations,
+  createSnappedRedactionOperations,
   createTextItemReplacementOperation,
   describeInlineInput,
 } from "../src/editor/operationFactory";
@@ -42,6 +44,25 @@ describe("operation factory", () => {
     expect(operation.whiteout).toBe(true);
     expect(operation.whiteoutColor).toBe("#d7ecff");
     expect(operation.sourceCoverRect).toEqual(padReplacementCoverRect({ x: 72, y: 700, width: 110, height: 20 }, 20));
+  });
+
+  it("preserves fractional source font sizes exactly", () => {
+    const [operation] = createOperationsForTool({
+      activeTool: "select",
+      viewportRect: { left: 72, top: 80, width: 110, height: 9.3 },
+      pageHeight: 792,
+      pageIndex: 0,
+      scale: 1,
+      sourceTextItem: {
+        ...textItem,
+        rect: { x: 72, y: 702.7, width: 110, height: 9.3 },
+        fontSize: 9.3,
+      },
+    });
+
+    expect(operation.type).toBe("text");
+    if (operation.type !== "text") throw new Error("Expected text operation");
+    expect(operation.fontSize).toBe(9.3);
   });
 
   it("does not set a source cover rect for plain new text", () => {
@@ -297,6 +318,29 @@ describe("operation factory", () => {
     expect(operation.rect.height).toBe(34);
   });
 
+  it("creates dedicated text and area redaction operations", () => {
+    const [textRedaction] = createOperationsForTool({ ...baseInput, activeTool: "redact" });
+    const [areaRedaction] = createOperationsForTool({ ...baseInput, activeTool: "redact-area" });
+    if (textRedaction.type !== "redaction" || areaRedaction.type !== "redaction") {
+      throw new Error("Expected redactions");
+    }
+    expect(textRedaction.mode).toBe("text");
+    expect(areaRedaction.mode).toBe("area");
+    expect(areaRedaction.fillColor).toBe("#111827");
+    expect(areaRedaction.opacity).toBe(1);
+  });
+
+  it("creates one dedicated text redaction per snapped line", () => {
+    const rects = [
+      { x: 20, y: 30, width: 80, height: 12 },
+      { x: 20, y: 12, width: 65, height: 12 },
+    ];
+    const operations = createSnappedRedactionOperations(2, rects);
+    expect(operations).toHaveLength(2);
+    expect(operations.map((operation) => operation.rect)).toEqual(rects);
+    expect(operations.every((operation) => operation.mode === "text" && operation.pageIndex === 2)).toBe(true);
+  });
+
   it("creates a highlight annotation", () => {
     const [operation] = createOperationsForTool({ ...baseInput, activeTool: "highlight" });
     if (operation.type !== "annotation") throw new Error("Expected annotation");
@@ -329,6 +373,34 @@ describe("operation factory", () => {
     ).toEqual([]);
   });
 
+  it("creates a callout immediately with a leader anchor and editable default text", () => {
+    const [callout] = createOperationsForTool({
+      ...baseInput,
+      pageWidth: 612,
+      activeTool: "callout",
+      resolvedFields: { text: "Review this total" },
+    });
+    if (callout.type !== "annotation") throw new Error("Expected annotation");
+    expect(callout.kind).toBe("callout");
+    expect(callout.text).toBe("Review this total");
+    expect(callout.anchor).toBeDefined();
+    expect(callout.elbow).toBeDefined();
+    const [immediate] = createOperationsForTool({ ...baseInput, activeTool: "callout" });
+    expect(immediate).toMatchObject({ type: "annotation", kind: "callout", text: "Callout" });
+  });
+
+  it("places a callout leader on the left when there is room", () => {
+    const [callout] = createOperationsForTool({
+      ...baseInput,
+      activeTool: "callout",
+      viewportRect: { left: 120, top: 50, width: 40, height: 30 },
+    });
+
+    if (callout.type !== "annotation") throw new Error("Expected annotation");
+    expect(callout.anchor!.x).toBeLessThan(callout.rect.x);
+    expect(callout.elbow!.x).toBeLessThan(callout.rect.x);
+  });
+
   it("creates every shape variant", () => {
     const kinds = (["shape", "shape-ellipse", "shape-line", "shape-arrow"] as const).map((tool) => {
       const [operation] = createOperationsForTool({ ...baseInput, activeTool: tool });
@@ -336,6 +408,22 @@ describe("operation factory", () => {
       return operation.kind;
     });
     expect(kinds).toEqual(["rectangle", "ellipse", "line", "arrow"]);
+  });
+
+  it("preserves the exact drag direction for lines and arrows", () => {
+    const lineStart = { x: 80, y: 730 };
+    const lineEnd = { x: 50, y: 700 };
+    for (const activeTool of ["shape-line", "shape-arrow"] as const) {
+      const [operation] = createOperationsForTool({
+        ...baseInput,
+        activeTool,
+        lineStart,
+        lineEnd,
+      });
+      if (operation.type !== "shape") throw new Error("Expected shape");
+      expect(operation.start).toEqual(lineStart);
+      expect(operation.end).toEqual(lineEnd);
+    }
   });
 
   it("creates ink and draw strokes with variant-specific styling", () => {
@@ -349,6 +437,80 @@ describe("operation factory", () => {
     expect(draw.strokeWidth).toBe(2.4);
     expect(draw.variant).toBe("draw");
     expect(ink.points).toHaveLength(4);
+
+    const [marker] = createOperationsForTool({ ...baseInput, activeTool: "freehand-highlight" });
+    if (marker.type !== "ink") throw new Error("Expected marker ink");
+    expect(marker.variant).toBe("freehand-highlight");
+    expect(marker.stroke).toBe("#ffe066");
+    expect(marker.strokeWidth).toBe(18);
+    expect(marker.opacity).toBe(0.42);
+  });
+
+  it("builds an ink operation around the real sampled path", () => {
+    const operation = createInkOperation("draw", 2, [
+      { x: 10, y: 20 },
+      { x: 35, y: 55 },
+      { x: 60, y: 25 },
+    ]);
+
+    expect(operation?.points).toEqual([
+      { x: 10, y: 20 },
+      { x: 35, y: 55 },
+      { x: 60, y: 25 },
+    ]);
+    expect(operation?.rect.width).toBeCloseTo(52.4);
+    expect(operation?.rect.height).toBeCloseTo(37.4);
+    expect(operation?.pageIndex).toBe(2);
+    expect(operation?.variant).toBe("draw");
+  });
+
+  it("supports a single-point ink dot and rejects an empty path", () => {
+    const dot = createInkOperation("ink", 0, [{ x: 8, y: 9 }]);
+    expect(dot?.points).toHaveLength(2);
+    expect(dot?.rect.width).toBeCloseTo(2, 1);
+    expect(dot?.rect.height).toBeCloseTo(2, 1);
+    expect(createInkOperation("ink", 0, [])).toBeUndefined();
+  });
+
+  it("keeps a single-point ink dot inside the page at the top-right boundary", () => {
+    const dot = createInkOperation("ink", 0, [{ x: 611, y: 791 }], { width: 612, height: 792 });
+
+    expect(dot?.points).toHaveLength(2);
+    expect(dot?.points[1].x).toBeLessThan(dot!.points[0].x);
+    expect(dot?.points[1].y).toBeLessThan(dot!.points[0].y);
+  });
+
+  it("clamps sampled ink points and geometry to the PDF page", () => {
+    const operation = createInkOperation(
+      "draw",
+      0,
+      [
+        { x: -40, y: 900 },
+        { x: 700, y: -50 },
+      ],
+      { width: 612, height: 792 },
+    );
+
+    expect(operation).toBeDefined();
+    expect(operation?.points.every((point) => point.x >= 1.2 && point.x <= 610.8)).toBe(true);
+    expect(operation?.points.every((point) => point.y >= 1.2 && point.y <= 790.8)).toBe(true);
+    expect(operation?.rect.x).toBeGreaterThanOrEqual(0);
+    expect(operation?.rect.y).toBeGreaterThanOrEqual(0);
+    expect((operation?.rect.x ?? 0) + (operation?.rect.width ?? 0)).toBeLessThanOrEqual(612);
+    expect((operation?.rect.y ?? 0) + (operation?.rect.height ?? 0)).toBeLessThanOrEqual(792);
+  });
+
+  it("computes deterministic bounds for a very large ink path without argument spreading", () => {
+    const points = Array.from({ length: 100_000 }, (_, index) => ({
+      x: index % 612,
+      y: index % 792,
+    }));
+    const operation = createInkOperation("ink", 4, points, { width: 612, height: 792 });
+
+    expect(operation?.points).toHaveLength(100_000);
+    expect(operation?.points[0]).toEqual({ x: 1, y: 1 });
+    expect(operation?.points.at(-1)).toEqual({ x: 243, y: 207 });
+    expect(operation?.rect).toEqual({ x: 0, y: 0, width: 612, height: 792 });
   });
 
   it("creates nothing for the link tool (routed through the link properties dialog)", () => {
@@ -447,6 +609,54 @@ describe("operation factory", () => {
     expect(mark.opacity).toBe(1);
   });
 
+  it("inserts a direct Cross centered on the click point", () => {
+    const [mark] = createOperationsForTool({ ...baseInput, activeTool: "mark-cross" });
+    if (mark.type !== "form-mark") throw new Error("Expected form-mark");
+    expect(mark.mark).toBe("cross");
+    expect(mark.rect).toEqual({ x: 39, y: 731, width: 22, height: 22 });
+  });
+
+  it("creates deeper form kinds with sensible defaults", () => {
+    const checkbox = createOperationsForTool({ ...baseInput, activeTool: "form-checkbox", resolvedFields: { name: "agree" } })[0];
+    const listbox = createOperationsForTool({ ...baseInput, activeTool: "form-listbox", resolvedFields: { name: "roles", options: "Admin, Viewer" } })[0];
+    const date = createOperationsForTool({ ...baseInput, activeTool: "form-date", resolvedFields: { name: "signed_on" } })[0];
+    const button = createOperationsForTool({
+      ...baseInput,
+      activeTool: "form-button",
+      resolvedFields: { name: "reset", buttonLabel: "Start over", buttonAction: "reset" },
+    })[0];
+    if (checkbox.type !== "form-field" || listbox.type !== "form-field" || date.type !== "form-field" || button.type !== "form-field") {
+      throw new Error("Expected form fields");
+    }
+    expect(checkbox).toMatchObject({ kind: "checkbox", checked: false, exportValue: "Yes" });
+    expect(checkbox.rect).toMatchObject({ width: 22, height: 22 });
+    expect(listbox).toMatchObject({ kind: "listbox", options: ["Admin", "Viewer"], selectedValues: [], multiSelect: false });
+    expect(date).toMatchObject({ kind: "date", dateFormat: "yyyy-MM-dd" });
+    expect(button).toMatchObject({ kind: "button", buttonLabel: "Start over", buttonAction: "reset" });
+  });
+
+  it("uses safe defaults for a button with blank optional settings", () => {
+    const [button] = createOperationsForTool({
+      ...baseInput,
+      activeTool: "form-button",
+      resolvedFields: { name: "reset", buttonLabel: "   " },
+    });
+
+    expect(button).toMatchObject({ kind: "button", buttonLabel: "Reset form", buttonAction: "reset" });
+  });
+
+  it("passes page bounds through the generic ink factory path", () => {
+    const [ink] = createOperationsForTool({
+      ...baseInput,
+      activeTool: "ink",
+      pageWidth: 60,
+      pageHeight: 80,
+    });
+
+    if (ink.type !== "ink") throw new Error("Expected ink");
+    expect(ink.points.every((point) => point.x >= 1 && point.x <= 59 && point.y >= 1 && point.y <= 79)).toBe(true);
+  });
+
   it("bails when the form field name is empty", () => {
     expect(
       createOperationsForTool({ ...baseInput, activeTool: "form-text" }),
@@ -514,7 +724,17 @@ describe("describeInlineInput", () => {
     const descriptor = describeInlineInput("form-dropdown", []);
     expect(descriptor?.fields).toEqual([
       { key: "name", label: "Field name", defaultValue: "dropdown_1" },
-      { key: "options", label: "Dropdown options", defaultValue: "Option 1, Option 2", placeholder: "Comma-separated" },
+      { key: "options", label: "Choices", defaultValue: "Option 1, Option 2", placeholder: "Comma-separated" },
+    ]);
+  });
+
+  it("describes listbox and button inputs while callout creates immediately", () => {
+    expect(describeInlineInput("callout", [])).toBeNull();
+    expect(describeInlineInput("form-listbox", [])?.fields.map((field) => field.key)).toEqual(["name", "options"]);
+    expect(describeInlineInput("form-button", [])?.fields.map((field) => field.key)).toEqual([
+      "name",
+      "buttonLabel",
+      "buttonAction",
     ]);
   });
 

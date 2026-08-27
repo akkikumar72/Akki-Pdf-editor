@@ -15,6 +15,20 @@ describe("toolHints", () => {
     expect(getToolHint("image")?.drawing).toBeUndefined();
   });
 
+  it("describes the new crop, redaction, eraser, marker, callout, Cross, and form gestures", () => {
+    expect(getToolHint("crop")?.drawing).toContain("area to keep");
+    expect(getToolHint("redact")?.armed).toContain("redact");
+    expect(getToolHint("redact-area")?.drawing).toContain("redact");
+    expect(getToolHint("erase")?.armed).toContain("added ink");
+    expect(getToolHint("freehand-highlight")?.drawing).toContain("freehand");
+    expect(getToolHint("callout")?.drawing).toContain("callout");
+    expect(getToolHint("mark-cross")?.armed).toContain("page center");
+    for (const tool of ["form-listbox", "form-checkbox", "form-button", "form-date"] as const) {
+      expect(getToolHint(tool)?.armed).toBeTruthy();
+      expect(getToolHint(tool)?.drawing).toContain("Click and drag");
+    }
+  });
+
   it("returns undefined for tools without a hint", () => {
     expect(getToolHint("select")).toBeUndefined();
   });

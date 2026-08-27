@@ -34,6 +34,9 @@ const COMPACT_FRAME_MAX_PX = 28;
 
 type ResizeHandlesProps = {
   rect: ViewportRect;
+  /** Existing PDF text uses FormaDoc-style horizontal grips. Other overlays
+   *  keep the full eight-handle resize frame. */
+  variant?: "default" | "text";
   /** True while the user drags/resizes the overlay: handles hide (reference
    *  behavior) so the content stays visible; the frame outline keeps showing
    *  the live bounds. */
@@ -51,16 +54,19 @@ function visibleHandles(rect: ViewportRect): HandleConfig[] {
   });
 }
 
-export function ResizeHandles({ rect, interacting = false, onResizeStart }: ResizeHandlesProps) {
+export function ResizeHandles({ rect, variant = "default", interacting = false, onResizeStart }: ResizeHandlesProps) {
   const compact = rect.width < COMPACT_FRAME_MAX_PX || rect.height < COMPACT_FRAME_MAX_PX;
-  const frameClass = `resize-frame${compact ? " is-compact" : ""}${interacting ? " is-interacting" : ""}`;
+  const frameClass = `resize-frame${variant === "text" ? " resize-frame--text" : ""}${compact ? " is-compact" : ""}${interacting ? " is-interacting" : ""}`;
+  const handles = variant === "text"
+    ? HANDLES.filter((handle) => handle.key === "e" || handle.key === "w")
+    : visibleHandles(rect);
   return (
     <div
       className={frameClass}
       style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
       aria-hidden="true"
     >
-      {visibleHandles(rect).map((handle) => (
+      {handles.map((handle) => (
         <div
           key={handle.key}
           className="resize-handle"

@@ -15,7 +15,7 @@ import type {
 type AppShellStubProps = {
   header: ReactNode;
   rail: ReactNode;
-  inspector: ReactNode;
+  inspector?: ReactNode;
   status: ReactNode;
   children: ReactNode;
   wrapStage?: (stage: ReactNode) => ReactNode;
@@ -27,6 +27,7 @@ type ToolRibbonStubProps = {
   disabled: boolean;
   activeTool: EditorTool;
   scale: number;
+  documentName: string;
   onFindReplace: () => void;
   onHome: () => void;
   onUndo: () => void;
@@ -54,6 +55,7 @@ type InspectorStubProps = {
   pageTextItems: TextItem[];
   onUpdate: (id: string, patch: Partial<EditOperation>) => void;
   onExport: (format: ExportFormat) => void;
+  onClose?: () => void;
 };
 
 type StatusBarStubProps = {
@@ -63,6 +65,7 @@ type StatusBarStubProps = {
 
 type PdfCanvasStubProps = {
   activeTool: EditorTool;
+  disabled?: boolean;
   pageIndex: number;
   searchHighlight?: { pageIndex: number; rect: { x: number; y: number; width: number; height: number } } | null;
   selectedIds: string[];
@@ -72,9 +75,11 @@ type PdfCanvasStubProps = {
   onOperationsAdd: (operations: Partial<EditOperation>[]) => void;
   onOperationRemove: (id: string) => void;
   onOperationsRemove: (ids: string[]) => void;
+  onOperationsReplace: (replacements: Array<{ id: string; operations: Partial<EditOperation>[] }>) => void;
   onOperationSelect: (ids: string[], additive?: boolean) => void;
   onOperationsTranslate: (ids: string[], dx: number, dy: number) => void;
   onOperationUpdate: (id: string, patch: Partial<EditOperation>) => void;
+  onPropertiesOpen: () => void;
 };
 
 type FindReplaceDialogStubProps = {
@@ -119,6 +124,7 @@ vi.mock("../src/components/ToolRibbon", () => ({
       <span data-testid="disabled">{String(props.disabled)}</span>
       <span data-testid="activeTool">{props.activeTool}</span>
       <span data-testid="scale">{props.scale}</span>
+      <span data-testid="toolbar-document-name">{props.documentName}</span>
       <button onClick={props.onHome}>home</button>
       <button onClick={props.onUndo}>undo</button>
       <button onClick={props.onRedo}>redo</button>
@@ -129,6 +135,8 @@ vi.mock("../src/components/ToolRibbon", () => ({
       <button onClick={props.onRotatePage}>rotate-page</button>
       <button onClick={() => props.onRestoreHistory("h1")}>restore-history</button>
       <button onClick={() => props.onToolChange("text")}>tool-change</button>
+      <button onClick={() => props.onToolChange("mark-cross")}>cross-tool</button>
+      <button onClick={() => props.onToolChange("crop")}>crop-tool</button>
       <button onClick={() => props.onExport("pdf")}>export</button>
       <button onClick={props.onZoomIn}>zoom-in</button>
       <button onClick={props.onZoomOut}>zoom-out</button>
@@ -154,6 +162,7 @@ vi.mock("../src/components/Inspector", () => ({
       <span data-testid="page-text-count">{props.pageTextItems.length}</span>
       <button onClick={() => props.onUpdate("id-1", { text: "x" })}>inspector-update</button>
       <button onClick={() => props.onExport("txt")}>inspector-export</button>
+      <button onClick={props.onClose}>close-properties</button>
     </div>
   ),
 }));
@@ -171,6 +180,7 @@ vi.mock("../src/components/PdfCanvas", () => ({
   PdfCanvas: (props: PdfCanvasStubProps) => (
     <div data-testid="pdf-canvas">
       <span data-testid="canvas-tool">{props.activeTool}</span>
+      <span data-testid="canvas-disabled">{String(Boolean(props.disabled))}</span>
       <span data-testid="canvas-page">{props.pageIndex}</span>
       <span data-testid="canvas-highlight">{props.searchHighlight ? String(props.searchHighlight.pageIndex) : "none"}</span>
       <button onClick={() => props.onNotice("hi")}>canvas-notice</button>
@@ -178,10 +188,12 @@ vi.mock("../src/components/PdfCanvas", () => ({
       <button onClick={() => props.onOperationsAdd([{ id: "o1" }, { id: "o2" }])}>canvas-add-many</button>
       <button onClick={() => props.onOperationRemove("o")}>canvas-remove</button>
       <button onClick={() => props.onOperationsRemove(["o1", "o2"])}>canvas-remove-many</button>
+      <button onClick={() => props.onOperationsReplace([{ id: "o1", operations: [] }])}>canvas-replace-many</button>
       <button onClick={() => props.onOperationSelect(["o"], true)}>canvas-select</button>
       <button onClick={() => props.onOperationsTranslate(["o1", "o2"], 4, 5)}>canvas-translate</button>
       <button onClick={() => props.onDraggingChange(2)}>canvas-dragging</button>
       <button onClick={() => props.onOperationUpdate("o", { text: "y" })}>canvas-update</button>
+      <button onClick={props.onPropertiesOpen}>canvas-properties</button>
     </div>
   ),
 }));
@@ -238,10 +250,13 @@ function makeController(overrides: Partial<EditorController> = {}): EditorContro
     addOperations: vi.fn(),
     removeOperation: vi.fn(),
     removeOperations: vi.fn(),
+    replaceOperations: vi.fn(),
     translateOperations: vi.fn(),
     duplicateSelected: vi.fn(),
     selectedOperations: [],
     updateOperation: vi.fn(),
+    undo: vi.fn(async () => undefined),
+    redo: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as EditorController;
 }
@@ -317,7 +332,9 @@ describe("EditorRoute - with document", () => {
     expect(screen.getByTestId("app-shell")).toBeInTheDocument();
     expect(screen.getByTestId("canvas-tool").textContent).toBe("select");
     expect(screen.getByTestId("doc-name").textContent).toBe("doc.pdf");
+    expect(screen.getByTestId("toolbar-document-name").textContent).toBe("doc.pdf");
     expect(screen.getByTestId("page-count").textContent).toBe("3");
+    expect(screen.queryByTestId("inspector-cmp")).toBeNull();
   });
 
   it("computes canUndo/canRedo from history length", () => {
@@ -333,6 +350,19 @@ describe("EditorRoute - with document", () => {
     expect(screen.getByTestId("canRedo").textContent).toBe("true");
   });
 
+  it("keeps the properties-selection effect idle while an operation remains selected", () => {
+    renderRoute(makeController({
+      editState: {
+        past: [],
+        future: [],
+        operations: [],
+        selectedIds: ["selected"],
+      },
+    }));
+
+    expect(screen.getByTestId("app-shell")).toBeInTheDocument();
+  });
+
   it("fires the ToolRibbon handlers", () => {
     const controller = makeController();
     renderRoute(controller);
@@ -342,9 +372,9 @@ describe("EditorRoute - with document", () => {
     expect(controller.returnHome).toHaveBeenCalled();
 
     fireEvent.click(screen.getByText("undo"));
-    expect(controller.dispatch).toHaveBeenCalledWith({ type: "undo" });
+    expect(controller.undo).toHaveBeenCalled();
     fireEvent.click(screen.getByText("redo"));
-    expect(controller.dispatch).toHaveBeenCalledWith({ type: "redo" });
+    expect(controller.redo).toHaveBeenCalled();
 
     fireEvent.click(screen.getByText("remove"));
     expect(controller.removeSelected).toHaveBeenCalled();
@@ -362,11 +392,50 @@ describe("EditorRoute - with document", () => {
     expect(controller.runExport).toHaveBeenCalledWith("pdf");
   });
 
+  it("inserts Cross immediately at the page center and returns to Select", () => {
+    const controller = makeController({ scale: 1 });
+    renderRoute(controller);
+
+    fireEvent.click(screen.getByText("cross-tool"));
+
+    expect(controller.addOperation).toHaveBeenCalledWith(expect.objectContaining({
+      type: "form-mark",
+      mark: "cross",
+      pageIndex: 0,
+      rect: { x: 295, y: 385, width: 22, height: 22 },
+    }));
+    expect(controller.setActiveTool).toHaveBeenCalledWith("select");
+    expect(controller.setStatus).toHaveBeenCalledWith("Cross inserted at page center");
+  });
+
+  it("reports when Cross cannot resolve the current page size", () => {
+    const controller = makeController({ pageSizes: [] });
+    renderRoute(controller);
+
+    fireEvent.click(screen.getByText("cross-tool"));
+
+    expect(controller.addOperation).not.toHaveBeenCalled();
+    expect(controller.setActiveTool).not.toHaveBeenCalled();
+    expect(controller.setStatus).toHaveBeenCalledWith("Could not determine the page center for Cross.");
+  });
+
+  it("resets a rotated view before arming Crop", () => {
+    const controller = makeController({ rotation: 90 });
+    renderRoute(controller);
+
+    fireEvent.click(screen.getByText("crop-tool"));
+
+    expect(controller.setRotation).toHaveBeenCalledWith(0);
+    expect(controller.setActiveTool).toHaveBeenCalledWith("crop");
+    expect(controller.setStatus).toHaveBeenCalledWith("View reset to original orientation for accurate cropping.");
+  });
+
   it("applies the rotate, zoom-in and zoom-out updater functions", () => {
     const controller = makeController();
     renderRoute(controller);
 
     fireEvent.click(screen.getByText("rotate"));
+    expect(controller.setActiveTool).toHaveBeenCalledWith("select");
     const rotateUpdater = (controller.setRotation as unknown as Mock).mock.calls[0][0] as (n: number) => number;
     expect(rotateUpdater(300)).toBe(30); // (300 + 90) % 360
     expect(rotateUpdater(0)).toBe(90);
@@ -389,6 +458,7 @@ describe("EditorRoute - with document", () => {
     fireEvent.click(screen.getByText("select-page"));
     expect(controller.setPageIndex).toHaveBeenCalledWith(2);
 
+    fireEvent.click(screen.getByText("canvas-properties"));
     fireEvent.click(screen.getByText("inspector-update"));
     expect(controller.updateOperation).toHaveBeenCalledWith("id-1", { text: "x" });
     fireEvent.click(screen.getByText("inspector-export"));
@@ -402,6 +472,8 @@ describe("EditorRoute - with document", () => {
     expect(controller.removeOperation).toHaveBeenCalledWith("o");
     fireEvent.click(screen.getByText("canvas-remove-many"));
     expect(controller.removeOperations).toHaveBeenCalledWith(["o1", "o2"]);
+    fireEvent.click(screen.getByText("canvas-replace-many"));
+    expect(controller.replaceOperations).toHaveBeenCalledWith([{ id: "o1", operations: [] }]);
     fireEvent.click(screen.getByText("canvas-select"));
     expect(controller.dispatch).toHaveBeenCalledWith({ type: "select", ids: ["o"], additive: true });
     fireEvent.click(screen.getByText("canvas-translate"));
@@ -427,8 +499,51 @@ describe("EditorRoute - with document", () => {
       ] satisfies TextItem[],
     });
     renderRoute(controller);
+    fireEvent.click(screen.getByText("canvas-properties"));
     expect(screen.getByTestId("page-text-count").textContent).toBe("1");
     expect(screen.getByTestId("canvas-page").textContent).toBe("1");
+  });
+
+  it("closes the properties drawer from its close action and Escape", async () => {
+    renderRoute(makeController());
+    fireEvent.click(screen.getByText("canvas-properties"));
+    expect(screen.getByTestId("inspector-cmp")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("close-properties"));
+    expect(screen.queryByTestId("inspector-cmp")).toBeNull();
+
+    fireEvent.click(screen.getByText("canvas-properties"));
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(screen.getByTestId("inspector-cmp")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("inspector-cmp")).toBeNull());
+  });
+
+  it("keeps Properties open when a later gesture listener handles Escape", async () => {
+    renderRoute(makeController());
+    fireEvent.click(screen.getByText("canvas-properties"));
+    const preventGestureEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") event.preventDefault();
+    };
+    window.addEventListener("keydown", preventGestureEscape);
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+
+    await act(async () => {
+      window.dispatchEvent(event);
+      await Promise.resolve();
+    });
+    window.removeEventListener("keydown", preventGestureEscape);
+
+    expect(screen.getByTestId("inspector-cmp")).toBeInTheDocument();
+  });
+
+  it("disables canvas editing and hides edit panels while document bytes are changing", () => {
+    renderRoute(makeController({ isBusy: true }));
+
+    expect(screen.getByTestId("canvas-disabled")).toHaveTextContent("true");
+    fireEvent.click(screen.getByText("canvas-properties"));
+    fireEvent.click(screen.getByText("find-replace"));
+    expect(screen.queryByTestId("inspector-cmp")).toBeNull();
+    expect(screen.queryByTestId("find-replace-dialog")).toBeNull();
   });
 });
 
@@ -483,5 +598,117 @@ describe("EditorRoute - find & replace", () => {
 
     fireEvent.click(screen.getByText("fr-page"));
     expect(controller.setPageIndex).toHaveBeenCalledWith(2);
+  });
+});
+
+describe("EditorRoute - history shortcuts", () => {
+  function makeHistoryController(overrides: Partial<EditorController> = {}) {
+    return makeController({
+      editState: {
+        past: [{ id: "past" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
+        future: [{ id: "future" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
+        operations: [],
+        selectedIds: [],
+      },
+      ...overrides,
+    });
+  }
+
+  it.each([
+    ["Cmd+Z", { key: "z", metaKey: true }, "undo"],
+    ["Ctrl+Z", { key: "z", ctrlKey: true }, "undo"],
+    ["Cmd+Shift+Z", { key: "z", metaKey: true, shiftKey: true }, "redo"],
+    ["Ctrl+Shift+Z", { key: "z", ctrlKey: true, shiftKey: true }, "redo"],
+    ["Ctrl+Y", { key: "y", ctrlKey: true }, "redo"],
+  ] as const)("handles %s", (_label, init, action) => {
+    const controller = makeHistoryController();
+    renderRoute(controller);
+
+    const notPrevented = fireEvent.keyDown(window, init);
+
+    expect(notPrevented).toBe(false);
+    expect(controller[action]).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["input", "textarea", "select"])("leaves %s history shortcuts to the field", (tagName) => {
+    const controller = makeHistoryController();
+    renderRoute(controller);
+    const field = document.createElement(tagName);
+    document.body.appendChild(field);
+
+    const notPrevented = fireEvent.keyDown(field, { key: "z", ctrlKey: true });
+
+    expect(notPrevented).toBe(true);
+    expect(controller.undo).not.toHaveBeenCalled();
+    expect(controller.redo).not.toHaveBeenCalled();
+    field.remove();
+  });
+
+  it("leaves history shortcuts to contenteditable text", () => {
+    const controller = makeHistoryController();
+    renderRoute(controller);
+    const editable = document.createElement("div");
+    editable.setAttribute("contenteditable", "true");
+    document.body.appendChild(editable);
+
+    const notPrevented = fireEvent.keyDown(editable, { key: "z", metaKey: true });
+
+    expect(notPrevented).toBe(true);
+    expect(controller.undo).not.toHaveBeenCalled();
+    expect(controller.redo).not.toHaveBeenCalled();
+    editable.remove();
+  });
+
+  it("ignores non-history key combinations", () => {
+    const controller = makeHistoryController();
+    renderRoute(controller);
+
+    fireEvent.keyDown(window, { key: "z" });
+    fireEvent.keyDown(window, { key: "y", metaKey: true });
+    fireEvent.keyDown(window, { key: "x", ctrlKey: true });
+
+    expect(controller.undo).not.toHaveBeenCalled();
+    expect(controller.redo).not.toHaveBeenCalled();
+  });
+
+  it("leaves unavailable history shortcuts to the browser", () => {
+    const controller = makeController();
+    renderRoute(controller);
+
+    const undoNotPrevented = fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    const redoNotPrevented = fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
+
+    expect(undoNotPrevented).toBe(true);
+    expect(redoNotPrevented).toBe(true);
+    expect(controller.undo).not.toHaveBeenCalled();
+    expect(controller.redo).not.toHaveBeenCalled();
+  });
+
+  it("does not mutate history while the editor is busy", () => {
+    const controller = makeHistoryController({ isBusy: true });
+    renderRoute(controller);
+
+    const notPrevented = fireEvent.keyDown(window, { key: "z", metaKey: true });
+
+    expect(notPrevented).toBe(true);
+    expect(controller.undo).not.toHaveBeenCalled();
+    expect(controller.redo).not.toHaveBeenCalled();
+  });
+
+  it("respects a shortcut already handled by another surface", () => {
+    const controller = makeHistoryController();
+    renderRoute(controller);
+    const event = new KeyboardEvent("keydown", {
+      key: "z",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    event.preventDefault();
+
+    window.dispatchEvent(event);
+
+    expect(controller.undo).not.toHaveBeenCalled();
+    expect(controller.redo).not.toHaveBeenCalled();
   });
 });

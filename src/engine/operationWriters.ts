@@ -1,12 +1,12 @@
-import { PDFDocument, PDFFont, PDFName, PDFPage, PDFString, rgb } from "pdf-lib";
+import { BlendMode, LineCapStyle, PDFDocument, PDFFont, PDFName, PDFPage, PDFString, rgb } from "pdf-lib";
 import type {
   AnnotationOperation,
-  FormFieldOperation,
   FormMarkOperation,
   ImageOperation,
   InkOperation,
   LinkOperation,
   PdfRect,
+  RedactionOperation,
   ShapeOperation,
   SignatureOperation,
   StampOperation,
@@ -104,6 +104,45 @@ export function writeWhiteoutMask(page: PDFPage, rect: PdfRect, color: string, o
 }
 
 /**
+ * Paints a dedicated redaction overlay at full strength. The separate
+ * operation type preserves intent and safety messaging, even though PDF page
+ * content underneath remains part of the source content stream.
+ */
+export async function writeRedaction(
+  page: PDFPage,
+  operation: RedactionOperation,
+  ctx: WriterContext,
+) {
+  const { rect } = operation;
+  page.drawRectangle({
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    color: hexToRgb(operation.fillColor),
+    borderColor: hexToRgb(operation.borderColor ?? operation.fillColor),
+    borderWidth: operation.borderWidth ?? 0,
+    opacity: 1,
+  });
+  const overlayText = operation.overlayText?.trim();
+  if (!overlayText) return;
+  const cleanText = cleanForPdfEncoding(overlayText);
+  if (!cleanText) return;
+  const font = await ctx.getFont("Inter", { bold: true });
+  const fontSize = Math.max(6, Math.min(12, rect.height * 0.42));
+  const textWidth = font.widthOfTextAtSize(cleanText, fontSize);
+  page.drawText(cleanText, {
+    x: rect.x + Math.max(3, (rect.width - textWidth) / 2),
+    y: rect.y + Math.max(2, (rect.height - fontSize) / 2),
+    size: fontSize,
+    font,
+    color: hexToRgb("#ffffff"),
+    maxWidth: Math.max(1, rect.width - 6),
+    opacity: 1,
+  });
+}
+
+/**
  * Draws a replacement text run. A `whiteout` text op additionally draws its
  * mask first, anchored to `sourceCoverRect` (the original PDF text's bounds)
  * rather than the (possibly moved) editable rect, so the underlying glyph
@@ -152,7 +191,9 @@ export async function writeText(page: PDFPage, operation: TextOperation, opacity
     font,
     color: hexToRgb(operation.color),
     opacity,
-    maxWidth: rect.width,
+    // The canvas uses `white-space: pre`: only explicit newlines wrap and a
+    // narrowed box lets the line overflow visibly. Omitting maxWidth keeps the
+    // exported layout identical instead of adding pdf-lib-only soft wrapping.
     lineHeight: operation.fontSize,
   });
 }
@@ -168,6 +209,7 @@ export async function writeAnnotation(page: PDFPage, operation: AnnotationOperat
       height: rect.height,
       color: hexToRgb(operation.color),
       opacity: operation.opacity ?? 0.28,
+      blendMode: BlendMode.Multiply,
     });
     return;
   }
@@ -182,6 +224,59 @@ export async function writeAnnotation(page: PDFPage, operation: AnnotationOperat
       thickness: strokeWidth,
       opacity,
     });
+    return;
+  }
+
+  if (operation.kind === "callout") {
+    const font = await ctx.getFont("Inter");
+    const fontSize = Math.max(7, Math.min(operation.fontSize ?? 12, rect.height * 0.32));
+    const cleanText = operation.text ? cleanForPdfEncoding(operation.text) : undefined;
+    if (cleanText) font.widthOfTextAtSize(cleanText, fontSize);
+    const anchor = operation.anchor ?? { x: rect.x - 48, y: rect.y + rect.height / 2 };
+    const elbow = operation.elbow;
+    const edge = anchor.x <= rect.x
+      ? { x: rect.x, y: rect.y + rect.height / 2 }
+      : { x: rect.x + rect.width, y: rect.y + rect.height / 2 };
+    const points = [anchor, elbow, edge].filter((point): point is { x: number; y: number } => Boolean(point));
+    for (let index = 1; index < points.length; index += 1) {
+      page.drawLine({
+        start: points[index - 1],
+        end: points[index],
+        color: hexToRgb(operation.color),
+        thickness: operation.strokeWidth ?? 1.5,
+        opacity,
+      });
+    }
+    page.drawEllipse({
+      x: anchor.x,
+      y: anchor.y,
+      xScale: 2.5,
+      yScale: 2.5,
+      color: hexToRgb(operation.color),
+      opacity,
+    });
+    page.drawRectangle({
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      borderColor: hexToRgb(operation.color),
+      borderWidth: operation.strokeWidth ?? 1.5,
+      color: fillColorOrUndefined(operation.fillColor) ?? hexToRgb("#ffffff"),
+      opacity: Math.min(opacity, 0.96),
+    });
+    if (cleanText) {
+      page.drawText(cleanText, {
+        x: rect.x + 7,
+        y: rect.y + Math.max(6, rect.height - fontSize - 8),
+        size: fontSize,
+        font,
+        color: hexToRgb(operation.textColor ?? "#111827"),
+        maxWidth: Math.max(12, rect.width - 14),
+        lineHeight: fontSize * 1.25,
+        opacity,
+      });
+    }
     return;
   }
 
@@ -235,19 +330,41 @@ export function writeShape(page: PDFPage, operation: ShapeOperation, opacity: nu
   }
 
   if (operation.kind === "line" || operation.kind === "arrow") {
+    const start = operation.start ?? { x: rect.x, y: rect.y };
+    const end = operation.end ?? { x: rect.x + rect.width, y: rect.y + rect.height };
     page.drawLine({
-      start: { x: rect.x, y: rect.y },
-      end: { x: rect.x + rect.width, y: rect.y + rect.height },
+      start,
+      end,
       color: hexToRgb(operation.stroke),
       thickness: operation.strokeWidth,
       opacity,
+      lineCap: LineCapStyle.Round,
     });
     if (operation.kind === "arrow") {
+      const angle = Math.atan2(end.y - start.y, end.x - start.x);
+      const arrowLength = 10;
+      const arrowAngle = Math.PI / 7;
       page.drawLine({
-        start: { x: rect.x + rect.width, y: rect.y + rect.height },
-        end: { x: rect.x + rect.width - 10, y: rect.y + rect.height - 2 },
+        start: end,
+        end: {
+          x: end.x - arrowLength * Math.cos(angle - arrowAngle),
+          y: end.y - arrowLength * Math.sin(angle - arrowAngle),
+        },
         color: hexToRgb(operation.stroke),
         thickness: operation.strokeWidth,
+        opacity,
+        lineCap: LineCapStyle.Round,
+      });
+      page.drawLine({
+        start: end,
+        end: {
+          x: end.x - arrowLength * Math.cos(angle + arrowAngle),
+          y: end.y - arrowLength * Math.sin(angle + arrowAngle),
+        },
+        color: hexToRgb(operation.stroke),
+        thickness: operation.strokeWidth,
+        opacity,
+        lineCap: LineCapStyle.Round,
       });
     }
     return;
@@ -274,6 +391,8 @@ export function writeInk(page: PDFPage, operation: InkOperation, opacity: number
       color: hexToRgb(operation.stroke),
       thickness: operation.strokeWidth,
       opacity,
+      lineCap: LineCapStyle.Round,
+      blendMode: operation.variant === "freehand-highlight" ? BlendMode.Multiply : undefined,
     });
   }
 }
@@ -400,72 +519,6 @@ export function writeFormMark(page: PDFPage, operation: FormMarkOperation, opaci
     xScale: rect.width * 0.26,
     yScale: rect.height * 0.26,
     color: hexToRgb(operation.color),
-    opacity,
-  });
-}
-
-export async function writeFormField(page: PDFPage, operation: FormFieldOperation, opacity: number, ctx: WriterContext) {
-  const rect = operation.rect;
-  const font = await ctx.getFont("Inter");
-  // Probe encodability before painting anything (atomic skip — see
-  // writeAnnotation; also probed on cleaned text for the same reason).
-  if (operation.kind !== "radio" && operation.kind !== "signature") {
-    font.widthOfTextAtSize(cleanForPdfEncoding(operation.value || operation.name), Math.min(12, Math.max(8, rect.height * 0.3)));
-  }
-  page.drawRectangle({
-    x: rect.x,
-    y: rect.y,
-    width: rect.width,
-    height: rect.height,
-    borderColor: hexToRgb("#64748b"),
-    borderWidth: 1,
-    color: hexToRgb("#ffffff"),
-    opacity: Math.min(opacity, 0.82),
-  });
-
-  if (operation.kind === "radio") {
-    page.drawEllipse({
-      x: rect.x + Math.min(rect.width, rect.height) * 0.42,
-      y: rect.y + rect.height / 2,
-      xScale: Math.min(rect.width, rect.height) * 0.22,
-      yScale: Math.min(rect.width, rect.height) * 0.22,
-      borderColor: hexToRgb("#475569"),
-      borderWidth: 1,
-      opacity,
-    });
-    if (operation.checked) {
-      page.drawEllipse({
-        x: rect.x + Math.min(rect.width, rect.height) * 0.42,
-        y: rect.y + rect.height / 2,
-        xScale: Math.min(rect.width, rect.height) * 0.1,
-        yScale: Math.min(rect.width, rect.height) * 0.1,
-        color: hexToRgb("#111827"),
-        opacity,
-      });
-    }
-    return;
-  }
-
-  if (operation.kind === "signature") {
-    page.drawText("Signature", {
-      x: rect.x + 6,
-      y: rect.y + Math.max(5, rect.height * 0.32),
-      size: Math.min(12, Math.max(8, rect.height * 0.28)),
-      font,
-      color: hexToRgb("#64748b"),
-      maxWidth: Math.max(12, rect.width - 12),
-      opacity,
-    });
-    return;
-  }
-
-  page.drawText(operation.value || operation.name, {
-    x: rect.x + 6,
-    y: rect.y + Math.max(5, rect.height * 0.34),
-    size: Math.min(12, Math.max(8, rect.height * 0.3)),
-    font,
-    color: hexToRgb(operation.value ? "#111827" : "#64748b"),
-    maxWidth: Math.max(12, rect.width - 12),
     opacity,
   });
 }

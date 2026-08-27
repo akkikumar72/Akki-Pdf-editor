@@ -29,8 +29,10 @@ function baseText(overrides: Partial<TextOperation> = {}): TextOperation {
 function renderToolbar(operation: EditOperation, props: Partial<React.ComponentProps<typeof FloatingOperationToolbar>> = {}) {
   const onDelete = vi.fn();
   const onDuplicate = vi.fn();
+  const onDone = vi.fn();
   const onLink = vi.fn();
   const onMoveToggle = vi.fn();
+  const onProperties = vi.fn();
   const onTextPreview = vi.fn();
   const onUpdate = vi.fn();
   const utils = render(
@@ -39,17 +41,20 @@ function renderToolbar(operation: EditOperation, props: Partial<React.ComponentP
       pageWidth={props.pageWidth ?? 600}
       rect={props.rect ?? RECT}
       scale={props.scale ?? 1}
+      variant={props.variant}
       hidden={props.hidden}
       moveModeActive={props.moveModeActive}
       onDelete={onDelete}
       onDuplicate={onDuplicate}
+      onDone={"onDone" in props ? props.onDone : onDone}
       onLink={onLink}
       onMoveToggle={"onMoveToggle" in props ? props.onMoveToggle : onMoveToggle}
+      onProperties={"onProperties" in props ? props.onProperties : undefined}
       onTextPreview={onTextPreview}
       onUpdate={onUpdate}
     />,
   );
-  return { ...utils, onDelete, onDuplicate, onLink, onMoveToggle, onTextPreview, onUpdate };
+  return { ...utils, onDelete, onDuplicate, onDone, onLink, onMoveToggle, onProperties, onTextPreview, onUpdate };
 }
 
 // Realistic layout so getBoundingClientRect-driven measure runs both branches.
@@ -88,6 +93,82 @@ describe("FloatingOperationToolbar", () => {
     expect(screen.getByLabelText("Italic")).toBeInTheDocument();
     expect(screen.getByLabelText("Text color")).toBeInTheDocument();
     expect(screen.getByTestId("font-select")).toBeInTheDocument();
+  });
+
+  it("renders a stable contextual text toolbar with an explicit Done action", () => {
+    const { onDone } = renderToolbar(baseText(), { variant: "contextual" });
+    const toolbar = screen.getByRole("toolbar", { name: "Inline edit tools" });
+    expect(toolbar).toHaveClass("floating-toolbar--contextual");
+    expect(toolbar).not.toHaveAttribute("data-placement");
+    expect((toolbar as HTMLElement).style.left).toBe("");
+    expect((toolbar as HTMLElement).style.top).toBe("");
+    expect(screen.getByText("Editing text")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends contextual text editing when Escape is pressed from a toolbar control", () => {
+    const { onDone } = renderToolbar(baseText(), { variant: "contextual" });
+    const bold = screen.getByRole("button", { name: "Bold" });
+    bold.focus();
+
+    const notPrevented = fireEvent.keyDown(bold, { key: "Escape" });
+
+    expect(notPrevented).toBe(false);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the font-size menu before ending contextual text editing", () => {
+    const { onDone } = renderToolbar(baseText(), { variant: "contextual" });
+    const sizeButton = screen.getByRole("button", { name: "Font size 16" });
+    fireEvent.click(sizeButton);
+
+    const menu = screen.getByRole("menu", { name: "Font size options" });
+    const firstEscapeNotPrevented = fireEvent.keyDown(menu, { key: "Escape" });
+
+    expect(firstEscapeNotPrevented).toBe(false);
+    expect(screen.queryByRole("menu", { name: "Font size options" })).toBeNull();
+    expect(onDone).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(sizeButton, { key: "Escape" });
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not end contextual text editing when a nested font control handled Escape", () => {
+    const { onDone } = renderToolbar(baseText(), { variant: "contextual" });
+    const handledEscape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    handledEscape.preventDefault();
+
+    fireEvent(screen.getByTestId("font-select"), handledEscape);
+
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("ignores unrelated keys while contextual text editing remains active", () => {
+    const { onDone } = renderToolbar(baseText(), { variant: "contextual" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Bold" }), { key: "ArrowRight" });
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("offers the optional Properties action in both toolbar variants", () => {
+    const onProperties = vi.fn();
+    const floating = renderToolbar(baseText(), { onProperties });
+    const floatingProperties = screen.getByRole("button", { name: "Properties" });
+    expect(floatingProperties.querySelector("span")).toBeNull();
+    fireEvent.click(floatingProperties);
+    expect(onProperties).toHaveBeenCalledOnce();
+    floating.unmount();
+
+    onProperties.mockClear();
+    renderToolbar(baseText(), {
+      variant: "contextual",
+      onProperties,
+    });
+    const contextualProperties = screen.getByRole("button", { name: "Properties" });
+    expect(contextualProperties).toHaveTextContent("Properties");
+    fireEvent.click(contextualProperties);
+    expect(onProperties).toHaveBeenCalledOnce();
   });
 
   it("toggles bold on and off with the right patch", () => {

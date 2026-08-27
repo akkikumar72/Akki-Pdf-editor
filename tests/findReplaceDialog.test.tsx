@@ -295,6 +295,17 @@ describe("FindReplaceDialog - dismissal", () => {
 });
 
 describe("FindReplaceDialog - operations filtering", () => {
+  it("does not find text hidden by a dedicated redaction", () => {
+    const redaction: EditOperation = {
+      id: "r1", type: "redaction", mode: "text", pageIndex: 0,
+      rect: { ...items[0].rect }, fillColor: "#111827", createdAt: 1,
+    };
+    renderDialog({ operations: [redaction] });
+    setQuery("hello");
+    clickFind();
+    expect(status()).toBe("Match 1 of 1");
+  });
+
   it("ignores non-replacement operations when filtering searchable items", () => {
     const whiteout: EditOperation = {
       id: "w1",

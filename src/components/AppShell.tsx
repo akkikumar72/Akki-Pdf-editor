@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 type AppShellProps = {
   header: ReactNode;
   rail: ReactNode;
-  inspector: ReactNode;
+  inspector?: ReactNode;
   status: ReactNode;
   children: ReactNode;
   /**
@@ -19,7 +19,11 @@ export function AppShell({ header, rail, inspector, status, children, wrapStage 
       <section className="canvas-region" id="editor-canvas" aria-label="PDF editor canvas">
         {children}
       </section>
-      <aside className="inspector" aria-label="Inspector">{inspector}</aside>
+      {inspector ? (
+        <aside className="inspector" id="editor-properties" aria-label="Properties">
+          {inspector}
+        </aside>
+      ) : null}
     </>
   );
 

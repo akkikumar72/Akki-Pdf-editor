@@ -3,7 +3,10 @@ import type {
   AnnotationOperation,
   EditOperation,
   EditorTool,
+  InkOperation,
+  PdfPoint,
   PdfRect,
+  RedactionOperation,
   TextItem,
   TextOperation,
   ViewportRect,
@@ -36,6 +39,7 @@ type CreateOperationInput = {
   activeTool: EditorTool;
   viewportRect: ViewportRect;
   pageHeight: number;
+  pageWidth?: number;
   pageIndex: number;
   scale: number;
   /** Values resolved from the tool's inline input popover (see `describeInlineInput`), keyed by field. */
@@ -45,6 +49,9 @@ type CreateOperationInput = {
   sampledBackgroundColor?: string;
   sampledTextColor?: string;
   sampledFontWeight?: number;
+  /** Exact PDF-space drag endpoints for line/arrow tools. */
+  lineStart?: PdfPoint;
+  lineEnd?: PdfPoint;
 };
 
 const DEFAULT_COLORS = {
@@ -57,7 +64,11 @@ const FORM_KIND_BY_TOOL = {
   "form-text": "text",
   "form-multiline": "multiline",
   "form-dropdown": "dropdown",
+  "form-listbox": "listbox",
   "form-radio": "radio",
+  "form-checkbox": "checkbox",
+  "form-button": "button",
+  "form-date": "date",
   "form-signature": "signature",
 } as const;
 
@@ -115,9 +126,23 @@ export function describeInlineInput(activeTool: EditorTool, operations: EditOper
     return {
       title: "Add form field",
       confirmLabel: "Add field",
-      fields:
-        activeTool === "form-dropdown"
-          ? [nameField, { key: "options", label: "Dropdown options", defaultValue: "Option 1, Option 2", placeholder: "Comma-separated" }]
+      fields: activeTool === "form-dropdown" || activeTool === "form-listbox"
+        ? [nameField, { key: "options", label: "Choices", defaultValue: "Option 1, Option 2", placeholder: "Comma-separated" }]
+        : activeTool === "form-button"
+          ? [
+              nameField,
+              { key: "buttonLabel", label: "Button label", defaultValue: "Reset form" },
+              {
+                key: "buttonAction",
+                label: "Action",
+                defaultValue: "reset",
+                options: [
+                  { value: "reset", label: "Reset form" },
+                  { value: "print", label: "Print document" },
+                  { value: "none", label: "No action" },
+                ],
+              },
+            ]
           : [nameField],
     };
   }
@@ -174,10 +199,97 @@ export function createSnappedAnnotationOperations(
   }));
 }
 
+/** Dedicated redactions for text-snapped line rectangles. */
+export function createSnappedRedactionOperations(pageIndex: number, rects: PdfRect[]): RedactionOperation[] {
+  const now = Date.now();
+  return rects.map((rect) => ({
+    id: createId("redaction"),
+    type: "redaction",
+    mode: "text",
+    pageIndex,
+    rect,
+    fillColor: "#111827",
+    borderColor: "#111827",
+    borderWidth: 0,
+    opacity: 1,
+    createdAt: now,
+  }));
+}
+
+export function createInkOperation(
+  tool: "ink" | "draw" | "freehand-highlight",
+  pageIndex: number,
+  points: PdfPoint[],
+  pageBounds?: { width: number; height: number },
+): InkOperation | undefined {
+  if (points.length === 0) return undefined;
+  const strokeWidth = tool === "freehand-highlight" ? 18 : tool === "draw" ? 2.4 : 2;
+  const stroke = tool === "freehand-highlight" ? DEFAULT_COLORS.highlight : tool === "draw" ? "#2563eb" : DEFAULT_COLORS.ink;
+  const padding = strokeWidth / 2;
+  const minBoundX = pageBounds ? Math.min(padding, pageBounds.width / 2) : -Infinity;
+  const maxBoundX = pageBounds ? Math.max(minBoundX, pageBounds.width - padding) : Infinity;
+  const minBoundY = pageBounds ? Math.min(padding, pageBounds.height / 2) : -Infinity;
+  const maxBoundY = pageBounds ? Math.max(minBoundY, pageBounds.height - padding) : Infinity;
+  const boundedPoints: PdfPoint[] = [];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    const boundedPoint = {
+      x: Math.min(maxBoundX, Math.max(minBoundX, point.x)),
+      y: Math.min(maxBoundY, Math.max(minBoundY, point.y)),
+    };
+    boundedPoints.push(boundedPoint);
+    minX = Math.min(minX, boundedPoint.x);
+    minY = Math.min(minY, boundedPoint.y);
+    maxX = Math.max(maxX, boundedPoint.x);
+    maxY = Math.max(maxY, boundedPoint.y);
+  }
+  const normalizedPoints = boundedPoints.length === 1
+    ? [
+        boundedPoints[0],
+        {
+          x: boundedPoints[0].x + (pageBounds && boundedPoints[0].x + 0.01 > pageBounds.width - padding ? -0.01 : 0.01),
+          y: boundedPoints[0].y + (pageBounds && boundedPoints[0].y + 0.01 > pageBounds.height - padding ? -0.01 : 0.01),
+        },
+    ]
+    : boundedPoints;
+  if (boundedPoints.length === 1) {
+    minX = Math.min(minX, normalizedPoints[1].x);
+    minY = Math.min(minY, normalizedPoints[1].y);
+    maxX = Math.max(maxX, normalizedPoints[1].x);
+    maxY = Math.max(maxY, normalizedPoints[1].y);
+  }
+  const x = Math.max(0, minX - padding);
+  const y = Math.max(0, minY - padding);
+  const rawWidth = Math.max(strokeWidth, maxX - minX + strokeWidth);
+  const rawHeight = Math.max(strokeWidth, maxY - minY + strokeWidth);
+
+  return {
+    id: createId("ink"),
+    type: "ink",
+    pageIndex,
+    rect: {
+      x,
+      y,
+      width: pageBounds ? Math.min(rawWidth, Math.max(0, pageBounds.width - x)) : rawWidth,
+      height: pageBounds ? Math.min(rawHeight, Math.max(0, pageBounds.height - y)) : rawHeight,
+    },
+    points: normalizedPoints,
+    stroke,
+    strokeWidth,
+    variant: tool,
+    opacity: tool === "freehand-highlight" ? 0.42 : 1,
+    createdAt: Date.now(),
+  };
+}
+
 export function createOperationsForTool({
   activeTool,
   viewportRect,
   pageHeight,
+  pageWidth,
   pageIndex,
   scale,
   resolvedFields,
@@ -186,6 +298,8 @@ export function createOperationsForTool({
   sampledBackgroundColor,
   sampledTextColor,
   sampledFontWeight,
+  lineStart,
+  lineEnd,
 }: CreateOperationInput): EditOperation[] {
   const rect = viewportRectToPdf(viewportRect, pageHeight, scale);
   const now = Date.now();
@@ -206,7 +320,10 @@ export function createOperationsForTool({
         ? Math.max(detectedFontWeight ?? 0, sampledFontWeight)
         : detectedFontWeight;
     const italic = Boolean(styleTextItem?.italic);
-    const fontSize = Math.max(1, Math.round(styleTextItem?.fontSize ?? 14));
+    // Preserve the fractional size PDF.js reports (for example 9.3 pt).
+    // Rounding here made an otherwise exact embedded-font replacement visibly
+    // grow or shrink as soon as editing started.
+    const fontSize = Math.max(1, styleTextItem?.fontSize ?? 14);
     const text = sourceTextItem?.str ?? NEW_TEXT_PLACEHOLDER;
     const replacementWidth = isReplacement
       ? Math.max(rect.width, estimateSingleLineTextWidth(text, fontSize, fontWeight))
@@ -282,6 +399,23 @@ export function createOperationsForTool({
     ];
   }
 
+  if (activeTool === "redact" || activeTool === "redact-area") {
+    return [
+      {
+        id: createId("redaction"),
+        type: "redaction",
+        mode: activeTool === "redact" ? "text" : "area",
+        pageIndex,
+        rect: { ...rect, width: Math.max(rect.width, 28), height: Math.max(rect.height, 12) },
+        fillColor: "#111827",
+        borderColor: "#111827",
+        borderWidth: 0,
+        opacity: 1,
+        createdAt: now,
+      },
+    ];
+  }
+
   if (activeTool === "highlight") {
     return [
       {
@@ -330,6 +464,36 @@ export function createOperationsForTool({
     ];
   }
 
+
+  if (activeTool === "callout") {
+    const text = resolvedFields?.text?.trim() || "Callout";
+    const box = { ...rect, width: Math.max(rect.width, 176), height: Math.max(rect.height, 68) };
+    const leaderOnLeft = box.x >= 64;
+    const anchorX = leaderOnLeft
+      ? Math.max(0, box.x - 52)
+      : Math.min(pageWidth ?? box.x + box.width + 52, box.x + box.width + 52);
+    const edgeX = leaderOnLeft ? box.x : box.x + box.width;
+    return [
+      {
+        id: createId("callout"),
+        type: "annotation",
+        kind: "callout",
+        pageIndex,
+        rect: box,
+        color: "#4f46e5",
+        fillColor: "#ffffff",
+        textColor: "#111827",
+        text,
+        fontSize: 12,
+        strokeWidth: 1.5,
+        anchor: { x: anchorX, y: box.y + box.height / 2 },
+        elbow: { x: leaderOnLeft ? edgeX - 18 : edgeX + 18, y: box.y + box.height / 2 },
+        opacity: 1,
+        createdAt: now,
+      },
+    ];
+  }
+
   if (
     activeTool === "shape" ||
     activeTool === "shape-ellipse" ||
@@ -358,32 +522,30 @@ export function createOperationsForTool({
         stroke: "#ef4444",
         fill: "transparent",
         strokeWidth: 2,
+        start: isLinear ? lineStart : undefined,
+        end: isLinear ? lineEnd : undefined,
         opacity: 1,
         createdAt: now,
       },
     ];
   }
 
-  if (activeTool === "ink" || activeTool === "draw") {
-    return [
-      {
-        id: createId("ink"),
-        type: "ink",
-        pageIndex,
-        rect: { ...rect, width: 120, height: 48 },
-        points: [
-          { x: rect.x, y: rect.y + 10 },
-          { x: rect.x + 28, y: rect.y + 26 },
-          { x: rect.x + 70, y: rect.y + 16 },
-          { x: rect.x + 120, y: rect.y + 32 },
-        ],
-        stroke: activeTool === "draw" ? "#2563eb" : DEFAULT_COLORS.ink,
-        strokeWidth: activeTool === "draw" ? 2.4 : 2,
-        variant: activeTool,
-        opacity: 1,
-        createdAt: now,
-      },
-    ];
+  if (activeTool === "ink" || activeTool === "draw" || activeTool === "freehand-highlight") {
+    const operation = createInkOperation(
+      activeTool,
+      pageIndex,
+      [
+        { x: rect.x, y: rect.y + 10 },
+        { x: rect.x + 28, y: rect.y + 26 },
+        { x: rect.x + 70, y: rect.y + 16 },
+        { x: rect.x + 120, y: rect.y + 32 },
+      ],
+      pageWidth ? { width: pageWidth, height: pageHeight } : undefined,
+    );
+    // The preview path above always contains four points, so creation cannot
+    // return null. Keep that invariant explicit instead of carrying a dead
+    // fallback branch into the public factory.
+    return [operation as InkOperation];
   }
 
   if (activeTool === "stamp") {
@@ -408,25 +570,26 @@ export function createOperationsForTool({
     ];
   }
 
-  if (activeTool === "mark-check") {
+  if (activeTool === "mark-check" || activeTool === "mark-cross") {
     // Center the mark on the actual click point rather than anchoring its top-left
     // there — an existing printed checkbox is usually small, so centering on the
     // click makes it much easier to land the mark inside it. `rect.x` is exactly the
     // click's PDF-space X (unaffected by the placeholder box's width); `rect.y +
     // rect.height` is the click's PDF-space Y (unaffected by the placeholder height).
+    const markSize = activeTool === "mark-cross" ? 22 : CHECK_MARK_SIZE;
     const clickX = rect.x;
     const clickY = rect.y + rect.height;
     return [
       {
         id: createId("mark"),
         type: "form-mark",
-        mark: "check",
+        mark: activeTool === "mark-cross" ? "cross" : "check",
         pageIndex,
         rect: {
-          x: clickX - CHECK_MARK_SIZE / 2,
-          y: clickY - CHECK_MARK_SIZE / 2,
-          width: CHECK_MARK_SIZE,
-          height: CHECK_MARK_SIZE,
+          x: clickX - markSize / 2,
+          y: clickY - markSize / 2,
+          width: markSize,
+          height: markSize,
         },
         color: DEFAULT_COLORS.ink,
         opacity: 1,
@@ -439,27 +602,49 @@ export function createOperationsForTool({
     const name = resolvedFields?.name?.trim();
     if (!name) return [];
     const options =
-      activeTool === "form-dropdown"
+      activeTool === "form-dropdown" || activeTool === "form-listbox"
         ? (resolvedFields?.options ?? "")
             .split(",")
             .map((option) => option.trim())
             .filter(Boolean)
         : undefined;
+    const kind = FORM_KIND_BY_TOOL[activeTool as keyof typeof FORM_KIND_BY_TOOL];
+    const isChoiceMark = kind === "radio" || kind === "checkbox";
+    const minWidth = isChoiceMark ? 22 : kind === "button" ? 110 : 160;
+    const minHeight = isChoiceMark ? 22 : kind === "multiline" || kind === "listbox" ? 76 : kind === "signature" ? 44 : 30;
     return [
       {
         id: createId("form"),
         type: "form-field",
-        kind: FORM_KIND_BY_TOOL[activeTool as keyof typeof FORM_KIND_BY_TOOL],
+        kind,
         pageIndex,
         rect: {
           ...rect,
-          width: Math.max(rect.width, 160),
-          height: Math.max(rect.height, activeTool === "form-multiline" ? 76 : 30),
+          width: Math.max(rect.width, minWidth),
+          height: Math.max(rect.height, minHeight),
         },
         name,
-        value: activeTool === "form-signature" ? "Signature" : undefined,
+        value: kind === "signature" ? "Signature" : kind === "date" ? "" : undefined,
         options,
-        checked: activeTool === "form-radio" ? false : undefined,
+        checked: isChoiceMark ? false : undefined,
+        exportValue: isChoiceMark ? "Yes" : undefined,
+        groupName: kind === "radio" ? name : undefined,
+        selectedValues: kind === "listbox" ? [] : undefined,
+        multiSelect: kind === "listbox" ? false : undefined,
+        buttonLabel: kind === "button" ? resolvedFields?.buttonLabel?.trim() || "Reset form" : undefined,
+        buttonAction: kind === "button"
+          ? (resolvedFields?.buttonAction as "none" | "reset" | "print" | undefined) ?? "reset"
+          : undefined,
+        dateFormat: kind === "date" ? "yyyy-MM-dd" : undefined,
+        fillColor: "#ffffff",
+        borderColor: "#94a3b8",
+        borderWidth: 1,
+        borderStyle: "solid",
+        fontFamily: "Helvetica",
+        fontSize: 11,
+        textColor: "#111827",
+        align: "left",
+        rotation: 0,
         opacity: 1,
         createdAt: now,
       },
