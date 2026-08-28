@@ -1,4 +1,4 @@
-/** Sejda-parity stamp date styles: none, "Feb 3, 2025", "1:15PM, Feb 3, 2025", "3 Feb, 2025", "1:15PM, 3 Feb, 2025". */
+/** Supported stamp date styles: none, "Feb 3, 2025", "1:15PM, Feb 3, 2025", "3 Feb, 2025", "1:15PM, 3 Feb, 2025". */
 export type StampDateStyle = "none" | "mdy" | "time-mdy" | "dmy" | "time-dmy";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

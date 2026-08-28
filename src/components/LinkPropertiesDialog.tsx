@@ -30,7 +30,7 @@ const KIND_ROWS: Array<{ kind: LinkKind; label: string; inputLabel: string; plac
 ];
 
 /**
- * Sejda-parity link properties popover: four radio target kinds, each with an
+ * Link-properties popover with four radio target kinds, each with an
  * inline input, plus Delete link (when editing) and Close. Replaces the old
  * single-URL inline popover for the link tool.
  */

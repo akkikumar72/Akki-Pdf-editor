@@ -1542,8 +1542,8 @@ select:disabled {
   pointer-events: none;
 }
 
-/* Reference parity: the Text tool shows an I-beam over the whole page, not just on
-   existing runs, so empty-area clicks read as "type here" too. */
+/* The Text tool shows an I-beam over the whole page, not just existing runs,
+   so empty-area clicks read as "type here" too. */
 .page-stage.is-text-tool,
 .page-stage.is-text-tool .react-pdf__Page__canvas {
   cursor: text;
@@ -2193,7 +2193,7 @@ select:disabled {
   z-index: 4;
   padding: 0;
   border: 0;
-  /* Reference parity: a 2px dashed accent box that hugs the run on hover. Use
+  /* A 2px dashed accent box hugs the run on hover. Use
      `outline` (not `border`) so toggling it never reflows or shifts the glyphs. */
   outline: 2px dashed transparent;
   border-radius: calc(var(--radius-xs) * 0.75);
@@ -2314,8 +2314,8 @@ select:disabled {
   overflow: visible;
 }
 
-/* Reference parity (Sejda): hovering an editable text run shows a dashed
-   frame as the "click to edit" affordance; it disappears while editing so the
+/* Hovering an editable text run shows a dashed click-to-edit frame. It
+   disappears while editing so the
    text reads clean under the caret. Outline (not border) so it never reflows. */
 @media (hover: hover) {
   .operation--text:not(.is-editing):hover {
@@ -2382,8 +2382,8 @@ select:disabled {
   z-index: 9;
   pointer-events: none;
   border-radius: 2px;
-  /* Reference-parity selection ring (Sejda uses a 2px saturated line): a 2px
-     accent ring sandwiched between white seams so the boundary stays readable
+  /* A 2px accent selection ring is sandwiched between white seams so the
+     boundary stays readable
      on white paper, dark scans, and saturated fills alike. Fixed CSS px, so it
      never fades or thickens with zoom. */
   box-shadow:
@@ -2421,8 +2421,8 @@ select:disabled {
   touch-action: none;
 }
 
-/* Corner handles sit mostly OUTSIDE the frame (reference parity with Sejda's
-   -7px offsets): only ~3px overlaps the content, so even checkbox-sized
+/* Corner handles sit mostly outside the frame. Only about 3px overlaps the
+   content, so even checkbox-sized
    overlays stay visible instead of being buried under a 3x3 grid of grips. */
 .resize-handle[data-handle="nw"] {
   transform: translate(-75%, -75%);
@@ -2464,7 +2464,7 @@ select:disabled {
   background: var(--color-accent-edge);
 }
 
-/* While moving/resizing, hide the grab handles (reference behavior) so the
+/* While moving or resizing, hide the grab handles so the
    content being manipulated stays visible; the frame ring keeps tracking the
    live bounds. */
 .resize-frame.is-interacting .resize-handle {
@@ -2519,7 +2519,7 @@ select:disabled {
   pointer-events: none;
 }
 
-/* In-page activation banner (reference parity). Anchored to the bottom-centre of the
+/* In-page activation banner. Anchored to the bottom-centre of the
    canvas column so the top toolbar dropdowns never cover it; auto-dismissed by
    the component after a few seconds. */
 .canvas-hint {
@@ -2714,7 +2714,7 @@ select:disabled {
   pointer-events: none;
 }
 
-/* Current Find & Replace match flag (reference parity: pink fill + deep-pink hairline). */
+/* Current Find & Replace match flag: pink fill with a deep-pink hairline. */
 .search-match-highlight {
   position: absolute;
   z-index: 7;
@@ -2811,8 +2811,8 @@ select:disabled {
   font-size: var(--text-xs);
 }
 
-/* A link imported from the source PDF: keep the original page content visible
-   and only hint at editability with a subtle dashed outline (Sejda parity). */
+/* A link imported from the source PDF keeps the original page content visible
+   and only hints at editability with a subtle dashed outline. */
 .operation--link-imported {
   border-color: color-mix(in oklch, var(--color-accent) 34%, transparent);
   background: transparent;
@@ -2829,7 +2829,7 @@ select:disabled {
   justify-items: center;
   border-width: 2px;
   border-style: solid;
-  /* Reference parity (Sejda): stamp frames are rounded (rx 20 on a 500 viewBox). */
+  /* Stamp frames use rounded corners. */
   border-radius: var(--radius-sm);
   background: color-mix(in oklch, var(--color-paper) 88%, transparent);
   font-size: var(--text-md);
@@ -3164,7 +3164,7 @@ select:disabled {
   box-shadow: 0 0 0 1px var(--color-accent-edge);
 }
 
-/* Documenso-style tab glyphs sit inline before each label. */
+/* Signature tab glyphs sit inline before each label. */
 .signature-modal .segmented button {
   display: inline-flex;
   align-items: center;
@@ -3198,7 +3198,7 @@ select:disabled {
   margin-top: var(--space-2xs);
 }
 
-/* Documenso-style upload surface: the same pad-shaped card as the Draw tab,
+/* The upload surface uses the same pad-shaped card as the Draw tab,
    acting as one big click/drop target with the preview rendered in place. */
 .signature-modal__dropzone {
   display: flex;
@@ -4664,7 +4664,7 @@ select:disabled {
   font-weight: 700;
 }
 
-/* Minimal PDF editor landing · Xodo-inspired content density */
+/* Compact Akkivo PDF editor landing */
 .pdf-landing {
   --section-gap: 0;
   --section-y: clamp(2rem, 4vw, 3rem);

@@ -1,7 +1,7 @@
 import type { EditorTool } from "../types/editor";
 
 /**
- * In-page activation hints, mirroring a reference editor's top-of-page banner copy.
+ * In-page activation hints for the currently selected tool or drawing gesture.
  * `armed` shows the moment a tool is selected; `drawing` (when present)
  * replaces it while the user is mid drag-to-draw.
  */

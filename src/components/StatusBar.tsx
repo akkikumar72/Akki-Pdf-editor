@@ -27,7 +27,7 @@ export function StatusBar({
   selectedCount = 0,
   status,
 }: StatusBarProps) {
-  // Sejda-parity readouts take over the message slot while a multi-selection
+  // Selection readouts take over the message slot while a multi-selection
   // exists (and while it is being dragged); the regular status returns after.
   const message =
     movingCount > 1

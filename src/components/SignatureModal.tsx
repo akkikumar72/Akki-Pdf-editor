@@ -8,8 +8,8 @@ import { Button } from "./ui/button";
 
 type SignatureTab = "type" | "draw" | "upload";
 
-// Documenso's signing dialog uses these exact lucide glyphs on its tabs
-// (keyboard for typed, a signature squiggle for drawn, cloud-upload for image).
+// Each tab has a task-specific glyph: keyboard for typed, a signature squiggle
+// for drawn, and cloud upload for images.
 const SIGNATURE_TAB_ITEMS: Array<[SignatureTab, string, LucideIcon]> = [
   ["type", "Type", Keyboard],
   ["draw", "Draw", Signature],
@@ -56,7 +56,7 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
     dialogRef.current?.querySelector<HTMLElement>("input, button")?.focus();
   }, []);
 
-  // The pad re-renders from the stroke model on every change (Documenso-style):
+  // The pad re-renders from the stroke model on every change:
   // strokes are data, not paint, which is what makes Undo and trimmed export possible.
   useEffect(() => {
     if (tab !== "draw") return;
@@ -310,7 +310,7 @@ export function SignatureModal({ onCancel, onNotice, onSave }: SignatureModalPro
                 void handleUpload(file);
               }}
             />
-            {/* Documenso-style upload surface: the pad-shaped card is the whole
+            {/* The pad-shaped upload card is the whole
                 control — click (or drop a file on it) to pick, preview in place. */}
             <button
               type="button"

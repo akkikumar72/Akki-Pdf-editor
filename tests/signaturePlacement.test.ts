@@ -78,7 +78,7 @@ describe("signature fonts catalog", () => {
     expect(signatureCssFamily(undefined)).toBe(SIGNATURE_FONTS[0].cssFamily);
   });
 
-  it("ships the Sejda-parity swatches and at least 8 handwriting faces", () => {
+  it("ships the configured swatches and at least 8 handwriting faces", () => {
     expect(SIGNATURE_COLORS).toHaveLength(7);
     expect(SIGNATURE_FONTS.length).toBeGreaterThanOrEqual(8);
   });

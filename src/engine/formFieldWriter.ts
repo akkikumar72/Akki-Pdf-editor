@@ -365,12 +365,12 @@ function addButtonAction(field: PDFField, operation: NormalizedFormFieldOperatio
 }
 
 function addDateActions(field: PDFField, operation: NormalizedFormFieldOperation): void {
-  const acrobatFormat: Record<NormalizedFormFieldOperation["dateFormat"], string> = {
+  const dateActionFormat: Record<NormalizedFormFieldOperation["dateFormat"], string> = {
     "yyyy-MM-dd": "yyyy-mm-dd",
     "MM/dd/yyyy": "mm/dd/yyyy",
     "dd/MM/yyyy": "dd/mm/yyyy",
   };
-  const format = acrobatFormat[operation.dateFormat];
+  const format = dateActionFormat[operation.dateFormat];
   const context = field.acroField.dict.context;
   field.acroField.dict.set(
     PDFName.of("AA"),
@@ -536,8 +536,8 @@ function writeButtonField(
  * pdf-lib cannot create unsigned signature fields through its public API, so
  * `signature` is intentionally exported as an interactive text field and the
  * result reports `signature-text-fallback`. All other supported kinds are real
- * AcroForm controls. Button print and date-format actions use fixed Acrobat
- * JavaScript snippets; readers that disable PDF JavaScript still show the field
+ * AcroForm controls. Button print and date-format actions use viewer JavaScript
+ * with AFDate helper calls. Readers that disable PDF JavaScript still show the field
  * but may not execute those optional actions.
  */
 export async function writeInteractiveFormField(

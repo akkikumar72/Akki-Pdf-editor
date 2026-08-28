@@ -277,7 +277,7 @@ export function PdfCanvas({
     ? operations.find((operation) => operation.id === selectedIds[0])
     : undefined;
   const selectedPageOperations = operations.filter((operation) => selectedIds.includes(operation.id));
-  // Keep Add Text and Edit text distinct, matching FormaDoc. Only Edit text
+  // Keep Add Text and Edit text distinct. Only Edit text
   // exposes source-PDF hit targets; Add Text always creates a new box.
   const canPickExistingText = isPageRendered && activeTool === "select";
   const pdfFile = useMemo(() => ({ data: document.bytes.slice() }), [document.bytes]);
@@ -372,7 +372,7 @@ export function PdfCanvas({
     if (editingTextId && (selectedIds.length !== 1 || selectedIds[0] !== editingTextId)) setEditingTextId(undefined);
   }, [editingTextId, selectedIds]);
 
-  // Sejda-style unused-edit cleanup: whenever a text edit session ends (commit,
+  // Unused-edit cleanup: whenever a text edit session ends (commit,
   // Escape, click-away, selection change), a freshly placed box that is still
   // empty or still holds the untouched placeholder is discarded — abandoned
   // "Type your text" boxes never pollute the document or the export.
@@ -504,7 +504,7 @@ export function PdfCanvas({
       window.requestAnimationFrame(() => setEditingTextId(createdText.id));
     } else if (nextOperations[0]) {
       // Select the freshly drawn op (shape, whiteout, …) so its inline toolbar
-      // and resize handles appear immediately — reference parity for shapes.
+      // and resize handles appear immediately.
       onOperationSelect([nextOperations[0].id]);
     }
     if (nextOperations.some((operation) => operation.type === "redaction")) {
@@ -549,7 +549,7 @@ export function PdfCanvas({
       });
       return;
     }
-    // Sejda-style text snapping: with an annotate tool armed, a marquee becomes
+    // Annotation text snapping: with an annotate tool armed, a marquee becomes
     // one annotation per intersected text-run line (clipped to the marquee) and
     // a plain click annotates the whole run under it. No text hit -> fall
     // through to the existing free-rect behavior.

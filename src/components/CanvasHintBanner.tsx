@@ -8,7 +8,7 @@ type CanvasHintBannerProps = {
 };
 
 /**
- * Reference-style in-page activation banner. Pinned to the bottom of the canvas,
+ * Tool-guidance banner pinned to the bottom of the canvas.
  * it tells the user how to perform the current tool's action and switches copy
  * once they start a drag-to-draw. Driven purely by active-tool + drag state.
  */

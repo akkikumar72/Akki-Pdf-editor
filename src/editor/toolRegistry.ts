@@ -69,7 +69,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   { id: "form-signature", label: "Signature box", icon: FileSignature, placement: "region", group: "forms", description: "Reserve a signature box." },
 
   { id: "image", label: "New image", icon: Image, placement: "file", group: "media", description: "Place a local PNG or JPEG on the page." },
-  { id: "stamp", label: "Stamp", icon: Stamp, placement: "point", group: "media", description: "Add a reusable approval/date-style stamp." },
+  { id: "stamp", label: "Stamp", icon: Stamp, placement: "point", group: "media", description: "Add a labeled stamp with optional date formatting." },
   { id: "signature", label: "Signature", icon: Signature, placement: "prompt", group: "media", description: "Create or place a typed/drawn/image signature." },
 
   { id: "annotate-text", label: "Note", icon: MessageSquareText, placement: "point", group: "annotate", description: "Add a text note annotation." },

@@ -22,7 +22,7 @@ Numbering continues from the retired `plans/` directory (001–014, deleted in
 | 020  | Bundle splitting + floating-page diet | P2 | M | — | TODO |
 | 022  | Font-registry eviction (FontFace leak) | P2 | M | — | TODO |
 | 023  | Keyboard overlay placement (a11y spike) | P2 | M | — | TODO |
-| 017  | Export real AcroForm form fields (spike) | P2 | M | — | TODO (reconciled 2026-07-18: zero PDFForm usage confirmed) |
+| 017  | Export interactive AcroForm form fields | P2 | M | — | DONE (2026-08-27) |
 | 018  | Evaluate a maintained pdf-lib fork (spike) | P3 | M | — | TODO (reconciled 2026-07-18: still on pdf-lib ^1.17.1) |
 | 024  | Multi-line text operations always fail export with standard fonts | P2 | M | — | TODO |
 
@@ -45,7 +45,8 @@ no plan files exist for them:
 ## Dependency notes
 
 - 016 supersedes the runtime "skip and report" safety net — after it lands, skipped-edit statuses should become rare.
-- 017 (AcroForm) should land before any CSV-driven bulk form-fill work (rejected below) is reconsidered.
+- Interactive AcroForm export is complete. Keep any CSV-driven bulk form-fill
+  work separate until its product workflow is specified.
 - **Font-picker follow-ups (2026-07-19 branch review)**: execute **025 → 026**, with **027** in parallel anytime after FontFamilySelect exists; then **021**. Plans 015–024 (except the 021 refresh) were **not** re-scoped in that review — they remain the prior backlog.
 - Prerequisite for 025–027: uncommitted/shared `FontFamilySelect` work must be on the execution branch (not only in a dirty main worktree).
 
@@ -72,13 +73,19 @@ Deep-audit findings fixed in the same session that produced plans 019-023:
   the text-layer MutationObserver filters mutation targets so drag frames no
   longer force span-scan reflows; `/assets/*` get immutable cache headers.
 - Hygiene: Remotion showcase no longer depicts the removed Table tool;
-  `plan.md` carries a SUPERSEDED banner; favicon + OG/Twitter meta added;
+  favicon + OG/Twitter meta added;
   ToolRibbon menus/history dialog close on Escape; `@vitest/coverage-v8` pin
   aligned; stale "e2e resize suite" v8-ignore comments replaced with real
   branch coverage; new `textRunGrouping` unit suite; corrupt-PDF rejection test.
 
 ## Decisions needed from the maintainer (recorded, not actioned)
 
+- **PDF attachments**: decide whether attachment import and export belong in the
+  local-first product surface.
+- **Form-field tab order**: define the editing UX and export guarantees before
+  adding manual tab-order controls.
+- **Publish for others to fill and sign**: this requires an intentional hosted
+  service and conflicts with the current fully client-side model.
 - **LICENSE**: public repo with no license file (all-rights-reserved by
   default). Pick one (MIT?) and add `"license"` to package.json.
 - **Committed video binaries (~10MB)** in `video/public/`: keep, LFS, or

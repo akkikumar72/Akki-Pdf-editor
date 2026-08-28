@@ -34,7 +34,7 @@ function renderDialog(request: LinkDialogRequest, pageCount = 3) {
 }
 
 describe("LinkPropertiesDialog", () => {
-  it("renders all four Sejda-parity kinds with the URL kind active and focused by default", () => {
+  it("renders all four link kinds with the URL kind active and focused by default", () => {
     const { getByRole, getByLabelText } = renderDialog(makeRequest());
     expect(getByRole("dialog", { name: "Add link" })).toBeInTheDocument();
     for (const label of ["Link to external URL", "Link to email address", "Link to phone number", "Link to internal page"]) {

@@ -69,7 +69,7 @@ describe("tool registry", () => {
     ]);
   });
 
-  it("keeps the FormaDoc-style direct tools in toolbar order", () => {
+  it("keeps direct tools in toolbar order", () => {
     expect(TOOL_GROUPS.map((group) => group.id).slice(0, 10)).toEqual([
       "crop",
       "select",

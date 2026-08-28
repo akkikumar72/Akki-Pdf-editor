@@ -846,7 +846,7 @@ describe("PdfCanvas - operation overlays and selection", () => {
     expect(container.querySelector(".resize-frame")).toBeTruthy();
   });
 
-  it("renders only horizontal FormaDoc-style handles for selected text", () => {
+  it("renders only horizontal handles for selected source text", () => {
     const op = textOp();
     const { container } = renderCanvas({ operations: [op], selectedIds: [op.id] });
     const frame = container.querySelector(".resize-frame--text");
@@ -3278,7 +3278,7 @@ describe("PdfCanvas - OperationOverlay text edit callbacks", () => {
   });
 });
 
-describe("PdfCanvas - Sejda-style placeholder text UX", () => {
+describe("PdfCanvas - placeholder text editing", () => {
   it("selects the whole placeholder on edit start so typing replaces it", () => {
     const op = textOp({ text: "Type your text" });
     const { container } = renderCanvas({

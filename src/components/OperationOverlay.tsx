@@ -112,7 +112,7 @@ function OperationOverlayComponent({
     element.focus({ preventScroll: true });
     const selection = window.getSelection();
     if (!selection) return;
-    // Reference parity (Sejda): a box still holding the untouched placeholder
+    // A box still holding the untouched placeholder
     // gets its whole content selected, so the very first keystroke replaces it —
     // no manual select-and-delete before typing.
     if (editingText.current === NEW_TEXT_PLACEHOLDER) {
@@ -122,7 +122,7 @@ function OperationOverlayComponent({
       selection.addRange(range);
       return;
     }
-    // Reference parity: drop the caret where the user clicked. Fall back to the
+    // Drop the caret where the user clicked. Fall back to the
     // start of the run when the click point can't be resolved inside this run.
     const point = getLastPointerDownPoint();
     if (point) {
@@ -171,7 +171,7 @@ function OperationOverlayComponent({
             letterSpacing: operation.letterSpacing ? operation.letterSpacing * scale : undefined,
             color: operation.color,
             textAlign: operation.align,
-            // Reference parity: the editable run carries no fill of its own — the
+            // The editable run carries no fill of its own. The
             // dedicated `.operation--source-cover` masks the original glyphs. This
             // keeps a moved/edited run as pure text (no white box clipping the line
             // above or trailing behind when dragged). The guarded fallback only
@@ -194,8 +194,8 @@ function OperationOverlayComponent({
           }}
           onBlur={(event) => {
             if (!editing) return;
-            // Clicking the inline toolbar must not end the edit session —
-            // reference behavior: style controls (bold, size, font) apply to the
+            // Clicking the inline toolbar must not end the edit session. Style
+            // controls such as bold, size, and font apply to the
             // still-active text box, and typing can resume right after.
             const next = event.relatedTarget as HTMLElement | null;
             if (next?.closest(".floating-toolbar")) return;
