@@ -10,8 +10,8 @@ export function replacementCoverPadding(fontSize: number): number {
  * instead of the full PDF.js line box. PDF.js text-run boxes span a full em
  * (~ascent + descent + leading); the painted glyphs only reach cap/ascent
  * (~0.78em). Whiting out the untouched top strip erases the descenders of a
- * tightly-leaded line above (the reference editor keeps the mask tight to the run). Trimming
- * the top is safe: the original glyphs never reach that strip.
+ * tightly-leaded line above. Trimming the top is safe because the original
+ * glyphs never reach that strip.
  */
 export function replacementCoverTopTrim(fontSize: number): number {
   return fontSize * 0.16;

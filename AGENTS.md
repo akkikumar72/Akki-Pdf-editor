@@ -7,6 +7,12 @@ Repo-specific guidance for AI agents and contributors working on Akkivo.
 A local-first, fully client-side PDF editor (no backend). Imported PDFs stay in the
 browser; edits are modeled as overlay operations and only written into PDF bytes on export.
 
+## Product language
+
+- Use Akkivo-owned language in code, tests, documentation, comments, and filenames.
+- Describe behavior directly instead of framing features against another product.
+- Preserve exact dependency identifiers and legally required third-party attribution.
+
 ## Stack & commands
 
 - React 18 + Vite + TypeScript (strict). Package manager: **bun only** (Node 20+). Never

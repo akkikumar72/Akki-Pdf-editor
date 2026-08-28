@@ -75,9 +75,9 @@ const FORM_KIND_BY_TOOL = {
 /** Square size (PDF pt) for a freshly placed check mark, before the user resizes it. */
 const CHECK_MARK_SIZE = 16;
 
-/** Placeholder for a freshly placed text box (reference parity with Sejda's
- *  "Type your text"). The canvas fully selects it on edit start so the first
- *  keystroke replaces it, and discards the box if it is abandoned unchanged. */
+/** Placeholder text for a freshly placed text box. The canvas fully selects
+ *  `Type your text` on edit start so the first keystroke replaces it, and
+ *  discards the box if it is abandoned unchanged. */
 export const NEW_TEXT_PLACEHOLDER = "Type your text";
 
 function estimateSingleLineTextWidth(text: string, fontSize: number, fontWeight?: number) {
@@ -336,10 +336,9 @@ export function createOperationsForTool({
     // 42px click box) visibly drops the caret below the click point.
     const newTextHeight = Math.max(fontSize * 1.15, 16);
     // The incoming viewport rect anchors its TOP edge at the click, which would
-    // render the whole line below the cursor. Reference parity (Sejda measured
-    // live): the new box is centered vertically ON the click point, so the text
-    // originates where the cursor is. The click's PDF-space Y is the rect's top
-    // edge (rect.y + rect.height, since PDF rects anchor bottom-left).
+    // render the whole line below the cursor. Center the new box vertically on
+    // the click point so the text originates at the cursor. The click's PDF-space
+    // Y is the rect's top edge (rect.y + rect.height, since PDF rects anchor bottom-left).
     const clickPdfY = rect.y + rect.height;
     return [
       {

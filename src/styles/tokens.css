@@ -39,7 +39,7 @@
   --color-success: oklch(54% 0.15 150);
   --color-warning: oklch(80% 0.16 84);
 
-  /* Tactile button surface (Bubble-style: bright face, solid darker base edge, soft olive ghost border) */
+  /* Tactile button surface: bright face, darker base edge, and soft olive border. */
   --color-btn-face: oklch(80% 0.16 150);
   --color-btn-edge: oklch(70% 0.18 150);
   --color-btn-cast: oklch(70% 0.18 150 / 0.42);

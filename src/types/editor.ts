@@ -160,8 +160,8 @@ export type InkOperation = BaseOperation & {
 };
 
 /**
- * Where a link operation points (Sejda parity: external URL, email, phone,
- * internal page). `email`/`phone` store the full scheme-qualified href
+ * Supported link targets: external URL, email, phone, or
+ * internal page. `email`/`phone` store the full scheme-qualified href
  * (`mailto:…`/`tel:…`) so the writer and overlay never re-derive it.
  */
 export type LinkTarget =

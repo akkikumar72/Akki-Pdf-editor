@@ -1,7 +1,7 @@
 /**
- * Handwriting faces for the signature studio (reference parity with Sejda's
- * Type tab). Served through the existing Google Fonts import in tokens.css —
- * the deployed CSP already allows fonts.googleapis.com / fonts.gstatic.com.
+ * Handwriting faces for Akkivo's typed-signature studio. Served through the
+ * existing Google Fonts import in tokens.css. The deployed CSP already allows
+ * fonts.googleapis.com and fonts.gstatic.com.
  * Typed signatures are rasterized to PNG at placement time (see
  * `rasterizeTypedSignature`), so these faces never need to embed in pdf-lib.
  */
@@ -23,7 +23,7 @@ export const SIGNATURE_FONTS: SignatureFontChoice[] = [
   { label: "Give You Glory", cssFamily: '"Give You Glory", cursive' },
 ];
 
-/** Sejda's seven signature ink swatches, in their menu order. */
+/** Configured signature ink swatches, ordered from vivid blue to black. */
 export const SIGNATURE_COLORS = ["#4d6de6", "#2b4ea1", "#3524fe", "#0000FF", "#555555", "#333333", "#000000"];
 
 export function signatureCssFamily(label?: string): string {

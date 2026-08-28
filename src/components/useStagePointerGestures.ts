@@ -601,7 +601,7 @@ export function useStagePointerGestures({
           editingTextId !== pressedOperation.id &&
           (activeTool === "text" || (activeTool === "select" && drag.wasSelected))
         ) {
-          // FormaDoc-style select-then-edit: the first click selects, while a
+          // Select-then-edit flow: the first click selects, while a
           // no-move second click on that selected run starts text entry.
           setEditingTextId(pressedOperation.id);
         }
@@ -662,7 +662,7 @@ export function useStagePointerGestures({
       return;
     }
     // Shift/Cmd-click toggles the pressed overlay in and out of the selection
-    // set (Sejda-style multi-select) and never starts a drag.
+    // set and never starts a drag.
     if (event.shiftKey || event.metaKey) {
       onOperationSelect([operation.id], true);
       return;

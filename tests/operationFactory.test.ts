@@ -262,7 +262,7 @@ describe("operation factory", () => {
     // Height must track the font's own line height (not a flat constant unrelated to
     // fontSize) so the caret lands at the click point instead of visibly below it.
     expect(operation.rect.height).toBeCloseTo(operation.fontSize * 1.15, 5);
-    // Reference parity (Sejda): the box is centered vertically ON the click point
+    // The box is centered vertically on the click point
     // (PDF-space click Y = pageHeight - viewportRect.top, here 792 - 50), so the
     // text originates at the cursor instead of hanging below it.
     const boxCenterY = operation.rect.y + operation.rect.height / 2;

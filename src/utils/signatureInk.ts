@@ -22,9 +22,8 @@ export type InkPathContext = {
 };
 
 /**
- * Documenso-style ink feel (its signature pad drives perfect-freehand the same
- * way): a medium nib thinned by velocity, with input smoothing/streamlining so
- * jittery pointer samples still produce a calm line.
+ * Signature ink uses a medium nib thinned by velocity. Input smoothing
+ * and streamlining turn jittery pointer samples into a calm line.
  */
 const STROKE_OPTIONS = {
   size: 5,

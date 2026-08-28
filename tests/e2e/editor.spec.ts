@@ -76,7 +76,7 @@ test("imports a PDF and adds a text overlay", async ({ page }, testInfo) => {
     .getByRole("region", { name: "PDF editor canvas" })
     .locator(".react-pdf__Page__canvas")
     .click({ position: { x: 320, y: 360 } });
-  // Sejda-parity placement: the box appears instantly with the placeholder
+  // The box appears instantly with the placeholder
   // fully selected, so typing replaces it without any select-and-delete.
   await expect(page.getByRole("region", { name: "PDF editor canvas" }).getByText("Type your text")).toBeVisible();
   const styledEditor = page
@@ -555,7 +555,7 @@ test("keeps selection tools in the contextual row while drag move shows guides",
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 140, y: 420 } });
   const textOverlay = canvas.locator(".operation--text").last();
   await expect(textOverlay).toBeVisible();
-  // An untouched placeholder box is discarded on commit (Sejda-style cleanup),
+  // An untouched placeholder box is discarded on commit,
   // so give it real content before ending the edit session.
   await canvas.locator(".operation--text[contenteditable='true']").pressSequentially("Guides anchor");
   await page.keyboard.press("Escape");

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { formatStampDate, stampDateStyleOptions } from "../src/utils/stampDate";
 
-// Feb 3, 2025 13:15 local time (matches Sejda's example strings).
+// Fixed local date used by the expected formatted strings.
 const AFTERNOON = new Date(2025, 1, 3, 13, 15);
 const MIDNIGHT = new Date(2025, 1, 3, 0, 5);
 const NOON = new Date(2025, 1, 3, 12, 0);
 
 describe("formatStampDate", () => {
-  it("formats every Sejda date style", () => {
+  it("formats every supported stamp date style", () => {
     expect(formatStampDate("none", AFTERNOON)).toBe("");
     expect(formatStampDate("mdy", AFTERNOON)).toBe("Feb 3, 2025");
     expect(formatStampDate("time-mdy", AFTERNOON)).toBe("1:15PM, Feb 3, 2025");

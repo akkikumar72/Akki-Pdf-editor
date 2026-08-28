@@ -50,7 +50,7 @@ Two acceptable resolutions, in preference order:
 1. **Option A (recommended): remove view-only rotation.** Delete the "Rotate
    view" button, `rotation` state, and its session persistence; keep only
    "Rotate page permanently", which needs no compensating math. Simpler, and
-   Sejda-style editors survive without a transient view rotation.
+   Akkivo can remain complete without a transient view rotation.
 2. **Option B: make the coordinate layer rotation-aware.** Add
    `rotation` to `viewportRectToPdf`/`pdfRectToViewport`/`viewportPointToPdf`
    (swap width/height and transform axes for 90/180/270) and thread it through

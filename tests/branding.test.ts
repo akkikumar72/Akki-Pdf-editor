@@ -9,7 +9,7 @@ const publicBrandSurfaces = [
   "docs/polar-checkout.md",
   "index.html",
   "package.json",
-  "plan.md",
+  "docs/editor-workbench-requirements.md",
   "public/favicon.svg",
   "scripts/smoke-test.sh",
   "src/components/AkkivoLogo.tsx",

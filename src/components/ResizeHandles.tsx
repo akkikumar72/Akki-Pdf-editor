@@ -34,11 +34,11 @@ const COMPACT_FRAME_MAX_PX = 28;
 
 type ResizeHandlesProps = {
   rect: ViewportRect;
-  /** Existing PDF text uses FormaDoc-style horizontal grips. Other overlays
+  /** Existing PDF text uses focused horizontal grips. Other overlays
    *  keep the full eight-handle resize frame. */
   variant?: "default" | "text";
-  /** True while the user drags/resizes the overlay: handles hide (reference
-   *  behavior) so the content stays visible; the frame outline keeps showing
+  /** True while the user drags or resizes the overlay. Handles hide so the
+   *  content stays visible; the frame outline keeps showing
    *  the live bounds. */
   interacting?: boolean;
   onResizeStart: (handle: ResizeHandle, event: ReactPointerEvent<HTMLDivElement>) => void;
