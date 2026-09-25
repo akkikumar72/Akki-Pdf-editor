@@ -24,6 +24,8 @@ import { AkkivoLogo } from "./AkkivoLogo";
 import { Button } from "./ui/button";
 
 type ToolRibbonProps = {
+  compact?: boolean;
+  onFit?: () => void;
   activeTool: EditorTool;
   canRedo: boolean;
   canUndo: boolean;
@@ -143,7 +145,7 @@ export function ToolRibbon(props: ToolRibbonProps) {
   };
 
   return (
-    <div className="tool-ribbon" onKeyDown={handleKeyDown}>
+    <div className={`tool-ribbon${props.compact ? " tool-ribbon--compact" : ""}`} onKeyDown={handleKeyDown}>
       <div className="tool-ribbon__document-bar">
         <AkkivoLogo
           className="tool-ribbon__brand"
@@ -152,17 +154,30 @@ export function ToolRibbon(props: ToolRibbonProps) {
           title="Back to home"
           onClick={props.onHome}
         />
+        {props.compact && <span className="studio-header-label">PDF studio</span>}
         <div className="tool-ribbon__filename" title={props.documentName}>
           <FileText aria-hidden="true" />
           <span>{props.documentName}</span>
         </div>
+        {props.compact && (
+          <span className="studio-local-label">
+            <span className="studio-local-dot" />
+            Local workspace
+          </span>
+        )}
         <div className="tool-ribbon__document-actions" role="toolbar" aria-label="Document actions">
-          <button className="icon-button" aria-label="Find and replace" disabled={props.disabled} title="Find & replace" onClick={props.onFindReplace}>
+          <button
+            className="icon-button"
+            aria-label="Find and replace"
+            disabled={props.disabled}
+            title="Find & replace"
+            onClick={props.onFindReplace}
+          >
             <Search aria-hidden="true" />
           </button>
           <Button size="sm" variant="primary" disabled={props.disabled} onClick={() => props.onExport("pdf")}>
             <Save aria-hidden="true" />
-            Apply
+            {props.compact ? "Download PDF" : "Apply"}
           </Button>
           <div className="export-menu">
             <Download aria-hidden="true" />
@@ -176,7 +191,9 @@ export function ToolRibbon(props: ToolRibbonProps) {
                 event.currentTarget.value = "";
               }}
             >
-              <option value="" disabled>Export</option>
+              <option value="" disabled>
+                Export
+              </option>
               <option value="pdf">Edited PDF</option>
               <option value="txt">Text</option>
               <option value="csv">CSV</option>
@@ -188,7 +205,13 @@ export function ToolRibbon(props: ToolRibbonProps) {
 
       <div className="tool-ribbon__editing-bar">
         <div className="tool-group tool-group--compact tool-group--history" role="group" aria-label="Edit history">
-          <button className="icon-button" aria-label="Undo" disabled={!props.canUndo || props.disabled} title="Undo" onClick={props.onUndo}>
+          <button
+            className="icon-button"
+            aria-label="Undo"
+            disabled={!props.canUndo || props.disabled}
+            title="Undo"
+            onClick={props.onUndo}
+          >
             <Undo2 aria-hidden="true" />
           </button>
           <button
@@ -204,115 +227,174 @@ export function ToolRibbon(props: ToolRibbonProps) {
           >
             <History aria-hidden="true" />
           </button>
-          <button className="icon-button" aria-label="Redo" disabled={!props.canRedo || props.disabled} title="Redo" onClick={props.onRedo}>
+          <button
+            className="icon-button"
+            aria-label="Redo"
+            disabled={!props.canRedo || props.disabled}
+            title="Redo"
+            onClick={props.onRedo}
+          >
             <Redo2 aria-hidden="true" />
           </button>
         </div>
 
-        <div className="tool-group tool-group--tools" role="toolbar" aria-label="Editing tools">
-          {TOOL_GROUPS.map((group) => {
-            const activeToolInGroup = group.tools.some((tool) => tool.id === props.activeTool);
-            const primary = group.tools.find((tool) => tool.id === props.activeTool) ?? group.tools[0];
-            const Icon = primary.icon;
-            const menuId = `tool-menu-${group.id}`;
-            return (
-              <div ref={openGroup === group.id ? activeMenuRef : undefined} className="tool-menu" key={group.id}>
-                <div className={group.tools.length > 1 ? "tool-menu__split" : undefined}>
-                  <button
-                    className="tool-button"
-                    aria-pressed={activeToolInGroup}
-                    disabled={props.disabled}
-                    title={primary.description}
-                    onClick={() => {
-                      if (activeToolInGroup && group.primary !== "select") {
-                        props.onToolChange("select");
-                        setOpenGroup(undefined);
-                        return;
-                      }
-                      props.onToolChange(group.primary);
-                      setOpenGroup(undefined);
-                    }}
-                  >
-                    <Icon aria-hidden="true" />
-                    <span>{activeToolInGroup ? primary.label : group.label}</span>
-                  </button>
-                  {group.tools.length > 1 ? (
+        {!props.compact && (
+          <div className="tool-group tool-group--tools" role="toolbar" aria-label="Editing tools">
+            {TOOL_GROUPS.map((group) => {
+              const activeToolInGroup = group.tools.some((tool) => tool.id === props.activeTool);
+              const primary = group.tools.find((tool) => tool.id === props.activeTool) ?? group.tools[0];
+              const Icon = primary.icon;
+              const menuId = `tool-menu-${group.id}`;
+              return (
+                <div ref={openGroup === group.id ? activeMenuRef : undefined} className="tool-menu" key={group.id}>
+                  <div className={group.tools.length > 1 ? "tool-menu__split" : undefined}>
                     <button
-                      className="tool-menu__trigger"
-                      type="button"
-                      aria-label={`Choose ${group.label} tool. Current: ${primary.label}`}
-                      aria-haspopup="menu"
-                      aria-expanded={openGroup === group.id}
-                      aria-controls={menuId}
+                      className="tool-button"
+                      aria-pressed={activeToolInGroup}
                       disabled={props.disabled}
-                      title={`Choose ${group.label} tool. Current: ${primary.label}`}
-                      onClick={(event) => {
-                        triggerRef.current = event.currentTarget;
-                        setOpenGroup((value) => (value === group.id ? undefined : group.id));
+                      title={primary.description}
+                      onClick={() => {
+                        if (activeToolInGroup && group.primary !== "select") {
+                          props.onToolChange("select");
+                          setOpenGroup(undefined);
+                          return;
+                        }
+                        props.onToolChange(group.primary);
+                        setOpenGroup(undefined);
                       }}
                     >
-                      <ChevronDown aria-hidden="true" />
+                      <Icon aria-hidden="true" />
+                      <span>{activeToolInGroup ? primary.label : group.label}</span>
                     </button>
+                    {group.tools.length > 1 ? (
+                      <button
+                        className="tool-menu__trigger"
+                        type="button"
+                        aria-label={`Choose ${group.label} tool. Current: ${primary.label}`}
+                        aria-haspopup="menu"
+                        aria-expanded={openGroup === group.id}
+                        aria-controls={menuId}
+                        disabled={props.disabled}
+                        title={`Choose ${group.label} tool. Current: ${primary.label}`}
+                        onClick={(event) => {
+                          triggerRef.current = event.currentTarget;
+                          setOpenGroup((value) => (value === group.id ? undefined : group.id));
+                        }}
+                      >
+                        <ChevronDown aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </div>
+                  {group.tools.length > 1 && openGroup === group.id ? (
+                    <div
+                      id={menuId}
+                      className="tool-menu__popover"
+                      role="menu"
+                      aria-label={`${group.label} tools`}
+                      style={compactMenuPosition}
+                      onKeyDown={handleMenuKeyDown}
+                    >
+                      {group.tools.map((tool, index) => {
+                        const MenuIcon = tool.icon;
+                        return (
+                          <button
+                            key={tool.id}
+                            role="menuitemradio"
+                            tabIndex={index === 0 ? 0 : -1}
+                            className="tool-menu__item"
+                            aria-checked={props.activeTool === tool.id}
+                            onClick={() => {
+                              const trigger = triggerRef.current;
+                              props.onToolChange(tool.id);
+                              setOpenGroup(undefined);
+                              trigger?.focus();
+                            }}
+                          >
+                            <MenuIcon aria-hidden="true" />
+                            <span>{tool.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   ) : null}
                 </div>
-                {group.tools.length > 1 && openGroup === group.id ? (
-                  <div
-                    id={menuId}
-                    className="tool-menu__popover"
-                    role="menu"
-                    aria-label={`${group.label} tools`}
-                    style={compactMenuPosition}
-                    onKeyDown={handleMenuKeyDown}
-                  >
-                    {group.tools.map((tool, index) => {
-                      const MenuIcon = tool.icon;
-                      return (
-                        <button
-                          key={tool.id}
-                          role="menuitemradio"
-                          tabIndex={index === 0 ? 0 : -1}
-                          className="tool-menu__item"
-                          aria-checked={props.activeTool === tool.id}
-                          onClick={() => {
-                            const trigger = triggerRef.current;
-                            props.onToolChange(tool.id);
-                            setOpenGroup(undefined);
-                            trigger?.focus();
-                          }}
-                        >
-                          <MenuIcon aria-hidden="true" />
-                          <span>{tool.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
-        <div className="tool-group tool-group--compact tool-group--utility" role="group" aria-label="Page and view controls">
-          <button className="icon-button" aria-label="Remove selected" disabled={props.selectedIds.length === 0 || props.disabled} title="Remove selected" onClick={props.onRemove}>
+        <div
+          className="tool-group tool-group--compact tool-group--utility"
+          role="group"
+          aria-label="Page and view controls"
+        >
+          <button
+            className="icon-button"
+            aria-label="Remove selected"
+            disabled={props.selectedIds.length === 0 || props.disabled}
+            title="Remove selected"
+            onClick={props.onRemove}
+          >
             <Trash2 aria-hidden="true" />
           </button>
-          <button className="icon-button" aria-label="Insert blank page" disabled={props.disabled} title="Insert blank page after current page" onClick={props.onInsertPage}>
+          <button
+            className="icon-button"
+            aria-label="Insert blank page"
+            disabled={props.disabled}
+            title="Insert blank page after current page"
+            onClick={props.onInsertPage}
+          >
             <FilePlus2 aria-hidden="true" />
           </button>
-          <button className="icon-button" aria-label="Delete current page" disabled={props.disabled} title="Delete current page" onClick={props.onDeletePage}>
+          <button
+            className="icon-button"
+            aria-label="Delete current page"
+            disabled={props.disabled}
+            title="Delete current page"
+            onClick={props.onDeletePage}
+          >
             <FileX2 aria-hidden="true" />
           </button>
-          <button className="icon-button" aria-label="Zoom out" disabled={props.disabled} title="Zoom out" onClick={props.onZoomOut}>
+          <button
+            className="icon-button"
+            aria-label="Zoom out"
+            disabled={props.disabled}
+            title="Zoom out"
+            onClick={props.onZoomOut}
+          >
             <Minus aria-hidden="true" />
           </button>
+          {props.onFit && (
+            <button className="studio-fit-button" disabled={props.disabled} onClick={props.onFit}>
+              Fit page
+            </button>
+          )}
           <span className="zoom-readout">{Math.round(props.scale * 100)}%</span>
-          <button className="icon-button" aria-label="Zoom in" disabled={props.disabled} title="Zoom in" onClick={props.onZoomIn}>
+          <button
+            className="icon-button"
+            aria-label="Zoom in"
+            disabled={props.disabled}
+            title="Zoom in"
+            onClick={props.onZoomIn}
+          >
             <Plus aria-hidden="true" />
           </button>
-          <button className="icon-button" aria-label="Rotate view" disabled={props.disabled} title="Rotate view" onClick={props.onRotate}>
+          <button
+            className="icon-button"
+            aria-label="Rotate view"
+            disabled={props.disabled}
+            title="Rotate view"
+            onClick={props.onRotate}
+          >
             <RotateCw aria-hidden="true" />
           </button>
-          <button className="icon-button" aria-label="Rotate page permanently" disabled={props.disabled} title="Rotate page permanently" onClick={props.onRotatePage}>
+          <button
+            className="icon-button"
+            aria-label="Rotate page permanently"
+            disabled={props.disabled}
+            title="Rotate page permanently"
+            onClick={props.onRotatePage}
+          >
             <FileDown aria-hidden="true" />
           </button>
         </div>
@@ -337,28 +419,36 @@ export function ToolRibbon(props: ToolRibbonProps) {
               </button>
             </div>
             <div className="history-dialog__list">
-              {orderedHistory.length ? orderedHistory.map((entry) => (
-                <label className="history-dialog__row" key={entry.id}>
-                  <input
-                    type="radio"
-                    name="history-entry"
-                    checked={activeHistoryId === entry.id}
-                    onChange={() => setSelectedHistoryId(entry.id)}
-                  />
-                  <span className="history-dialog__meta">
-                    <strong>{entry.label}</strong>
-                    <small>{entry.operations.length} edits before this change</small>
-                  </span>
-                  <time dateTime={new Date(entry.timestamp).toISOString()}>
-                    {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                  </time>
-                </label>
-              )) : (
+              {orderedHistory.length ? (
+                orderedHistory.map((entry) => (
+                  <label className="history-dialog__row" key={entry.id}>
+                    <input
+                      type="radio"
+                      name="history-entry"
+                      checked={activeHistoryId === entry.id}
+                      onChange={() => setSelectedHistoryId(entry.id)}
+                    />
+                    <span className="history-dialog__meta">
+                      <strong>{entry.label}</strong>
+                      <small>{entry.operations.length} edits before this change</small>
+                    </span>
+                    <time dateTime={new Date(entry.timestamp).toISOString()}>
+                      {new Date(entry.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    </time>
+                  </label>
+                ))
+              ) : (
                 <p className="history-dialog__empty">No edit history yet.</p>
               )}
             </div>
             <div className="history-dialog__actions">
-              <Button variant="quiet" size="sm" onClick={() => setHistoryOpen(false)}>Cancel</Button>
+              <Button variant="quiet" size="sm" onClick={() => setHistoryOpen(false)}>
+                Cancel
+              </Button>
               <Button
                 variant="primary"
                 size="sm"

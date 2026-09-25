@@ -1,0 +1,45 @@
+/* Hallmark · Newsprint adapted for Akkivo's document workspace.
+ * Canonical theme overrides. Legacy spacing and editor-specific tokens stay in src/styles/tokens.css.
+ */
+:root {
+  --color-paper: oklch(94% 0.028 50);
+  --color-paper-2: oklch(91% 0.038 50);
+  --color-paper-3: oklch(86% 0.04 45);
+  --color-surface: oklch(98% 0.012 65);
+  --color-surface-2: oklch(95.5% 0.022 55);
+  --color-ink: oklch(24% 0.022 30);
+  --color-ink-2: oklch(35% 0.028 30);
+  --color-muted: oklch(48% 0.028 35);
+  --color-rule: oklch(81% 0.027 45);
+  --color-rule-2: oklch(66% 0.032 40);
+  --color-accent: oklch(40% 0.115 28);
+  --color-accent-edge: oklch(32% 0.095 28);
+  --color-accent-soft: oklch(88% 0.05 38);
+  --color-accent-wash: oklch(95% 0.025 40);
+  --color-accent-ink: oklch(98% 0.012 65);
+  --color-accent-cast: oklch(40% 0.115 28 / 0.12);
+  --color-focus: oklch(44% 0.15 28);
+  --color-shadow: oklch(24% 0.022 30 / 0.12);
+  --color-shadow-soft: oklch(24% 0.022 30 / 0.045);
+  --color-rail: oklch(27% 0.025 30);
+  --color-rail-ink: oklch(95% 0.025 50);
+  --color-rail-muted: oklch(79% 0.035 45);
+  --color-rail-hover: oklch(35% 0.03 30);
+  --color-rail-rule: oklch(44% 0.035 30);
+  --color-btn-face: var(--color-accent);
+  --color-btn-edge: var(--color-accent-edge);
+  --color-btn-cast: transparent;
+  --color-btn-ink: var(--color-accent-ink);
+  --color-btn-ghost-border: var(--color-rule-2);
+  --font-display: "Playfair Display", Georgia, ui-serif, serif;
+  --font-ui: Geist, ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-ui);
+  --font-wordmark: var(--font-display);
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --akkivo-mark-primary: var(--color-accent);
+  --akkivo-mark-secondary: oklch(66% 0.065 32);
+  --akkivo-mark-fold: var(--color-accent-edge);
+}

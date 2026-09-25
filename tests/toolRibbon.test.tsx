@@ -33,7 +33,7 @@ function makeProps(overrides: Partial<React.ComponentProps<typeof ToolRibbon>> =
 }
 
 function entry(id: string, ts: number, ops = 1): EditHistoryEntry {
-  return { id, label: `Entry ${id}`, timestamp: ts, operations: Array.from({ length: ops }, () => ({} as never)) };
+  return { id, label: `Entry ${id}`, timestamp: ts, operations: Array.from({ length: ops }, () => ({}) as never) };
 }
 
 describe("ToolRibbon", () => {
@@ -243,7 +243,10 @@ describe("ToolRibbon", () => {
     });
 
     it("anchors a compact picker to its trigger and updates it on resize", () => {
-      vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn(() => ({ matches: true })),
+      );
       const { container } = render(<ToolRibbon {...makeProps()} />);
       const trigger = screen.getByRole("button", { name: /Choose Draw tool/ });
       const menuHost = trigger.closest(".tool-menu") as HTMLElement;
@@ -282,7 +285,10 @@ describe("ToolRibbon", () => {
     });
 
     it("leaves desktop picker positioning to CSS", () => {
-      vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn(() => ({ matches: false })),
+      );
       render(<ToolRibbon {...makeProps()} />);
       fireEvent.click(screen.getByRole("button", { name: /Choose Draw tool/ }));
       expect(screen.getByRole("menu", { name: "Draw tools" })).not.toHaveAttribute("style");
@@ -435,4 +441,14 @@ describe("ToolRibbon", () => {
       expect(document.activeElement).toBe(historyButton);
     });
   });
+});
+
+it("provides a compact studio header with fit and download actions", () => {
+  const props = makeProps({ compact: true, onFit: vi.fn() });
+  render(<ToolRibbon {...props} />);
+  expect(screen.queryByRole("toolbar", { name: "Editing tools" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Fit page" }));
+  expect(props.onFit).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Download PDF" }));
+  expect(props.onExport).toHaveBeenCalledWith("pdf");
 });

@@ -65,8 +65,8 @@ test("imports a PDF and adds a text overlay", async ({ page }, testInfo) => {
   await makeSamplePdf(pdfPath);
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /lighter touch/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /dropbox/i })).toBeDisabled();
+  await expect(page.getByRole("heading", { name: /Your document desk/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /dropbox/i })).toHaveCount(0);
 
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
   await expect(page.getByText(/sample\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
@@ -136,7 +136,7 @@ test("imports a PDF and adds a text overlay", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: "Close properties" }).click();
   await expect(page.getByRole("complementary", { name: "Properties" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: /Apply/i }).click();
+  await page.getByRole("button", { name: /Download PDF/i }).click();
   await expect(page.getByText(/PDF exported|Exporting PDF/i)).toBeVisible();
 });
 
@@ -194,41 +194,20 @@ test("keeps every page and view control clickable at tablet width", async ({ pag
   await expect(page.getByRole("region", { name: "PDF editor canvas" })).toBeVisible();
 });
 
-test("keeps grouped tool pickers compact and anchored at tablet width", async ({ page }, testInfo) => {
-  const pdfPath = testInfo.outputPath("compact-tool-picker.pdf");
+test("searches all sidebar tools without losing the canvas at tablet width", async ({ page }, testInfo) => {
+  const pdfPath = testInfo.outputPath("search-tools.pdf");
   await makeSamplePdf(pdfPath);
   await page.setViewportSize({ width: 1100, height: 760 });
-
   await page.goto("/");
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
-  await expect(page.getByText(/compact-tool-picker\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
-
-  const editingTools = page.getByRole("toolbar", { name: "Editing tools" });
-  const drawButton = editingTools.getByRole("button", { name: "Draw", exact: true });
-  const trigger = editingTools.getByRole("button", { name: /Choose Draw tool/ });
-  await trigger.click();
-
-  const menu = page.getByRole("menu", { name: "Draw tools" });
-  await expect(menu).toBeVisible();
-  const [drawBox, triggerBox, menuBox, itemBoxes] = await Promise.all([
-    drawButton.boundingBox(),
-    trigger.boundingBox(),
-    menu.boundingBox(),
-    menu.getByRole("menuitemradio").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height)),
-  ]);
-
-  expect(drawBox).not.toBeNull();
-  expect(triggerBox).not.toBeNull();
-  expect(menuBox).not.toBeNull();
-  expect(menuBox!.width).toBeGreaterThanOrEqual(184);
-  expect(menuBox!.width).toBeLessThanOrEqual(202);
-  expect(Math.abs(menuBox!.x - drawBox!.x)).toBeLessThanOrEqual(2);
-  expect(menuBox!.y - (triggerBox!.y + triggerBox!.height)).toBeGreaterThanOrEqual(4);
-  expect(menuBox!.y - (triggerBox!.y + triggerBox!.height)).toBeLessThanOrEqual(8);
-  for (const height of itemBoxes) {
-    expect(height).toBeGreaterThanOrEqual(34);
-    expect(height).toBeLessThanOrEqual(38);
-  }
+  await expect(page.locator(".page-stage canvas")).toBeVisible();
+  await page.getByRole("textbox", { name: "Search tools" }).fill("ink");
+  await page.getByRole("toolbar", { name: "Editing tools" }).getByRole("button", { name: "Ink", exact: true }).click();
+  await expect(page.locator('[data-tool="ink"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".page-stage")).toHaveClass(/is-ink-tool/);
+  await page.getByRole("button", { name: "Clear tool search" }).click();
+  await expect(page.locator('[data-tool="form-dropdown"]')).toHaveCount(1);
+  await expect(page.getByRole("region", { name: "PDF editor canvas" })).toBeVisible();
 });
 
 test("scopes direct-touch handling to canvas gesture targets", async ({ page }, testInfo) => {
@@ -294,7 +273,7 @@ test("draws a sampled freehand stroke and restores it through keyboard history",
   await page.keyboard.press("Control+Shift+z");
   await expect(stroke).toHaveCount(1);
 
-  await page.getByRole("button", { name: /Apply/i }).click();
+  await page.getByRole("button", { name: /Download PDF/i }).click();
   await expect(page.getByText(/PDF exported|Exporting PDF/i)).toBeVisible();
 });
 
@@ -386,7 +365,7 @@ test("local save restores the PDF session after reload and can return home", asy
   await expect(page.locator(".operation--text").filter({ hasText: "Saved note" })).toBeVisible();
 
   await page.getByRole("button", { name: "Akkivo home" }).click();
-  await expect(page.getByRole("heading", { name: /lighter touch/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Your document desk/i })).toBeVisible();
   const recentSessions = page.getByLabel("Recent local sessions");
   const resumeLocalSave = recentSessions.getByRole("button", { name: /^local-save\.pdf/i });
   const removeLocalSave = recentSessions.getByRole("button", { name: /^remove local-save\.pdf/i });
@@ -404,8 +383,8 @@ test("local save restores the PDF session after reload and can return home", asy
   await expect(page.getByText(/local-save\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: "Akkivo home" }).click();
   await expect(recentSessions.getByRole("button", { name: /^local-save\.pdf/i })).toBeVisible();
-  await recentSessions.getByRole("button", { name: /clear all/i }).click();
-  await expect(page.getByLabel("Recent local sessions")).toHaveCount(0);
+  await recentSessions.getByRole("button", { name: /Clear local history/i }).click();
+  await expect(page.getByText("Your next project belongs here.")).toBeVisible();
 });
 
 test("timestamped undo history can restore a selected edit checkpoint", async ({ page }, testInfo) => {
@@ -566,7 +545,9 @@ test("keeps selection tools in the contextual row while drag move shows guides",
   const textResizeFrame = canvas.locator(".resize-frame--text");
   await expect(textResizeFrame).toHaveCount(1);
   await expect(textResizeFrame.locator(".resize-handle")).toHaveCount(2);
-  await expect(canvas.locator(".contextual-toolbar-shell").getByRole("toolbar", { name: "Inline edit tools" })).toBeVisible();
+  await expect(
+    canvas.locator(".contextual-toolbar-shell").getByRole("toolbar", { name: "Inline edit tools" }),
+  ).toBeVisible();
   await expect(canvas.locator(".page-stage .floating-toolbar")).toHaveCount(0);
 
   // Move-drag lives in the Edit text tool; with the Text tool active a click would edit instead.
@@ -591,7 +572,9 @@ test("keeps selection tools in the contextual row while drag move shows guides",
   expect(startBox!.y - endBox!.y).toBeGreaterThan(20);
 });
 
-test("keeps the contextual toolbar inside the editor when selection is near the right edge", async ({ page }, testInfo) => {
+test("keeps the contextual toolbar inside the editor when selection is near the right edge", async ({
+  page,
+}, testInfo) => {
   const pdfPath = testInfo.outputPath("right-edge.pdf");
   await makeSamplePdf(pdfPath);
 
@@ -725,14 +708,14 @@ test("text tool click on a text overlay edits it in place without moving", async
 
 test("creates a blank document from the tool hub", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("PDF editor preview").getByRole("button", { name: "Blank PDF" }).click();
+  await page.getByRole("button", { name: "Blank PDF", exact: true }).click();
 
   await expect(page.getByText(/Blank PDF created/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("button", { name: /Apply/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Download PDF/i })).toBeVisible();
   await expect(page.getByRole("button", { name: "Forms", exact: true })).toBeVisible();
 });
 
-test("opens the Forms dropdown and places a dropdown field through the inline popover", async ({ page }, testInfo) => {
+test("places a dropdown field from the sidebar through the inline popover", async ({ page }, testInfo) => {
   const pdfPath = testInfo.outputPath("forms-dropdown.pdf");
   await makeSamplePdf(pdfPath);
 
@@ -742,9 +725,8 @@ test("opens the Forms dropdown and places a dropdown field through the inline po
 
   await page
     .getByRole("toolbar", { name: "Editing tools" })
-    .getByRole("button", { name: /Choose Forms tool/ })
+    .getByRole("button", { name: "Dropdown", exact: true })
     .click();
-  await page.getByRole("menu").getByRole("menuitemradio", { name: "Dropdown" }).click();
 
   const canvas = page.getByRole("region", { name: "PDF editor canvas" });
   await canvas.locator(".react-pdf__Page__canvas").click({ position: { x: 320, y: 360 } });

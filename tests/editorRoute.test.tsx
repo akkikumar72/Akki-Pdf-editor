@@ -4,13 +4,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import type { EditHistoryEntry, EditState } from "../src/state/editModel";
 import type { EditorController } from "../src/state/useEditorController";
-import type {
-  EditOperation,
-  EditorTool,
-  ExportFormat,
-  LoadedPdf,
-  TextItem,
-} from "../src/types/editor";
+import type { EditOperation, EditorTool, ExportFormat, LoadedPdf, TextItem } from "../src/types/editor";
 
 type AppShellStubProps = {
   header: ReactNode;
@@ -85,7 +79,9 @@ type PdfCanvasStubProps = {
 type FindReplaceDialogStubProps = {
   textItems: TextItem[];
   onAddOperations: (operations: Partial<EditOperation>[]) => void;
-  onHighlight: (highlight: { pageIndex: number; rect: { x: number; y: number; width: number; height: number } } | null) => void;
+  onHighlight: (
+    highlight: { pageIndex: number; rect: { x: number; y: number; width: number; height: number } } | null,
+  ) => void;
   onPageChange: (pageIndex: number) => void;
   onClose: () => void;
 };
@@ -182,7 +178,9 @@ vi.mock("../src/components/PdfCanvas", () => ({
       <span data-testid="canvas-tool">{props.activeTool}</span>
       <span data-testid="canvas-disabled">{String(Boolean(props.disabled))}</span>
       <span data-testid="canvas-page">{props.pageIndex}</span>
-      <span data-testid="canvas-highlight">{props.searchHighlight ? String(props.searchHighlight.pageIndex) : "none"}</span>
+      <span data-testid="canvas-highlight">
+        {props.searchHighlight ? String(props.searchHighlight.pageIndex) : "none"}
+      </span>
       <button onClick={() => props.onNotice("hi")}>canvas-notice</button>
       <button onClick={() => props.onOperationAdd({ id: "o" })}>canvas-add</button>
       <button onClick={() => props.onOperationsAdd([{ id: "o1" }, { id: "o2" }])}>canvas-add-many</button>
@@ -203,7 +201,9 @@ vi.mock("../src/components/FindReplaceDialog", () => ({
     <div data-testid="find-replace-dialog">
       <span data-testid="find-text-count">{props.textItems.length}</span>
       <button onClick={() => props.onAddOperations([{ id: "fr" }])}>fr-add</button>
-      <button onClick={() => props.onHighlight({ pageIndex: 1, rect: { x: 1, y: 2, width: 3, height: 4 } })}>fr-highlight</button>
+      <button onClick={() => props.onHighlight({ pageIndex: 1, rect: { x: 1, y: 2, width: 3, height: 4 } })}>
+        fr-highlight
+      </button>
       <button onClick={() => props.onPageChange(2)}>fr-page</button>
       <button onClick={props.onClose}>fr-close</button>
     </div>
@@ -313,7 +313,10 @@ describe("EditorRoute - no document", () => {
   it("cancels the pending restore on unmount without setting state", async () => {
     let resolveRestore: (value: boolean) => void = () => {};
     const restoreLatestSession = vi.fn(
-      () => new Promise<boolean>((resolve) => { resolveRestore = resolve; }),
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveRestore = resolve;
+        }),
     );
     const { unmount } = renderRoute(makeController({ document: null, restoreLatestSession }));
     unmount();
@@ -333,32 +336,37 @@ describe("EditorRoute - with document", () => {
     expect(screen.getByTestId("canvas-tool").textContent).toBe("select");
     expect(screen.getByTestId("doc-name").textContent).toBe("doc.pdf");
     expect(screen.getByTestId("toolbar-document-name").textContent).toBe("doc.pdf");
+    fireEvent.click(screen.getByRole("button", { name: "Pages" }));
     expect(screen.getByTestId("page-count").textContent).toBe("3");
     expect(screen.queryByTestId("inspector-cmp")).toBeNull();
   });
 
   it("computes canUndo/canRedo from history length", () => {
-    renderRoute(makeController({
-      editState: {
-        past: [{ id: "p" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
-        future: [{ id: "f" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
-        operations: [],
-        selectedIds: [],
-      } satisfies EditState,
-    }));
+    renderRoute(
+      makeController({
+        editState: {
+          past: [{ id: "p" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
+          future: [{ id: "f" }] as Pick<EditHistoryEntry, "id">[] as EditHistoryEntry[],
+          operations: [],
+          selectedIds: [],
+        } satisfies EditState,
+      }),
+    );
     expect(screen.getByTestId("canUndo").textContent).toBe("true");
     expect(screen.getByTestId("canRedo").textContent).toBe("true");
   });
 
   it("keeps the properties-selection effect idle while an operation remains selected", () => {
-    renderRoute(makeController({
-      editState: {
-        past: [],
-        future: [],
-        operations: [],
-        selectedIds: ["selected"],
-      },
-    }));
+    renderRoute(
+      makeController({
+        editState: {
+          past: [],
+          future: [],
+          operations: [],
+          selectedIds: ["selected"],
+        },
+      }),
+    );
 
     expect(screen.getByTestId("app-shell")).toBeInTheDocument();
   });
@@ -398,12 +406,14 @@ describe("EditorRoute - with document", () => {
 
     fireEvent.click(screen.getByText("cross-tool"));
 
-    expect(controller.addOperation).toHaveBeenCalledWith(expect.objectContaining({
-      type: "form-mark",
-      mark: "cross",
-      pageIndex: 0,
-      rect: { x: 295, y: 385, width: 22, height: 22 },
-    }));
+    expect(controller.addOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "form-mark",
+        mark: "cross",
+        pageIndex: 0,
+        rect: { x: 295, y: 385, width: 22, height: 22 },
+      }),
+    );
     expect(controller.setActiveTool).toHaveBeenCalledWith("select");
     expect(controller.setStatus).toHaveBeenCalledWith("Cross inserted at page center");
   });
@@ -448,13 +458,14 @@ describe("EditorRoute - with document", () => {
     fireEvent.click(screen.getByText("zoom-out"));
     const zoomOutUpdater = (controller.setScale as unknown as Mock).mock.calls[1][0] as (n: number) => number;
     expect(zoomOutUpdater(1)).toBeCloseTo(0.9);
-    expect(zoomOutUpdater(0.45)).toBe(0.45); // clamped to min
+    expect(zoomOutUpdater(0.2)).toBe(0.2); // clamped to min
   });
 
   it("wires the PageRail, Inspector, and PdfCanvas callbacks", () => {
     const controller = makeController();
     renderRoute(controller);
 
+    fireEvent.click(screen.getByRole("button", { name: "Pages" }));
     fireEvent.click(screen.getByText("select-page"));
     expect(controller.setPageIndex).toHaveBeenCalledWith(2);
 
@@ -494,9 +505,7 @@ describe("EditorRoute - with document", () => {
   it("forwards the controller's pageTextItems to canvas and inspector", () => {
     const controller = makeController({
       pageIndex: 1,
-      pageTextItems: [
-        { str: "b", pageIndex: 1, rect: { x: 0, y: 0, width: 1, height: 1 } },
-      ] satisfies TextItem[],
+      pageTextItems: [{ str: "b", pageIndex: 1, rect: { x: 0, y: 0, width: 1, height: 1 } }] satisfies TextItem[],
     });
     renderRoute(controller);
     fireEvent.click(screen.getByText("canvas-properties"));
@@ -585,9 +594,7 @@ describe("EditorRoute - find & replace", () => {
 
   it("wires the dialog callbacks to the controller", () => {
     const controller = makeController({
-      textItems: [
-        { str: "a", pageIndex: 0, rect: { x: 0, y: 0, width: 1, height: 1 } },
-      ] satisfies TextItem[],
+      textItems: [{ str: "a", pageIndex: 0, rect: { x: 0, y: 0, width: 1, height: 1 } }] satisfies TextItem[],
     });
     renderRoute(controller);
     fireEvent.click(screen.getByText("find-replace"));
@@ -711,4 +718,65 @@ describe("EditorRoute - history shortcuts", () => {
     expect(controller.undo).not.toHaveBeenCalled();
     expect(controller.redo).not.toHaveBeenCalled();
   });
+});
+
+it("connects sidebar commands to document history, search, selection, and navigation", () => {
+  const controller = makeController({
+    editState: {
+      past: [{ id: "before", label: "Add note", timestamp: 1700000000000, operations: [] }],
+      future: [{ id: "after", label: "Add text", timestamp: 1700000000001, operations: [] }],
+      operations: [],
+      selectedIds: ["selected"],
+    },
+  });
+  renderRoute(controller);
+  fireEvent.click(screen.getByRole("button", { name: "Open selected properties" }));
+  expect(screen.getByTestId("inspector-cmp")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Find text from sidebar" }));
+  expect(screen.getByTestId("find-replace-dialog")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Rotate view from sidebar" }));
+  const rotate = (controller.setRotation as Mock).mock.calls[0][0];
+  expect(rotate(270)).toBe(0);
+  fireEvent.click(screen.getByRole("button", { name: "Zoom in from sidebar" }));
+  fireEvent.click(screen.getByRole("button", { name: "Zoom out from sidebar" }));
+  const zoomIn = (controller.setScale as Mock).mock.calls[0][0];
+  const zoomOut = (controller.setScale as Mock).mock.calls[1][0];
+  expect(zoomIn(2.4)).toBe(2.4);
+  expect(zoomOut(0.2)).toBe(0.2);
+  fireEvent.click(screen.getByRole("button", { name: "History" }));
+  fireEvent.click(screen.getByRole("button", { name: "Undo change" }));
+  fireEvent.click(screen.getByRole("button", { name: "Redo change" }));
+  expect(controller.undo).toHaveBeenCalledOnce();
+  expect(controller.redo).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Documents" }));
+  expect(navigateSpy).toHaveBeenCalledWith("/");
+  expect(controller.returnHome).toHaveBeenCalledOnce();
+});
+
+it.each([0, 90])("fits the rotated document to the available canvas at %i degrees", (rotation) => {
+  const viewport = document.createElement("div");
+  viewport.className = "document-scroll";
+  viewport.style.padding = "32px";
+  Object.defineProperties(viewport, { clientWidth: { value: 800 }, clientHeight: { value: 650 } });
+  document.body.appendChild(viewport);
+  try {
+    const controller = makeController({ rotation });
+    renderRoute(controller);
+    fireEvent.click(screen.getByRole("button", { name: "Fit page from sidebar" }));
+    expect(controller.setScale).toHaveBeenCalledWith(rotation === 0 ? 586 / 792 : 736 / 792);
+  } finally {
+    viewport.remove();
+  }
+});
+
+it("waits for both page dimensions and a viewport before fitting", () => {
+  const controller = makeController();
+  const view = renderRoute(controller);
+  fireEvent.click(screen.getByRole("button", { name: "Fit page from sidebar" }));
+  expect(controller.setScale).not.toHaveBeenCalled();
+  view.unmount();
+  const noPages = makeController({ pageSizes: [] });
+  renderRoute(noPages);
+  fireEvent.click(screen.getByRole("button", { name: "Fit page from sidebar" }));
+  expect(noPages.setScale).not.toHaveBeenCalled();
 });

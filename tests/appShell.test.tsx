@@ -25,11 +25,7 @@ describe("AppShell", () => {
 
   it("renders without the optional inspector", () => {
     render(
-      <AppShell
-        header={<div>HEADER</div>}
-        rail={<div>RAIL</div>}
-        status={<div>STATUS</div>}
-      >
+      <AppShell header={<div>HEADER</div>} rail={<div>RAIL</div>} status={<div>STATUS</div>}>
         <div>CANVAS</div>
       </AppShell>,
     );
@@ -58,4 +54,14 @@ describe("AppShell", () => {
     expect(wrap).not.toContainElement(screen.getByText("RAIL"));
     expect(wrap).not.toContainElement(screen.getByText("STATUS"));
   });
+});
+
+it("reserves the studio sidebar for tools while keeping the canvas landmark", () => {
+  render(
+    <AppShell studio header={<div>Header</div>} rail={<div>Tools</div>} status={<div>Status</div>}>
+      <div>Page</div>
+    </AppShell>,
+  );
+  expect(screen.getByRole("complementary", { name: "Workspace" })).toHaveTextContent("Tools");
+  expect(screen.getByRole("region", { name: "PDF editor canvas" })).toHaveTextContent("Page");
 });

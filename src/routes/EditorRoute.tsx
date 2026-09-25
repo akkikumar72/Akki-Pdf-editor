@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { WorkbenchSidebar } from "../components/WorkbenchSidebar";
 import { AppShell } from "../components/AppShell";
 import { FindReplaceDialog, type SearchHighlight } from "../components/FindReplaceDialog";
 import { Inspector } from "../components/Inspector";
@@ -32,8 +33,8 @@ export function EditorRoute() {
       const [operation] = createOperationsForTool({
         activeTool: tool,
         viewportRect: {
-          left: size.width * editor.scale / 2,
-          top: size.height * editor.scale / 2,
+          left: (size.width * editor.scale) / 2,
+          top: (size.height * editor.scale) / 2,
           width: 1,
           height: 1,
         },
@@ -53,6 +54,29 @@ export function EditorRoute() {
       editor.setStatus("View reset to original orientation for accurate cropping.");
     }
     editor.setActiveTool(tool);
+  };
+
+  const fitPage = () => {
+    const size = editor.pageSizes[editor.pageIndex];
+    const viewport = window.document.querySelector(".document-scroll");
+    if (!size || !viewport) return;
+    const style = window.getComputedStyle(viewport);
+    const horizontalPadding =
+      Number(style.paddingLeft.replace("px", "")) + Number(style.paddingRight.replace("px", ""));
+    const verticalPadding = Number(style.paddingTop.replace("px", "")) + Number(style.paddingBottom.replace("px", ""));
+    const rotated = editor.rotation % 180 !== 0;
+    const width = rotated ? size.height : size.width;
+    const height = rotated ? size.width : size.height;
+    editor.setScale(
+      Math.max(
+        0.2,
+        Math.min(
+          2.4,
+          (viewport.clientWidth - horizontalPadding) / width,
+          (viewport.clientHeight - verticalPadding) / height,
+        ),
+      ),
+    );
   };
 
   const closeProperties = useCallback(() => {
@@ -148,11 +172,12 @@ export function EditorRoute() {
 
   return (
     <AppShell
-      wrapStage={(stage) => (
-        <TextPreviewProvider selectedIds={editState.selectedIds}>{stage}</TextPreviewProvider>
-      )}
-      header={(
+      studio
+      wrapStage={(stage) => <TextPreviewProvider selectedIds={editState.selectedIds}>{stage}</TextPreviewProvider>}
+      header={
         <ToolRibbon
+          compact
+          onFit={fitPage}
           activeTool={editor.activeTool}
           canRedo={editState.future.length > 0}
           canUndo={editState.past.length > 0}
@@ -178,34 +203,70 @@ export function EditorRoute() {
           onToolChange={handleToolChange}
           onUndo={() => void undo()}
           onZoomIn={() => editor.setScale((value) => Math.min(2.4, value + 0.1))}
-          onZoomOut={() => editor.setScale((value) => Math.max(0.45, value - 0.1))}
+          onZoomOut={() => editor.setScale((value) => Math.max(0.2, value - 0.1))}
           scale={editor.scale}
           selectedIds={editState.selectedIds}
         />
-      )}
-      rail={(
-        <PageRail
-          activePage={editor.pageIndex}
+      }
+      rail={
+        <WorkbenchSidebar
+          activeTool={editor.activeTool}
+          disabled={isBusy}
           pageCount={document.pageCount}
-          pdfBytes={document.bytes}
-          onSelect={editor.setPageIndex}
-        />
-      )}
-      inspector={propertiesOpen && !isBusy ? (
-        <Inspector
-          operation={editor.selectedOperation}
-          operationCount={editState.operations.length}
-          pageCount={document.pageCount}
-          pageTextItems={editor.pageTextItems}
+          scale={editor.scale}
+          historyEntries={editState.past}
+          canRedo={editState.future.length > 0}
           selectedCount={editState.selectedIds.length}
-          onDuplicateSelected={editor.duplicateSelected}
-          onClose={closeProperties}
+          onHome={() => {
+            navigate("/");
+            void editor.returnHome();
+          }}
+          onToolChange={handleToolChange}
+          onFind={() => setFindReplaceOpen(true)}
+          onInsertPage={editor.insertPageAfter}
+          onDeletePage={editor.deleteCurrentPage}
+          onRotatePage={editor.rotateCurrentPage}
+          onRotateView={() => {
+            editor.setActiveTool("select");
+            editor.setRotation((value) => (value + 90) % 360);
+          }}
+          onFit={fitPage}
+          onZoomIn={() => editor.setScale((value) => Math.min(2.4, value + 0.1))}
+          onZoomOut={() => editor.setScale((value) => Math.max(0.2, value - 0.1))}
+          onUndo={() => void undo()}
+          onRedo={() => void redo()}
+          onRestoreHistory={editor.restoreHistoryEntry}
           onExport={editor.runExport}
-          onRemoveSelected={editor.removeSelected}
-          onUpdate={editor.updateOperation}
+          onProperties={() => setPropertiesOpen(true)}
+          onDuplicate={editor.duplicateSelected}
+          onRemove={editor.removeSelected}
+          pages={
+            <PageRail
+              activePage={editor.pageIndex}
+              pageCount={document.pageCount}
+              pdfBytes={document.bytes}
+              onSelect={editor.setPageIndex}
+            />
+          }
         />
-      ) : undefined}
-      status={(
+      }
+      inspector={
+        propertiesOpen && !isBusy ? (
+          <Inspector
+            operation={editor.selectedOperation}
+            operationCount={editState.operations.length}
+            pageCount={document.pageCount}
+            pageTextItems={editor.pageTextItems}
+            selectedCount={editState.selectedIds.length}
+            onDuplicateSelected={editor.duplicateSelected}
+            onClose={closeProperties}
+            onExport={editor.runExport}
+            onRemoveSelected={editor.removeSelected}
+            onUpdate={editor.updateOperation}
+          />
+        ) : undefined
+      }
+      status={
         <StatusBar
           documentName={document.name}
           isBusy={isBusy}
@@ -217,7 +278,7 @@ export function EditorRoute() {
           selectedCount={editState.selectedIds.length}
           status={editor.status}
         />
-      )}
+      }
     >
       <PdfCanvas
         activeTool={editor.activeTool}
