@@ -31,8 +31,8 @@ describe("Akkivo branding", () => {
 
   it("ships the folded-page favicon palette", () => {
     const favicon = readFileSync("public/favicon.svg", "utf8");
-    expect(favicon).toContain("#32d36f");
-    expect(favicon).toContain("#68783c");
+    expect(favicon).toContain("#7a2822");
+    expect(favicon).toContain("#b78479");
     expect(favicon.match(/<path/g)).toHaveLength(3);
   });
 });

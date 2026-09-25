@@ -22,6 +22,9 @@ RUNTIME AND DISTRIBUTED ASSET NOTES
   icons were converted to React components, renamed, and use currentColor.
   Source: https://icon-sets.iconify.design/solar/
   Licence: https://creativecommons.org/licenses/by/4.0/
+- WorkbenchIcon uses Phosphor Icons under MIT, with SVG geometry unchanged.
+  Source: https://github.com/phosphor-icons/core
+  Full licence: /PHOSPHOR_LICENSE.txt
 - LumenBrainIcon is adapted from ph:brain-duotone by Phosphor Icons under MIT.
   Source: https://icon-sets.iconify.design/ph/brain-duotone/
 - Google Fonts are requested remotely and are not included in the repository.

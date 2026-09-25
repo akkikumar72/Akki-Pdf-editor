@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 type AppShellProps = {
   header: ReactNode;
+  studio?: boolean;
   rail: ReactNode;
   inspector?: ReactNode;
   status: ReactNode;
@@ -13,7 +14,7 @@ type AppShellProps = {
   wrapStage?: (stage: ReactNode) => ReactNode;
 };
 
-export function AppShell({ header, rail, inspector, status, children, wrapStage }: AppShellProps) {
+export function AppShell({ header, rail, inspector, status, children, wrapStage, studio = false }: AppShellProps) {
   const stage = (
     <>
       <section className="canvas-region" id="editor-canvas" aria-label="PDF editor canvas">
@@ -28,11 +29,15 @@ export function AppShell({ header, rail, inspector, status, children, wrapStage 
   );
 
   return (
-    <div className="app-shell">
-      <a className="skip-link" href="#editor-canvas">Skip to editor</a>
+    <div className={`app-shell${studio ? " app-shell--studio" : ""}`}>
+      <a className="skip-link" href="#editor-canvas">
+        Skip to editor
+      </a>
       <header className="app-header">{header}</header>
       <main className="app-main">
-        <aside className="page-rail" aria-label="Pages">{rail}</aside>
+        <aside className={studio ? "studio-sidebar" : "page-rail"} aria-label={studio ? "Workspace" : "Pages"}>
+          {rail}
+        </aside>
         {wrapStage ? wrapStage(stage) : stage}
       </main>
       <footer className="status-region">{status}</footer>

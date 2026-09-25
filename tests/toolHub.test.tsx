@@ -1,200 +1,121 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createEvent, fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { ToolHub } from "../src/components/ToolHub";
 import type { SessionSummary } from "../src/utils/storage";
 
 function makeProps(overrides: Partial<React.ComponentProps<typeof ToolHub>> = {}) {
   return {
     isBusy: false,
-    status: undefined as string | undefined,
     recentSessions: [] as SessionSummary[],
-    onBlank: vi.fn().mockResolvedValue(undefined),
-    onClearSessions: vi.fn().mockResolvedValue(undefined),
-    onDeleteSession: vi.fn().mockResolvedValue(undefined),
-    onOpen: vi.fn().mockResolvedValue(undefined),
-    onResume: vi.fn().mockResolvedValue(undefined),
+    onBlank: vi.fn(),
+    onClearSessions: vi.fn(),
+    onDeleteSession: vi.fn(),
+    onOpen: vi.fn(),
+    onResume: vi.fn(),
     ...overrides,
   };
 }
+const sessions = ["Alpha.pdf", "Beta.pdf", "Gamma.pdf", "Delta.pdf"].map((name, index) => ({
+  id: String(index),
+  name,
+  updatedAt: 1700000000000,
+  operationCount: index,
+}));
 
-function session(id: string, name: string, ops = 3): SessionSummary {
-  return { id, name, updatedAt: 1700000000000, operationCount: ops };
-}
-
-const pdfFile = new File([new Uint8Array([1, 2, 3])], "doc.pdf", { type: "application/pdf" });
-
-describe("ToolHub", () => {
-  beforeEach(() => vi.clearAllMocks());
-  afterEach(() => vi.restoreAllMocks());
-
-  it("renders the hero and the trust points", () => {
-    render(<ToolHub {...makeProps()} />);
-    expect(screen.getByText("Edit PDFs with a lighter touch.")).toBeInTheDocument();
-    expect(screen.getByText("Private by default")).toBeInTheDocument();
-    expect(screen.getByText("Edit in context")).toBeInTheDocument();
-    expect(screen.getByText("Export cleanly")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Pricing" })).toHaveLength(2);
-    expect(screen.getByRole("link", { name: "Source code" })).toHaveAttribute(
-      "href",
-      "https://github.com/akkikumar72/Akki-Pdf-editor",
+describe("local document workspace", () => {
+  it("opens the file picker and creates blank documents from the sidebar", () => {
+    const props = makeProps();
+    render(<ToolHub {...props} />);
+    expect(screen.getByRole("heading", { name: "Your document desk." })).toBeVisible();
+    const input = screen.getByLabelText("Choose PDF file");
+    const picker = vi.spyOn(input, "click");
+    fireEvent.click(screen.getByRole("button", { name: "Choose file" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open a PDF" }));
+    expect(picker).toHaveBeenCalledTimes(2);
+    fireEvent.click(
+      within(screen.getByRole("navigation", { name: "Home navigation" })).getByRole("button", { name: "Blank PDF" }),
     );
-    expect(screen.getByText(/Copyright © 2026 Akkivo/)).toBeInTheDocument();
+    expect(props.onBlank).toHaveBeenCalledOnce();
+  });
+  it("imports files through both the picker and drop zone", () => {
+    const props = makeProps();
+    render(<ToolHub {...props} />);
+    const file = new File(["%PDF-"], "local.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("Choose PDF file"), { target: { files: [file] } });
+    expect(props.onOpen).toHaveBeenCalledWith(file);
+    fireEvent.dragOver(screen.getByLabelText("Import PDF"));
+    expect(document.querySelector(".studio-home")).toHaveClass("is-dragging");
+    fireEvent.drop(screen.getByLabelText("Import PDF"), { dataTransfer: { files: [file] } });
+    expect(props.onOpen).toHaveBeenCalledTimes(2);
+    expect(document.querySelector(".studio-home")).not.toHaveClass("is-dragging");
+  });
+  it("blocks imports and blank creation while busy", () => {
+    const props = makeProps({ isBusy: true });
+    render(<ToolHub {...props} />);
+    fireEvent.drop(screen.getByLabelText("Import PDF"), { dataTransfer: { files: [new File(["%PDF-"], "test.pdf")] } });
+    expect(props.onOpen).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Blank PDF" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open a PDF" })).toBeDisabled();
+  });
+  it("shows every saved document, filters it, and resumes or removes the chosen session", () => {
+    const props = makeProps({ recentSessions: sessions });
+    render(<ToolHub {...props} />);
+    expect(screen.getByText("Delta.pdf")).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Find a recent document"), { target: { value: "delta" } });
+    expect(screen.queryByText("Alpha.pdf")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Delta.pdf"));
+    expect(props.onResume).toHaveBeenCalledWith("3");
+    fireEvent.click(screen.getByLabelText("Remove Delta.pdf"));
+    expect(props.onDeleteSession).toHaveBeenCalledWith("3");
+    fireEvent.click(screen.getByRole("button", { name: "Clear local history" }));
+    expect(props.onClearSessions).toHaveBeenCalledOnce();
+    fireEvent.change(screen.getByLabelText("Find a recent document"), { target: { value: "missing" } });
+    expect(screen.getByText("No documents match your search.")).toBeVisible();
+  });
+  it("switches to recent documents and keeps the import action working", () => {
+    render(<ToolHub {...makeProps({ recentSessions: sessions })} />);
+    fireEvent.click(screen.getByRole("button", { name: /Recent documents/ }));
+    expect(screen.getByRole("heading", { name: "Pick up where you left off." })).toBeVisible();
+    expect(screen.queryByLabelText("Import PDF")).not.toBeInTheDocument();
+    const picker = vi.spyOn(screen.getByLabelText("Choose PDF file"), "click");
+    fireEvent.click(screen.getByRole("button", { name: "Open a PDF" }));
+    expect(picker).toHaveBeenCalledOnce();
+  });
+  it("reports import errors and exposes local-storage and licence information", () => {
+    render(<ToolHub {...makeProps({ status: "That file is not a valid PDF." })} />);
+    expect(screen.getByRole("status")).toHaveTextContent("That file is not a valid PDF.");
+    fireEvent.click(screen.getByText("Privacy & legal"));
+    expect(screen.getByText(/Clearing browser storage/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Licence" })).toHaveAttribute("href", "/LICENSE.txt");
-    expect(screen.getByRole("link", { name: "Third-party notices" })).toHaveAttribute(
-      "href",
-      "/THIRD_PARTY_NOTICES.txt",
-    );
   });
+});
 
-  it("does not render the status line without a status, and renders it with one", () => {
-    const { unmount } = render(<ToolHub {...makeProps()} />);
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    unmount();
-    render(<ToolHub {...makeProps({ status: "Loading..." })} />);
-    expect(screen.getByRole("status")).toHaveTextContent("Loading...");
-  });
+it("keeps dragging feedback stable over children and imports from the recent view", () => {
+  const props = makeProps({ recentSessions: sessions });
+  const { rerender } = render(<ToolHub {...props} />);
+  const dropzone = screen.getByLabelText("Import PDF");
+  fireEvent.dragOver(dropzone);
+  const childLeave = createEvent.dragLeave(dropzone);
+  Object.defineProperty(childLeave, "relatedTarget", { value: screen.getByRole("button", { name: "Choose file" }) });
+  fireEvent(dropzone, childLeave);
+  expect(document.querySelector(".studio-home")).toHaveClass("is-dragging");
+  fireEvent.dragLeave(dropzone, { relatedTarget: null });
+  expect(document.querySelector(".studio-home")).not.toHaveClass("is-dragging");
+  rerender(<ToolHub {...props} isBusy />);
+  fireEvent.dragOver(dropzone);
+  expect(document.querySelector(".studio-home")).not.toHaveClass("is-dragging");
+  rerender(<ToolHub {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: /Recent documents/ }));
+  const file = new File(["%PDF-"], "recent.pdf", { type: "application/pdf" });
+  fireEvent.change(screen.getByLabelText("Choose PDF file"), { target: { files: [file] } });
+  expect(props.onOpen).toHaveBeenCalledWith(file);
+  fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+  expect(screen.getByLabelText("Import PDF")).toBeVisible();
+});
 
-  it("opens the file picker from the nav, hero, preview, and closing CTAs", () => {
-    render(<ToolHub {...makeProps()} />);
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    const clickSpy = vi.spyOn(input, "click");
-
-    // Nav "Choose file" and the preview "Choose file".
-    screen.getAllByRole("button", { name: /Choose file/ }).forEach((b) => fireEvent.click(b));
-    fireEvent.click(screen.getByRole("button", { name: /^Start editing$/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Start editing ->/ }));
-    expect(clickSpy).toHaveBeenCalled();
-  });
-
-  it("calls onBlank from each blank CTA", () => {
-    const props = makeProps();
-    render(<ToolHub {...props} />);
-    // Hero, preview, and closing blank buttons.
-    const blanks = screen.getAllByRole("button", { name: /Blank PDF/ });
-    blanks.forEach((b) => fireEvent.click(b));
-    expect(props.onBlank).toHaveBeenCalledTimes(blanks.length);
-  });
-
-  it("calls onOpen when a file is chosen via the input", () => {
-    const props = makeProps();
-    render(<ToolHub {...props} />);
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [pdfFile] } });
-    expect(props.onOpen).toHaveBeenCalledWith(pdfFile);
-  });
-
-  it("ignores a file change event with no file", () => {
-    const props = makeProps();
-    render(<ToolHub {...props} />);
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [] } });
-    expect(props.onOpen).not.toHaveBeenCalled();
-  });
-
-  it("handles drag over, drag leave, and drop with a file", () => {
-    const props = makeProps();
-    render(<ToolHub {...props} />);
-    const hero = document.querySelector(".lumen-hero") as HTMLElement;
-
-    fireEvent.dragOver(hero, { dataTransfer: { files: [] } });
-    expect(document.querySelector(".tool-hub")?.className).toContain("is-dragging");
-
-    fireEvent.dragLeave(hero);
-    expect(document.querySelector(".tool-hub")?.className).not.toContain("is-dragging");
-
-    fireEvent.drop(hero, { dataTransfer: { files: [pdfFile] } });
-    expect(props.onOpen).toHaveBeenCalledWith(pdfFile);
-  });
-
-  it("ignores a drop with no files", () => {
-    const props = makeProps();
-    render(<ToolHub {...props} />);
-    const hero = document.querySelector(".lumen-hero") as HTMLElement;
-    fireEvent.drop(hero, { dataTransfer: { files: [] } });
-    expect(props.onOpen).not.toHaveBeenCalled();
-  });
-
-  it("disables CTAs when busy", () => {
-    render(<ToolHub {...makeProps({ isBusy: true })} />);
-    expect(screen.getByRole("button", { name: /^Start editing$/ })).toBeDisabled();
-    screen.getAllByRole("button", { name: /Blank PDF/ }).forEach((b) => expect(b).toBeDisabled());
-  });
-
-  describe("recent sessions", () => {
-    it("does not render the recent section when there are none", () => {
-      render(<ToolHub {...makeProps({ recentSessions: [] })} />);
-      expect(screen.queryByLabelText("Recent local sessions")).not.toBeInTheDocument();
-    });
-
-    it("renders up to three sessions and wires resume/delete/clear handlers", () => {
-      const props = makeProps({
-        recentSessions: [session("1", "Alpha"), session("2", "Beta"), session("3", "Gamma"), session("4", "Delta")],
-      });
-      render(<ToolHub {...props} />);
-      const region = screen.getByLabelText("Recent local sessions");
-      expect(within(region).getByText("4 saved in this browser")).toBeInTheDocument();
-      // Sliced to three.
-      expect(within(region).getByText("Alpha")).toBeInTheDocument();
-      expect(within(region).queryByText("Delta")).not.toBeInTheDocument();
-
-      fireEvent.click(within(region).getByText("Alpha"));
-      expect(props.onResume).toHaveBeenCalledWith("1");
-
-      fireEvent.click(within(region).getByLabelText("Remove Beta"));
-      expect(props.onDeleteSession).toHaveBeenCalledWith("2");
-
-      fireEvent.click(within(region).getByText("Clear all"));
-      expect(props.onClearSessions).toHaveBeenCalled();
-    });
-  });
-
-  describe("footer", () => {
-    it("scrolls to editor for non-blank product buttons and calls onBlank for Blank PDF", () => {
-      const props = makeProps();
-      render(<ToolHub {...props} />);
-      const footerNav = screen.getByRole("navigation", { name: "Product" });
-      const editor = document.getElementById("editor") as HTMLElement;
-      const scrollSpy = vi.fn();
-      editor.scrollIntoView = scrollSpy;
-
-      fireEvent.click(within(footerNav).getByRole("button", { name: "PDF editor" }));
-      expect(scrollSpy).toHaveBeenCalled();
-
-      fireEvent.click(within(footerNav).getByRole("button", { name: "Blank PDF" }));
-      expect(props.onBlank).toHaveBeenCalled();
-    });
-  });
-
-  describe("scroll effect", () => {
-    it("toggles the floating class based on scrollY", () => {
-      const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
-        cb(0);
-        return 1;
-      });
-      render(<ToolHub {...makeProps()} />);
-      const nav = document.getElementById("lumen-nav") as HTMLElement;
-      // Initial onScroll already ran (scrollY 0 -> not floating).
-      expect(nav.classList.contains("is-floating")).toBe(false);
-
-      Object.defineProperty(window, "scrollY", { value: 100, configurable: true });
-      fireEvent.scroll(window);
-      expect(nav.classList.contains("is-floating")).toBe(true);
-
-      // Second scroll while still "ticking" path: re-enable and scroll back to top.
-      Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
-      fireEvent.scroll(window);
-      expect(nav.classList.contains("is-floating")).toBe(false);
-      rafSpy.mockRestore();
-    });
-
-    it("coalesces scroll handling while a frame is pending (ticking guard)", () => {
-      // Never invoke the rAF callback so `ticking` stays true; a second scroll is a no-op.
-      const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
-      render(<ToolHub {...makeProps()} />);
-      fireEvent.scroll(window);
-      fireEvent.scroll(window);
-      expect(rafSpy).toHaveBeenCalledTimes(1);
-      rafSpy.mockRestore();
-    });
-  });
+it("starts a blank document from the empty workspace", () => {
+  const props = makeProps();
+  render(<ToolHub {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "Create a blank PDF" }));
+  expect(props.onBlank).toHaveBeenCalledOnce();
 });

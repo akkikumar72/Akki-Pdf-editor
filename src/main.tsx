@@ -2,7 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import "./styles/tokens.css";
+import "../tokens.css";
 import "./styles/app.css";
+import "./styles/studio.css";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
