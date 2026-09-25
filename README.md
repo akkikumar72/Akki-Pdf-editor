@@ -2,6 +2,8 @@
 
 Local-first PDF editor workbench with an import, edit, apply, and export flow. Files stay in the browser; edits are modeled as overlays until export so the original PDF bytes are preserved during the editing session.
 
+[![Akkivo PDF editor with its Newsprint theme, searchable tool sidebar, and document workspace](docs/assets/akkivo-preview.webp)](https://akkivo.app/)
+
 ## Features
 
 - Import PDFs from disk or create a blank document.

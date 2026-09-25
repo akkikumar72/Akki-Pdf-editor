@@ -217,6 +217,9 @@ test("scopes direct-touch handling to canvas gesture targets", async ({ page }, 
   await page.goto("/");
   await page.getByLabel("Import PDF").locator("input[type=file]").setInputFiles(pdfPath);
   await expect(page.getByText(/touch-gestures\.pdf opened/i)).toBeVisible({ timeout: 15_000 });
+  // Import completion can precede PDF.js rendering. Gestures need the canvas,
+  // not the loading placeholder that temporarily covers the page stage.
+  await expect(page.locator(".page-stage canvas")).toBeVisible();
 
   const editingTools = page.getByRole("toolbar", { name: "Editing tools" });
   await editingTools.getByRole("button", { name: "Crop", exact: true }).click();
@@ -226,7 +229,7 @@ test("scopes direct-touch handling to canvas gesture targets", async ({ page }, 
   expect(stageBox).not.toBeNull();
   await page.mouse.move(stageBox!.x + 100, stageBox!.y + 100);
   await page.mouse.down();
-  await page.mouse.move(stageBox!.x + 300, stageBox!.y + 300);
+  await page.mouse.move(stageBox!.x + 300, stageBox!.y + 300, { steps: 4 });
   await page.mouse.up();
   await expect(page.locator(".crop-handle").first()).toHaveCSS("touch-action", "none");
   await page.getByRole("button", { name: "Cancel crop" }).click();
@@ -234,7 +237,7 @@ test("scopes direct-touch handling to canvas gesture targets", async ({ page }, 
   await editingTools.getByRole("button", { name: "Callout", exact: true }).click();
   await page.mouse.move(stageBox!.x + 180, stageBox!.y + 220);
   await page.mouse.down();
-  await page.mouse.move(stageBox!.x + 380, stageBox!.y + 310);
+  await page.mouse.move(stageBox!.x + 380, stageBox!.y + 310, { steps: 4 });
   await page.mouse.up();
 
   await expect(page.locator(".operation--annotation-callout")).toHaveCSS("touch-action", "none");
